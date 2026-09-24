@@ -1,0 +1,11 @@
+name = "moodverse-care-cron"
+main = "cron-worker.ts"
+compatibility_date = "2026-09-22"
+
+[triggers]
+crons = ["0 * * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "moodverse-care-db"
+database_id = "f765e46d-cbc6-4f47-810c-413b6f03b6bd"

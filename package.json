@@ -1,0 +1,29 @@
+{
+  "name": "moodverse-care",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "test": "vitest run",
+    "typecheck": "tsc -b --pretty false"
+  },
+  "dependencies": {
+    "@react-three/fiber": "9.7.0",
+    "@types/react": "19.2.2",
+    "@types/react-dom": "19.2.2",
+    "@types/three": "0.186.0",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "three": "0.186.0",
+    "zustand": "5.0.8"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "6.1.1",
+    "typescript": "5.9.3",
+    "vite": "8.3.0",
+    "vitest": "^3.2.4"
+  }
+}

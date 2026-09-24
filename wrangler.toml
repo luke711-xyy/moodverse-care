@@ -1,0 +1,8 @@
+name = "moodverse-care"
+compatibility_date = "2026-09-22"
+pages_build_output_dir = "./dist"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "moodverse-care-db"
+database_id = "f765e46d-cbc6-4f47-810c-413b6f03b6bd"
