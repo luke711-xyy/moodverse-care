@@ -8,6 +8,19 @@ export type TrackSelectionValidation =
 
 export type MomentVisibility = 'public' | 'private'
 
+export type MusicTrackSummary = {
+  id: string
+  title: string
+  artistId: string
+  artistName: string
+  versionLabel: string
+  genres: string[]
+  moodTags: string[]
+  officialUrl: string | null
+  coverUrl: string | null
+  durationSeconds: number | null
+}
+
 export function validateTrackSelection(trackIds: unknown, operation: TrackSelectionOperation): TrackSelectionValidation {
   if (!Array.isArray(trackIds)) return { ok: false, error: 'INVALID_TRACK_SELECTION' }
 
