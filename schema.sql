@@ -17,6 +17,20 @@ CREATE TABLE IF NOT EXISTS user_preferences (
   updated_at TEXT NOT NULL
 );
 
+-- Verified Cloudflare Access identity for the music MVP. The email is a
+-- mutable identity attribute; ownership is keyed by issuer + subject.
+CREATE TABLE IF NOT EXISTS music_access_identities (
+  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  access_issuer TEXT NOT NULL,
+  access_subject TEXT NOT NULL,
+  email TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (access_issuer, access_subject)
+);
+CREATE INDEX IF NOT EXISTS music_access_identities_email
+  ON music_access_identities(email);
+
 CREATE TABLE IF NOT EXISTS planets (
   user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   alias TEXT NOT NULL DEFAULT '我的星球',

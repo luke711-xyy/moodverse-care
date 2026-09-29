@@ -3,6 +3,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { expect, test } from 'vitest'
 
 const migrationSql = readFileSync(new URL('../migrations/0007_music_mvp_core.sql', import.meta.url), 'utf8')
+const identityMigrationSql = readFileSync(new URL('../migrations/0008_music_access_identity.sql', import.meta.url), 'utf8')
 const schemaSql = readFileSync(new URL('../schema.sql', import.meta.url), 'utf8')
 
 function database() {
@@ -74,9 +75,11 @@ function musicSchemaObjects(db: DatabaseSync) {
 test('migration adds the music core without changing legacy user or planet records', () => {
   const db = createPreMusicDatabase()
   db.exec(migrationSql)
+  db.exec(identityMigrationSql)
 
   expect(tableNames(db)).toEqual(expect.arrayContaining([
     'users', 'planets', 'music_track_catalog', 'music_planets', 'music_planet_tracks', 'music_moments', 'music_ai_tasks',
+    'music_access_identities',
   ]))
   expect(db.prepare('SELECT alias, theme FROM planets WHERE user_id = ?').get('owner-1')).toEqual({
     alias: '旧星球',
@@ -139,13 +142,14 @@ test('new planet and Moment visibility default to public while private Moments r
 test('schema.sql mirrors the migration and deleting a music planet cascades through its dependent data', () => {
   const migratedDb = createPreMusicDatabase()
   migratedDb.exec(migrationSql)
+  migratedDb.exec(identityMigrationSql)
 
   const db = database()
   db.exec(schemaSql)
   expect(musicSchemaObjects(db)).toEqual(musicSchemaObjects(migratedDb))
   const names = tableNames(db)
   expect(names).toEqual(expect.arrayContaining([
-    'music_track_catalog', 'music_planets', 'music_planet_tracks', 'music_moments', 'music_ai_tasks',
+    'music_track_catalog', 'music_planets', 'music_planet_tracks', 'music_moments', 'music_ai_tasks', 'music_access_identities',
   ]))
 
   db.prepare(`
