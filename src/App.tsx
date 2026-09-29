@@ -36,7 +36,10 @@ function Brand() {
 function TopBar({ onHome, onSettings, settingsOpen, homeLabel }: { onHome: () => void; onSettings: () => void; settingsOpen: boolean; homeLabel: string }) {
   return <header className="topbar">
     <button className="brand-button" onClick={onHome} aria-label={homeLabel}><Brand /></button>
-    <button className={`top-settings${settingsOpen ? ' is-active' : ''}`} onClick={onSettings} aria-label="设置" aria-pressed={settingsOpen}><Icon name="settings" size={17} /><span>设置</span></button>
+    <div className="topbar-actions">
+      <a className="top-mode-switch" href="/">音乐星球版</a>
+      <button className={`top-settings${settingsOpen ? ' is-active' : ''}`} onClick={onSettings} aria-label="设置" aria-pressed={settingsOpen}><Icon name="settings" size={17} /><span>设置</span></button>
+    </div>
   </header>
 }
 

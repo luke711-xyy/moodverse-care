@@ -1,4 +1,4 @@
-import { moodById, type MoodId, type ThemeId } from './types'
+import { moodById, type MoodId, type PlanetVisualPaletteOverride, type ThemeId } from './types'
 import type { PlanetClimateState } from './climate'
 
 export type PlanetPalette = {
@@ -21,6 +21,7 @@ export type PlanetVisualProfile = {
   fog: number
   glow: number
   wind: number
+  particleDensity: number
 }
 
 export type PlanetTextureData = {
@@ -52,7 +53,7 @@ const PALETTES: Record<ThemeId, PlanetPalette> = {
   healthy_eating: { ocean: '#1d2c1e', land: '#617744', vegetation: '#8baa55', cloud: '#eef4d9', atmosphere: '#b4dc89' },
 }
 
-type Climate = Omit<PlanetVisualProfile, 'palette'>
+type Climate = Omit<PlanetVisualProfile, 'palette' | 'particleDensity'>
 
 const clamp01 = (value: number) => Math.min(1, Math.max(0, value))
 
@@ -86,24 +87,53 @@ export function hashString32(input: string): number {
   return hash >>> 0
 }
 
-export function planetVisualProfile(theme: ThemeId, mood: MoodId, intensity: number): PlanetVisualProfile {
+export function planetVisualProfile(
+  theme: ThemeId,
+  mood: MoodId,
+  intensity: number,
+  visualOverride?: PlanetVisualPaletteOverride,
+): PlanetVisualProfile {
   const climate = climateForMood(mood)
   const normalizedIntensity = (Math.min(5, Math.max(1, intensity)) - 1) / 4
   const scale = .68 + normalizedIntensity * .52
   const amplify = (value: number) => clamp01(value * scale)
+  const atmosphere = visualOverride?.atmosphere
+  const motion = visualOverride?.motion
+  const atmosphereProfile = {
+    clear: { cloudCoverage: .12, fog: .08, glow: .34 },
+    mist: { cloudCoverage: .72, fog: .66, glow: .2 },
+    nebula: { cloudCoverage: .48, fog: .78, glow: .58 },
+    starlit: { cloudCoverage: .3, fog: .2, glow: .64 },
+  } as const
+  const motionSpeed = { still: .06, drift: .25, flow: .58, pulse: .9 } as const
+  const targetAtmosphere = atmosphere ? atmosphereProfile[atmosphere] : undefined
+  const targetMotion = motion ? motionSpeed[motion] : undefined
+  const blendClimate = (base: number, target: number, strength: number) => clamp01(base * (1 - strength) + target * strength)
+  const aiMotion = targetMotion === undefined ? undefined : blendClimate(amplify(climate.cloudSpeed), targetMotion, .82)
+  const aiWind = targetMotion === undefined ? undefined : blendClimate(amplify(climate.wind), targetMotion, .82)
 
   return {
-    palette: PALETTES[theme] ?? PALETTES.care,
+    palette: visualOverride ? {
+      ...(PALETTES[theme] ?? PALETTES.care),
+      land: visualOverride.surface,
+      ocean: visualOverride.ocean,
+      vegetation: visualOverride.accent,
+      cloud: visualOverride.accent,
+      atmosphere: visualOverride.accent,
+    } : PALETTES[theme] ?? PALETTES.care,
     landRatio: clamp01(climate.landRatio),
     moisture: amplify(climate.moisture),
     vegetationDensity: amplify(climate.vegetationDensity),
-    cloudCoverage: amplify(climate.cloudCoverage),
-    cloudSpeed: amplify(climate.cloudSpeed),
+    cloudCoverage: targetAtmosphere
+      ? blendClimate(amplify(climate.cloudCoverage), targetAtmosphere.cloudCoverage, .84)
+      : amplify(climate.cloudCoverage),
+    cloudSpeed: aiMotion ?? amplify(climate.cloudSpeed),
     rain: amplify(climate.rain),
     lightning: amplify(climate.lightning),
-    fog: amplify(climate.fog),
-    glow: amplify(climate.glow),
-    wind: amplify(climate.wind),
+    fog: targetAtmosphere ? blendClimate(amplify(climate.fog), targetAtmosphere.fog, .82) : amplify(climate.fog),
+    glow: targetAtmosphere ? blendClimate(amplify(climate.glow), targetAtmosphere.glow, .72) : amplify(climate.glow),
+    wind: aiWind ?? amplify(climate.wind),
+    particleDensity: visualOverride?.particleDensity === undefined ? .5 : clamp01(visualOverride.particleDensity),
   }
 }
 
@@ -914,8 +944,8 @@ export function generatePlanetTextureData(
   }
   const color = new Uint8Array(pixels * 4)
   const heightData = new Uint8Array(pixels)
-  const oceanDeep = parseHex('#0b62a4')
-  const oceanLight = parseHex('#329dd5')
+  const oceanDeep = parseHex(profile.palette.ocean)
+  const oceanLight = mixColor(oceanDeep, [73, 153, 194], .62)
   const land = parseHex(profile.palette.land)
   const landShadow = mixColor(land, [4, 10, 23], .26)
   const snow = parseHex('#e8f5fa')

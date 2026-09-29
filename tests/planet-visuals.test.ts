@@ -66,6 +66,49 @@ test('all mood types produce distinct, normalized climate profiles', () => {
   expect(new Set(climateSignatures).size).toBe(MOODS.length)
 })
 
+test('a music-composed palette replaces the selected planet surface, ocean, and accent colours', () => {
+  const profile = planetVisualProfile('music', 'calm', 3, {
+    surface: '#8d4772',
+    ocean: '#071529',
+    accent: '#8edfc9',
+  })
+
+  expect(profile.palette.land).toBe('#8d4772')
+  expect(profile.palette.ocean).toBe('#071529')
+  expect(profile.palette.vegetation).toBe('#8edfc9')
+  expect(profile.palette.atmosphere).toBe('#8edfc9')
+})
+
+test('music AI atmosphere, motion, and particle density reach bounded planet visuals', () => {
+  const baseline = planetVisualProfile('music', 'calm', 3)
+  const composed = planetVisualProfile('music', 'calm', 3, {
+    surface: '#8d4772', ocean: '#071529', accent: '#8edfc9',
+    atmosphere: 'clear', motion: 'pulse', particleDensity: .9,
+  })
+
+  expect(composed.cloudCoverage).toBeLessThan(baseline.cloudCoverage)
+  expect(composed.cloudSpeed).toBeGreaterThan(baseline.cloudSpeed)
+  expect(composed.wind).toBeGreaterThan(baseline.wind)
+  expect(composed.particleDensity).toBe(.9)
+})
+
+test('the AI-composed ocean base is present in the generated ocean texture', () => {
+  const surface = generatePlanetTextureData(
+    931,
+    planetVisualProfile('music', 'calm', 3, { surface: '#8d4772', ocean: '#071529', accent: '#8edfc9' }),
+    64,
+    32,
+  )
+  const oceanBase = [7, 21, 41]
+  const containsOceanBase = Array.from({ length: surface.height.length }, (_, index) => index)
+    .some((index) => surface.height[index] < 128
+      && surface.color[index * 4] === oceanBase[0]
+      && surface.color[index * 4 + 1] === oceanBase[1]
+      && surface.color[index * 4 + 2] === oceanBase[2])
+
+  expect(containsOceanBase).toBe(true)
+})
+
 test('intensity amplifies every mood climate without overflowing normalized values', () => {
   for (const mood of MOODS) {
     const quiet = planetVisualProfile('care', mood, 1)

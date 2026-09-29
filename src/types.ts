@@ -72,8 +72,18 @@ export type Planet = {
   billboard?: Billboard
   billboards?: Billboard[]
   weatherHistory?: WeatherSample[]
+  visualOverride?: PlanetVisualPaletteOverride
   position: [number, number, number]
   orbit: number
+}
+
+export type PlanetVisualPaletteOverride = {
+  surface: string
+  ocean: string
+  accent: string
+  atmosphere?: 'clear' | 'mist' | 'nebula' | 'starlit'
+  motion?: 'still' | 'drift' | 'flow' | 'pulse'
+  particleDensity?: number
 }
 
 export type StarAppearance = {

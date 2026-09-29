@@ -657,14 +657,14 @@ function usePlanetTextures(planet: Planet, profile: PlanetVisualProfile, detail:
   return { textures, climate }
 }
 
-function CloudLayer({ radius, climate }: { radius: number; climate: ReturnType<typeof derivePlanetClimate> }) {
+function CloudLayer({ radius, profile }: { radius: number; profile: PlanetVisualProfile }) {
   const material = useRef<THREE.ShaderMaterial>(null)
   const shader = useMemo(() => ({
     uniforms: {
       uTime: { value: 0 },
-      uCoverage: { value: climate.cloudCoverage },
-      uSpeed: { value: climate.cloudSpeed },
-      uColor: { value: new THREE.Color('#dcefff') },
+      uCoverage: { value: profile.cloudCoverage },
+      uSpeed: { value: profile.cloudSpeed },
+      uColor: { value: new THREE.Color(profile.palette.cloud) },
       uPlanetRevealOpacity: { value: 1 },
     },
     vertexShader: `varying vec3 vNormalW; varying vec3 vPos; void main(){vNormalW=normalize(normalMatrix*normal);vPos=position;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
@@ -684,7 +684,7 @@ function CloudLayer({ radius, climate }: { radius: number; climate: ReturnType<t
         float rim=pow(1.0-max(0.0,dot(normalize(vNormalW),vec3(0.0,0.0,1.0))),2.0);
         gl_FragColor=vec4(uColor,(alpha+rim*.045)*uPlanetRevealOpacity);
       }`,
-  }), [climate])
+  }), [profile.cloudCoverage, profile.cloudSpeed, profile.palette.cloud])
   useFrame(({ clock }) => { if (material.current) material.current.uniforms.uTime.value = clock.elapsedTime })
   return <mesh scale={1.045} rotation={[0.07, 0.3, 0]}>
     <sphereGeometry args={[radius, 36, 24]} />
@@ -704,7 +704,7 @@ function OceanSurface({ radius, profile, climate, detail }: { radius: number; pr
     return {
       uniforms: {
         uTime: { value: 0 },
-        uFlowSpeed: { value: .08 + climate.wind * .2 },
+        uFlowSpeed: { value: .08 + profile.wind * .2 },
         uDeep: { value: deep },
         uSurface: { value: surface },
         uGlint: { value: glint },
@@ -735,7 +735,7 @@ function OceanSurface({ radius, profile, climate, detail }: { radius: number; pr
           gl_FragColor=vec4(color,uPlanetRevealOpacity);
         }`,
     }
-  }, [climate.wind, profile.palette.atmosphere, profile.palette.ocean])
+  }, [profile.palette.atmosphere, profile.palette.ocean, profile.wind])
   useFrame(({ clock }) => { if (material.current) material.current.uniforms.uTime.value = clock.elapsedTime })
   return <mesh>
     <sphereGeometry args={[radius, detail === 'near' ? 64 : 44, detail === 'near' ? 44 : 30]} />
@@ -1026,10 +1026,10 @@ function LightningBolt({ radius, planet, climate }: { radius: number; planet: Pl
   </mesh>
 }
 
-function WeatherSystem({ radius, planet, climate }: { radius: number; planet: Planet; climate: ReturnType<typeof derivePlanetClimate> }) {
+function WeatherSystem({ radius, planet, climate, profile }: { radius: number; planet: Planet; climate: ReturnType<typeof derivePlanetClimate>; profile: PlanetVisualProfile }) {
   const points = useRef<THREE.Points>(null)
   const material = useRef<THREE.PointsMaterial>(null)
-  const count = 72
+  const count = Math.round(24 + profile.particleDensity * 96)
   const isHail = climate.currentWeather === 'hail'
   const isDust = climate.currentWeather === 'sandstorm'
   const geometry = useMemo(() => {
@@ -1044,11 +1044,11 @@ function WeatherSystem({ radius, planet, climate }: { radius: number; planet: Pl
     const next = new THREE.BufferGeometry()
     next.setAttribute('position', new THREE.BufferAttribute(positions, 3))
     return next
-  }, [planet.id, planet.visualSeed, radius])
+  }, [count, planet.id, planet.visualSeed, radius])
   const weatherColor = weatherAccent(climate.currentWeather)
   useFrame(({ clock }, delta) => {
     if (points.current) {
-      points.current.rotation.y += delta * (0.08 + climate.wind * 0.45)
+      points.current.rotation.y += delta * (0.08 + profile.wind * 0.45)
       if (climate.rain > 0.12 || climate.snow > 0.12 || isHail) {
         const positions = points.current.geometry.attributes.position as THREE.BufferAttribute
         for (let index = 0; index < positions.count; index += 1) {
@@ -1064,7 +1064,7 @@ function WeatherSystem({ radius, planet, climate }: { radius: number; planet: Pl
       if (isDust) {
         const positions = points.current.geometry.attributes.position as THREE.BufferAttribute
         for (let index = 0; index < positions.count; index += 1) {
-          let x = positions.getX(index) + delta * radius * (.18 + climate.wind * .3)
+          let x = positions.getX(index) + delta * radius * (.18 + profile.wind * .3)
           if (x > radius * 1.5) x = -radius * 1.5
           positions.setX(index, x)
           positions.setY(index, positions.getY(index) + Math.sin(clock.elapsedTime * .45 + index) * delta * radius * .035)
@@ -1073,17 +1073,17 @@ function WeatherSystem({ radius, planet, climate }: { radius: number; planet: Pl
       }
     }
     if (material.current) material.current.opacity = isDust
-      ? .1 + climate.wind * .16
-      : .08 + Math.max(climate.rain, climate.snow, isHail ? .42 : 0, climate.wind * .28) * .56
+      ? .1 + profile.wind * .16
+      : .08 + Math.max(climate.rain, climate.snow, isHail ? .42 : 0, profile.wind * .28) * .56
   })
   const particleColor = isHail ? '#dceaf0' : climate.snow > climate.rain ? '#eaf8ff' : weatherColor
   return <>
     <points ref={points} geometry={geometry}>
       <pointsMaterial ref={material} color={particleColor} size={radius * (isDust ? .026 : isHail ? .042 : climate.snow > climate.rain ? .036 : .052)} transparent opacity={.3} depthWrite={false} blending={THREE.AdditiveBlending} />
     </points>
-    {climate.cloudCoverage > .54 && <mesh scale={1.18}>
+    {profile.cloudCoverage > .54 && <mesh scale={1.18}>
       <sphereGeometry args={[radius, 24, 14]} />
-      <meshBasicMaterial color={climate.snow > .18 ? '#b9dced' : weatherColor} transparent opacity={isDust ? .018 + climate.cloudCoverage * .025 : .025 + climate.cloudCoverage * .08} side={THREE.BackSide} depthWrite={false} />
+      <meshBasicMaterial color={climate.snow > .18 ? '#b9dced' : profile.palette.cloud} transparent opacity={isDust ? .018 + profile.cloudCoverage * .025 : .025 + profile.cloudCoverage * .08} side={THREE.BackSide} depthWrite={false} />
     </mesh>}
     {climate.lightning > .25 && <LightningBolt radius={radius} planet={planet} climate={climate} />}
   </>
@@ -1261,7 +1261,7 @@ function RiverSystem({ planet, radius, profile, climate }: { planet: Planet; rad
   const shader = useMemo(() => ({
     uniforms: {
       uTime: { value: 0 },
-      uSpeed: { value: .55 + climate.wind * .9 },
+      uSpeed: { value: .55 + profile.wind * .9 },
       uColor: { value: new THREE.Color('#348ed2').lerp(new THREE.Color(profile.palette.atmosphere), .1) },
       uPlanetRevealOpacity: { value: 1 },
     },
@@ -1275,7 +1275,7 @@ function RiverSystem({ planet, radius, profile, climate }: { planet: Planet; rad
         vec3 color=uColor*(.62+current*.34+ripple*.12);
         gl_FragColor=vec4(color,(.19+current*.22+ripple*.08)*bank*uPlanetRevealOpacity);
       }`,
-  }), [climate.wind, profile.palette.atmosphere])
+  }), [profile.palette.atmosphere, profile.wind])
   useFrame(({ clock }) => { if (material.current) material.current.uniforms.uTime.value = clock.elapsedTime })
   useEffect(() => () => geometry?.dispose(), [geometry])
   if (!geometry) return null
@@ -1285,7 +1285,7 @@ function RiverSystem({ planet, radius, profile, climate }: { planet: Planet; rad
 }
 
 function DetailedPlanet({ planet, radius, detail, warmup = false }: { planet: Planet; radius: number; detail: 'mid' | 'near'; warmup?: boolean }) {
-  const profile = useMemo(() => planetVisualProfile(planet.theme, planet.mood, planet.intensity), [planet.intensity, planet.mood, planet.theme])
+  const profile = useMemo(() => planetVisualProfile(planet.theme, planet.mood, planet.intensity, planet.visualOverride), [planet.intensity, planet.mood, planet.theme, planet.visualOverride])
   const { textures, climate } = usePlanetTextures(planet, profile, detail)
   const geometry = useTerrainGeometry(planet, radius, detail, climate.seaLevel)
   const renderer = useThree((state) => state.gl)
@@ -1303,14 +1303,14 @@ function DetailedPlanet({ planet, radius, detail, warmup = false }: { planet: Pl
       <meshStandardMaterial map={textures.color} bumpMap={textures.relief} bumpScale={detail === 'near' ? radius * 0.02 : radius * 0.011} roughness={0.84} metalness={0.04} flatShading={false} emissive={profile.palette.atmosphere} emissiveIntensity={0.06 + profile.glow * 0.11} />
     </mesh>
     {detail === 'near' && <RiverSystem planet={planet} radius={radius} profile={profile} climate={climate} />}
-    <CloudLayer radius={radius} climate={climate} />
-    <mesh scale={1.11}>
+    <CloudLayer radius={radius} profile={profile} />
+    <mesh scale={1.11 + profile.fog * .025}>
       <sphereGeometry args={[radius, 28, 18]} />
-      <meshBasicMaterial color={profile.palette.atmosphere} transparent opacity={0.13 + profile.glow * 0.1} side={THREE.BackSide} blending={THREE.AdditiveBlending} depthWrite={false} />
+      <meshBasicMaterial color={profile.palette.atmosphere} transparent opacity={0.08 + profile.glow * 0.08 + profile.fog * 0.1} side={THREE.BackSide} blending={THREE.AdditiveBlending} depthWrite={false} />
     </mesh>
     {detail === 'near' && <>
       <TreeInstances radius={radius} planet={planet} climate={climate} />
-      <WeatherSystem radius={radius} planet={planet} climate={climate} />
+      <WeatherSystem radius={radius} planet={planet} climate={climate} profile={profile} />
       {planet.doodle?.length ? <DoodleSurface planet={planet} radius={radius} seaLevel={climate.seaLevel} /> : null}
     </>}
   </>
