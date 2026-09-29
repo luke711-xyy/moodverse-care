@@ -57,11 +57,11 @@
 - Consumes: the `users` internal owner IDs and the selection limits from Task 1.
 - Produces: D1 tables `music_track_catalog`, `music_planets`, `music_planet_tracks`, `music_moments`, and `music_ai_tasks`.
 
-- [ ] **Step 1: Write failing SQLite tests** that initialize a minimal pre-0007 database with existing `users` and a populated legacy table, apply migration `0007`, then exercise track foreign keys, one music planet per owner, public-by-default planet and Moment visibility, private Moment values, unique track/slot constraints, the five-track database cap, at most one primary track, and cascading cleanup while legacy data remains intact. In a separate test, load `schema.sql` into a fresh database and verify it contains the same new tables and constraints as the migration.
-- [ ] **Step 2: Run `npm test -- tests/music-schema.test.ts`** and confirm it fails because migration `0007` does not exist.
-- [ ] **Step 3: Implement the additive migration** with stable catalog IDs and official playback URLs; one music planet per internal owner; ordered 1–5 track slots; per-Moment public/private visibility and optional photo; and AI task metadata (kind, model/schema version, status, input hash, validated result, error and latency) without raw request text. Mirror the new DDL in `schema.sql`.
-- [ ] **Step 4: Run `npm test -- tests/music-schema.test.ts`**, then `npm test`, `npm run typecheck`, and `npm run build`; all must pass. The migration test must execute the SQL and verify constraints, not merely search the migration text.
-- [ ] **Step 5: Commit** only the migration, schema mirror, and migration test as `feat: add music MVP core schema`.
+- [x] **Step 1: Write failing SQLite tests** that initialize a minimal pre-0007 database with existing `users` and a populated legacy table, apply migration `0007`, then exercise track foreign keys, one music planet per owner, public-by-default planet and Moment visibility, private Moment values, unique track/slot constraints, the five-track database cap, at most one primary track, and cascading cleanup while legacy data remains intact. In a separate test, load `schema.sql` into a fresh database and verify it contains the same new tables and constraints as the migration.
+- [x] **Step 2: Run `npm test -- tests/music-schema.test.ts`** and confirm it fails because migration `0007` does not exist.
+- [x] **Step 3: Implement the additive migration** with stable catalog IDs and official playback URLs; one music planet per internal owner; ordered 1–5 track slots; per-Moment public/private visibility and optional photo; and AI task metadata (kind, model/schema version, status, input hash, validated result, error and latency) without raw request text. Mirror the new DDL in `schema.sql`.
+- [x] **Step 4: Run `npm test -- tests/music-schema.test.ts`**, then `npm test`, `npm run typecheck`, and `npm run build`; all must pass. The migration test must execute the SQL and verify constraints, not merely search the migration text.
+- [x] **Step 5: Commit** only the migration, schema mirror, and migration test as `feat: add music MVP core schema`.
 
 ## Subsequent Plans in the Full MVP
 
