@@ -1,4 +1,4 @@
-import type { Env } from './_shared'
+import { safeHttpsUrl, type Env } from './_shared'
 
 export type MomentInput = {
   trackId?: unknown
@@ -57,16 +57,6 @@ export function contentText(value: unknown) {
   if (typeof value !== 'string') return null
   const text = value.trim()
   return Array.from(text).length <= 500 ? text : null
-}
-
-function safeHttpsUrl(value: string | null): string | null {
-  if (!value) return null
-  try {
-    const parsed = new URL(value)
-    return parsed.protocol === 'https:' && !parsed.username && !parsed.password ? parsed.toString() : null
-  } catch {
-    return null
-  }
 }
 
 export function mapMoment(row: MomentRow) {

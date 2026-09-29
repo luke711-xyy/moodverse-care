@@ -162,6 +162,19 @@ test('track selection updates keep the planet identity and existing selection ti
   }
 })
 
+test('owner planet response omits HTTPS music URLs containing embedded credentials', async () => {
+  await createPlanet({ displayName: '安全链接', trackIds: ['track-a', 'track-b', 'track-c'] })
+  fixture.sqlite.prepare(`
+    UPDATE music_track_catalog
+    SET official_url = 'https://provider-user:provider-secret@music.example/track',
+        cover_url = 'https://image-user:image-secret@images.example/cover.jpg'
+    WHERE id = 'track-a'
+  `).run()
+
+  const { body } = await readPlanet()
+  expect(body.planet?.tracks[0]).toMatchObject({ officialUrl: null, coverUrl: null })
+})
+
 test('failed updates preserve the old tracks and a different Access identity cannot edit the owner planet', async () => {
   const created = await createPlanet({ displayName: '留在原地', trackIds: ['track-a', 'track-b', 'track-c'] })
   const ownerId = created.body.planet.id

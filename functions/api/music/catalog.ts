@@ -1,4 +1,4 @@
-import type { Env } from '../../_shared'
+import { safeHttpsUrl, type Env } from '../../_shared'
 import type { MusicTrackSummary } from '../../../src/music-domain'
 
 type CatalogRow = {
@@ -24,16 +24,6 @@ function stringArray(value: string): string[] {
   }
 }
 
-function httpsUrl(value: string | null): string | null {
-  if (!value) return null
-  try {
-    const url = new URL(value)
-    return url.protocol === 'https:' ? url.toString() : null
-  } catch {
-    return null
-  }
-}
-
 export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   const search = new URL(request.url).searchParams.get('q')?.trim().slice(0, 120) ?? ''
   const { results } = await env.DB.prepare(`
@@ -54,8 +44,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     versionLabel: row.version_label,
     genres: stringArray(row.genres_json),
     moodTags: stringArray(row.mood_tags_json),
-    officialUrl: httpsUrl(row.official_url),
-    coverUrl: httpsUrl(row.cover_url),
+    officialUrl: safeHttpsUrl(row.official_url),
+    coverUrl: safeHttpsUrl(row.cover_url),
     durationSeconds: row.duration_seconds,
   }))
 

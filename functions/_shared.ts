@@ -183,5 +183,15 @@ export const json = async <T>(request: Request) => {
   try { return await request.json() as T } catch { return null }
 }
 
+export const safeHttpsUrl = (value: string | null | undefined): string | null => {
+  if (!value) return null
+  try {
+    const url = new URL(value)
+    return url.protocol === 'https:' && !url.username && !url.password ? url.toString() : null
+  } catch {
+    return null
+  }
+}
+
 export const safeList = (value: unknown, limit: number) => Array.isArray(value) ? value.filter((item) => typeof item === 'string').slice(0, limit) : []
 export const safeText = (value: unknown, max: number) => typeof value === 'string' ? value.trim().slice(0, max) : ''

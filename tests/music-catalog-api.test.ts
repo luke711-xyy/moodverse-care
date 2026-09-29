@@ -64,3 +64,17 @@ test('catalog search treats SQL wildcard characters literally across title and a
   expect(underscoreResult.tracks.map(({ id }) => id)).toEqual(['track-special'])
   expect(artistResult.tracks.map(({ id }) => id)).toEqual(['track-other'])
 })
+
+test('catalog omits HTTPS URLs containing embedded credentials', async () => {
+  insertCatalogTrack(fixture.sqlite, { id: 'track-credentials' })
+  fixture.sqlite.prepare(`
+    UPDATE music_track_catalog
+    SET official_url = 'https://provider-user:provider-secret@music.example/track',
+        cover_url = 'https://image-user:image-secret@images.example/cover.jpg'
+    WHERE id = 'track-credentials'
+  `).run()
+
+  const response = await getCatalog()
+  const result = await response.json() as { tracks: Array<{ officialUrl: string | null; coverUrl: string | null }> }
+  expect(result.tracks[0]).toMatchObject({ officialUrl: null, coverUrl: null })
+})

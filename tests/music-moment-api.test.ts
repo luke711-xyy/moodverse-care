@@ -153,6 +153,20 @@ test('private planets are indistinguishable from missing planets to public visit
   expect(owner.response.status).toBe(200)
 })
 
+test('public projection omits music and image URLs containing embedded credentials', async () => {
+  await createMoment({ trackId: 'track-a', contentText: '公开内容。' })
+  fixture.sqlite.prepare(`
+    UPDATE music_track_catalog
+    SET official_url = 'https://provider-user:provider-secret@music.example/track',
+        cover_url = 'https://image-user:image-secret@images.example/cover.jpg'
+    WHERE id = 'track-a'
+  `).run()
+
+  const { body } = await getPublicPlanet()
+  expect(body.planet?.tracks[0]).toMatchObject({ officialUrl: null, coverUrl: null })
+  expect(body.planet?.moments[0].track).toMatchObject({ officialUrl: null, coverUrl: null })
+})
+
 test('Moments require active catalog tracks and reject unsafe photos or oversized text', async () => {
   for (const invalid of [
     { trackId: 'missing-track', contentText: '未知曲目' },

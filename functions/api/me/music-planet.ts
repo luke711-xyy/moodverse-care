@@ -1,4 +1,4 @@
-import { authenticatedMusicUser, json, type Env } from '../../_shared'
+import { authenticatedMusicUser, json, safeHttpsUrl, type Env } from '../../_shared'
 import { validateTrackSelection, type MusicTrackSummary } from '../../../src/music-domain'
 
 type MusicPlanetRow = {
@@ -71,16 +71,6 @@ function parseVisual(value: string): Record<string, unknown> {
   }
 }
 
-function httpsUrl(value: string | null): string | null {
-  if (!value) return null
-  try {
-    const url = new URL(value)
-    return url.protocol === 'https:' ? url.toString() : null
-  } catch {
-    return null
-  }
-}
-
 async function readOwnerPlanet(env: Env, userId: string) {
   const row = await env.DB.prepare(`
     SELECT id, display_name, tagline, visibility, visual_schema_version, visual_json, created_at, updated_at
@@ -106,8 +96,8 @@ async function readOwnerPlanet(env: Env, userId: string) {
     versionLabel: track.version_label,
     genres: parseStringArray(track.genres_json),
     moodTags: parseStringArray(track.mood_tags_json),
-    officialUrl: httpsUrl(track.official_url),
-    coverUrl: httpsUrl(track.cover_url),
+    officialUrl: safeHttpsUrl(track.official_url),
+    coverUrl: safeHttpsUrl(track.cover_url),
     durationSeconds: track.duration_seconds,
     position: track.position,
     isPrimary: track.is_primary === 1,
