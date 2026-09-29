@@ -2,6 +2,9 @@ export type Env = {
   DB: D1Database
   CF_ACCESS_TEAM_DOMAIN?: string
   CF_ACCESS_AUD?: string
+  MUSIC_AI_GATEWAY_URL?: string
+  MUSIC_AI_ACCESS_CLIENT_ID?: string
+  MUSIC_AI_ACCESS_CLIENT_SECRET?: string
 }
 
 const COOKIE = 'mv_session'

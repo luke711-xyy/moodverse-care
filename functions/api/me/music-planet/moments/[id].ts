@@ -1,4 +1,5 @@
 import { authenticatedMusicUser, json, type Env } from '../../../../_shared'
+import { schedulePlanetComposition } from '../compose'
 import {
   contentText,
   isRecord,
@@ -19,7 +20,8 @@ const respond = (body: unknown, status = 200) => new Response(JSON.stringify(bod
   },
 })
 
-export const onRequestPatch: PagesFunction<Env> = async ({ request, env, params }) => {
+export const onRequestPatch: PagesFunction<Env> = async (context) => {
+  const { request, env, params } = context
   const identity = await authenticatedMusicUser(request, env)
   if (!identity) return respond({ error: 'UNAUTHENTICATED' }, 401)
 
@@ -80,14 +82,31 @@ export const onRequestPatch: PagesFunction<Env> = async ({ request, env, params 
 
   const planetId = await ownedPlanetId(env, identity.userId)
   const saved = planetId ? await readMoment(env, planetId, momentId) : null
-  return respond({ moment: saved ? mapMoment(saved) : null })
+  const composition = current.visibility === 'public' || visibility === 'public'
+    ? await schedulePlanetComposition(env, identity.userId, (task) => context.waitUntil(task))
+    : null
+  return respond({
+    moment: saved ? mapMoment(saved) : null,
+    ...(composition?.state === 'queued'
+      ? { compositionTask: { id: composition.taskId, status: 'queued' } }
+      : {}),
+  })
 }
 
-export const onRequestDelete: PagesFunction<Env> = async ({ request, env, params }) => {
+export const onRequestDelete: PagesFunction<Env> = async (context) => {
+  const { request, env, params } = context
   const identity = await authenticatedMusicUser(request, env)
   if (!identity) return respond({ error: 'UNAUTHENTICATED' }, 401)
   const momentId = typeof params?.id === 'string' ? params.id : ''
   if (!momentId) return respond({ error: 'MOMENT_NOT_FOUND' }, 404)
+
+  const existing = await env.DB.prepare(`
+    SELECT m.visibility
+    FROM music_moments m
+    JOIN music_planets p ON p.id = m.planet_id
+    WHERE m.id = ?1 AND p.owner_user_id = ?2
+  `).bind(momentId, identity.userId).first<{ visibility: 'public' | 'private' }>()
+  if (!existing) return respond({ error: 'MOMENT_NOT_FOUND' }, 404)
 
   const deleted = await env.DB.prepare(`
     DELETE FROM music_moments
@@ -95,5 +114,13 @@ export const onRequestDelete: PagesFunction<Env> = async ({ request, env, params
       AND planet_id IN (SELECT id FROM music_planets WHERE owner_user_id = ?2)
   `).bind(momentId, identity.userId).run()
   if (deleted.meta.changes !== 1) return respond({ error: 'MOMENT_NOT_FOUND' }, 404)
-  return respond({ deleted: true })
+  const composition = existing.visibility === 'public'
+    ? await schedulePlanetComposition(env, identity.userId, (task) => context.waitUntil(task))
+    : null
+  return respond({
+    deleted: true,
+    ...(composition?.state === 'queued'
+      ? { compositionTask: { id: composition.taskId, status: 'queued' } }
+      : {}),
+  })
 }

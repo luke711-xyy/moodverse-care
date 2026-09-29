@@ -1,4 +1,5 @@
 import { authenticatedMusicUser, json, type Env } from '../../../_shared'
+import { schedulePlanetComposition } from './compose'
 import {
   contentText,
   isRecord,
@@ -36,7 +37,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   return respond({ moments: results.map(mapMoment) })
 }
 
-export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
+export const onRequestPost: PagesFunction<Env> = async (context) => {
+  const { request, env } = context
   const identity = await authenticatedMusicUser(request, env)
   if (!identity) return respond({ error: 'UNAUTHENTICATED' }, 401)
   const planetId = await ownedPlanetId(env, identity.userId)
@@ -66,5 +68,13 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   `).bind(momentId, planetId, trackId, text, image, visibility, publishedAt, timestamp).run()
 
   const saved = await readMoment(env, planetId, momentId)
-  return respond({ moment: saved ? mapMoment(saved) : null }, 201)
+  const composition = visibility === 'public'
+    ? await schedulePlanetComposition(env, identity.userId, (task) => context.waitUntil(task))
+    : null
+  return respond({
+    moment: saved ? mapMoment(saved) : null,
+    ...(composition?.state === 'queued'
+      ? { compositionTask: { id: composition.taskId, status: 'queued' } }
+      : {}),
+  }, 201)
 }

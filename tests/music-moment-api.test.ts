@@ -54,10 +54,11 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-function env() {
+function env(overrides: Partial<Env> = {}) {
   return createMusicApiEnv(fixture.db, {
     CF_ACCESS_TEAM_DOMAIN: issuer,
     CF_ACCESS_AUD: audience,
+    ...overrides,
   })
 }
 
@@ -69,6 +70,8 @@ async function callOwner(
   body?: unknown,
   params: Record<string, string> = {},
   subject = ownerSubject,
+  overrides: Partial<Env> = {},
+  pending: Promise<unknown>[] = [],
 ) {
   const signed = await authority.request({ sub: subject, email: `${subject}@example.com` })
   const request = new Request('https://moodverse.test/api/me/music-planet/moments', {
@@ -81,7 +84,7 @@ async function callOwner(
         },
     body: body === undefined ? undefined : JSON.stringify(body),
   })
-  return handler({ request, env: env(), params })
+  return handler({ request, env: env(overrides), params, waitUntil: (task: Promise<unknown>) => pending.push(task) })
 }
 
 async function createMoment(body: unknown, subject = ownerSubject) {
@@ -116,6 +119,42 @@ test('Moments default to public, private Moments remain owner-readable, and thei
   expect(owner.body.moments.map((moment) => moment.contentText)).toEqual(expect.arrayContaining([
     '今天想把这首歌留在这里。', '只留给自己看的话。',
   ]))
+})
+
+test('creating a public Moment automatically queues a planet composition refresh', async () => {
+  const previousFetch = globalThis.fetch
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(input.toString())
+    if (url.origin === issuer) return previousFetch(input, init)
+    return new Response(JSON.stringify({
+      model: { name: 'qwen-local', version: '4b-q4-v1' },
+      output: {
+        schemaVersion: 1,
+        summary: '在夜色中慢慢流动。',
+        palette: { surface: '#315f98', ocean: '#102d5c', accent: '#8ec9ed' },
+        atmosphere: 'starlit',
+        motion: 'drift',
+        particleDensity: 0.42,
+      },
+    }), { status: 200, headers: { 'content-type': 'application/json' } })
+  }))
+  const pending: Promise<unknown>[] = []
+  const created = await callOwner(onRequestPostMoment, 'POST', {
+    trackId: 'track-a', contentText: '新的公开一刻。',
+  }, {}, ownerSubject, {
+    MUSIC_AI_GATEWAY_URL: 'https://ai.example/v1/planet/compose',
+    MUSIC_AI_ACCESS_CLIENT_ID: 'access-client-id',
+    MUSIC_AI_ACCESS_CLIENT_SECRET: 'access-client-secret',
+  }, pending)
+
+  expect(created.status).toBe(201)
+  expect(pending).toHaveLength(1)
+  await Promise.all(pending)
+  expect(fixture.sqlite.prepare(`
+    SELECT status, model_name, model_version FROM music_ai_tasks WHERE kind = 'planet_composer'
+  `).get()).toEqual({ status: 'succeeded', model_name: 'qwen-local', model_version: '4b-q4-v1' })
+  expect(JSON.parse((fixture.sqlite.prepare('SELECT visual_json FROM music_planets WHERE id = ?')
+    .get('planet-owner') as { visual_json: string }).visual_json).summary).toBe('在夜色中慢慢流动。')
 })
 
 test('all owner Moment operations reject requests without a verified Access identity', async () => {

@@ -1,5 +1,6 @@
 import { authenticatedMusicUser, json, safeHttpsUrl, type Env } from '../../_shared'
 import { validateTrackSelection, type MusicTrackSummary } from '../../../src/music-domain'
+import { schedulePlanetComposition } from './music-planet/compose'
 
 type MusicPlanetRow = {
   id: string
@@ -136,7 +137,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   return response({ planet })
 }
 
-export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
+export const onRequestPost: PagesFunction<Env> = async (context) => {
+  const { request, env } = context
   const identity = await authenticatedMusicUser(request, env)
   if (!identity) return response({ error: 'UNAUTHENTICATED' }, 401)
   const body = await json<PlanetInput>(request)
@@ -183,10 +185,18 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     throw error
   }
 
-  return response({ planet: await readOwnerPlanet(env, identity.userId) }, 201)
+  const planet = await readOwnerPlanet(env, identity.userId)
+  const composition = await schedulePlanetComposition(env, identity.userId, (task) => context.waitUntil(task))
+  return response({
+    planet,
+    ...(composition.state === 'queued'
+      ? { compositionTask: { id: composition.taskId, status: 'queued' } }
+      : {}),
+  }, 201)
 }
 
-export const onRequestPatch: PagesFunction<Env> = async ({ request, env }) => {
+export const onRequestPatch: PagesFunction<Env> = async (context) => {
+  const { request, env } = context
   const identity = await authenticatedMusicUser(request, env)
   if (!identity) return response({ error: 'UNAUTHENTICATED' }, 401)
   const body = await json<PlanetInput>(request)
@@ -265,5 +275,15 @@ export const onRequestPatch: PagesFunction<Env> = async ({ request, env }) => {
   }
 
   await env.DB.batch(statements)
-  return response({ planet: await readOwnerPlanet(env, identity.userId) })
+  const planet = await readOwnerPlanet(env, identity.userId)
+  const shouldRecompose = hasDisplayName || hasTagline || hasTrackIds || hasPrimaryTrackId
+  const composition = shouldRecompose
+    ? await schedulePlanetComposition(env, identity.userId, (task) => context.waitUntil(task))
+    : null
+  return response({
+    planet,
+    ...(composition?.state === 'queued'
+      ? { compositionTask: { id: composition.taskId, status: 'queued' } }
+      : {}),
+  })
 }
