@@ -322,6 +322,11 @@ export function createMusicApi(fetcher: typeof fetch = fetch) {
         method: 'PATCH', body: JSON.stringify(patch),
       })
     },
+    deleteMoment(momentId: string) {
+      return request<{ deleted: boolean; compositionTask?: PlanetComposerTask }>(`/api/me/music-planet/moments/${encodeURIComponent(momentId)}`, {
+        method: 'DELETE',
+      })
+    },
     findSongMatches(trackId: string) {
       return request<SongPortalResponse>(`/api/music/song-portal?trackId=${encodeURIComponent(trackId)}`)
     },

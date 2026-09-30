@@ -105,6 +105,20 @@ describe('music API client', () => {
     ])
   })
 
+  test('deletes a Moment through the owner-scoped endpoint', async () => {
+    const requests: Array<{ path: string; method?: string }> = []
+    const api = createMusicApi(async (input, init) => {
+      requests.push({
+        path: new URL(input.toString(), 'https://moodverse.test').pathname,
+        ...(init?.method ? { method: init.method } : {}),
+      })
+      return Response.json({ deleted: true })
+    })
+
+    await expect(api.deleteMoment('moment/a')).resolves.toEqual({ deleted: true })
+    expect(requests).toEqual([{ path: '/api/me/music-planet/moments/moment%2Fa', method: 'DELETE' }])
+  })
+
   test('posts a Moment with its chosen visibility and exposes an unavailable local-AI gateway code', async () => {
     const api = createMusicApi(async (input, init) => {
       const path = new URL(input.toString(), 'https://moodverse.test').pathname

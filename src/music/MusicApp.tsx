@@ -46,6 +46,11 @@ type ConversationState =
   | { status: 'ready'; userId: string; displayName: string; messages: MusicDirectMessage[] }
   | { status: 'error'; userId: string; displayName: string }
 
+type MomentManagementState =
+  | { status: 'idle' }
+  | { status: 'editing'; momentId: string; contentText: string; visibility: MusicMoment['visibility']; busy: boolean; error: string }
+  | { status: 'confirm-delete'; momentId: string; busy: boolean; error: string }
+
 const PLANET_PREVIEW: MusicPlanetVisual = {
   schemaVersion: 1,
   summary: '等待三首歌为它点亮第一层色彩。',
@@ -538,6 +543,7 @@ function MusicApp() {
   const [momentPrivate, setMomentPrivate] = useState(false)
   const [savingMoment, setSavingMoment] = useState(false)
   const [momentFeedback, setMomentFeedback] = useState('')
+  const [momentManagement, setMomentManagement] = useState<MomentManagementState>({ status: 'idle' })
   const [reducedMotion, setReducedMotion] = useState(false)
   const [songPortal, setSongPortal] = useState<SongPortalState>({ status: 'idle' })
   const [view, setView] = useState<ProductView>('planet')
@@ -604,6 +610,7 @@ function MusicApp() {
     setMomentPrivate(false)
     setSavingMoment(false)
     setMomentFeedback('')
+    setMomentManagement({ status: 'idle' })
     setSongPortal({ status: 'idle' })
     setGalaxy({ status: 'idle' })
     setDiscovery({ status: 'idle' })
@@ -1091,6 +1098,60 @@ function MusicApp() {
       setSettingsError('设置没有保存，仍显示上次确认的状态。请稍后重试。')
     } finally {
       if (epoch === accountEpoch.current) setSettingsSaving('')
+    }
+  }
+
+  const beginMomentEdit = (moment: MusicMoment) => {
+    setMomentManagement({
+      status: 'editing', momentId: moment.id, contentText: moment.contentText,
+      visibility: moment.visibility, busy: false, error: '',
+    })
+  }
+
+  const saveMomentEdit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (momentManagement.status !== 'editing' || momentManagement.busy) return
+    const currentEdit = momentManagement
+    const epoch = accountEpoch.current
+    setMomentManagement({ ...currentEdit, busy: true, error: '' })
+    try {
+      const result = await api.updateMoment(currentEdit.momentId, {
+        contentText: currentEdit.contentText.trim(), visibility: currentEdit.visibility,
+      })
+      if (epoch !== accountEpoch.current) return
+      if (!result.moment) throw new Error('Moment update was not confirmed')
+      setHome((current) => current.status === 'ready'
+        ? { ...current, moments: current.moments.map((moment) => moment.id === currentEdit.momentId ? result.moment! : moment) }
+        : current)
+      setMomentManagement({ status: 'idle' })
+      if (result.compositionTask) await beginComposition({ id: result.compositionTask.id })
+    } catch (error) {
+      if (epoch !== accountEpoch.current) return
+      setMomentManagement((current) => current.status === 'editing' && current.momentId === currentEdit.momentId
+        ? { ...current, busy: false, error: errorMessage(error) }
+        : current)
+    }
+  }
+
+  const deleteMoment = async () => {
+    if (momentManagement.status !== 'confirm-delete' || momentManagement.busy) return
+    const currentDelete = momentManagement
+    const epoch = accountEpoch.current
+    setMomentManagement({ ...currentDelete, busy: true, error: '' })
+    try {
+      const result = await api.deleteMoment(currentDelete.momentId)
+      if (epoch !== accountEpoch.current) return
+      if (!result.deleted) throw new Error('Moment delete was not confirmed')
+      setHome((current) => current.status === 'ready'
+        ? { ...current, moments: current.moments.filter((moment) => moment.id !== currentDelete.momentId) }
+        : current)
+      setMomentManagement({ status: 'idle' })
+      if (result.compositionTask) await beginComposition({ id: result.compositionTask.id })
+    } catch (error) {
+      if (epoch !== accountEpoch.current) return
+      setMomentManagement((current) => current.status === 'confirm-delete' && current.momentId === currentDelete.momentId
+        ? { ...current, busy: false, error: errorMessage(error) }
+        : current)
     }
   }
 
@@ -1670,9 +1731,57 @@ function MusicApp() {
 
         <section className="music-moments" aria-label="我的 Moments">
           <div className="music-section-heading"><h3>沿途留下的 Moment</h3><span>{moments.length}</span></div>
-          {!moments.length ? <p className="music-moments-empty">还没有 Moment。写下一段真实的片刻，星球就会继续变化。</p> : moments.slice(0, 5).map((moment) => <article className="music-moment-item" key={moment.id}>
+          {!moments.length ? <p className="music-moments-empty">还没有 Moment。写下一段真实的片刻，星球就会继续变化。</p> : moments.map((moment) => <article className="music-moment-item" key={moment.id}>
             <div><strong>{moment.track.title}</strong><span>{moment.visibility === 'public' ? '公开' : '仅自己'} · {new Date(moment.createdAt).toLocaleDateString('zh-CN')}</span></div>
             {moment.contentText && <p>{moment.contentText}</p>}
+            {momentManagement.status === 'editing' && momentManagement.momentId === moment.id
+              ? <form className="music-moment-editor" onSubmit={(event) => { void saveMomentEdit(event) }}>
+                  <label htmlFor={`music-moment-edit-${moment.id}`}>修改 Moment 内容</label>
+                  <textarea
+                    id={`music-moment-edit-${moment.id}`}
+                    aria-label="编辑 Moment 文本"
+                    value={momentManagement.contentText}
+                    maxLength={500}
+                    onChange={(event) => setMomentManagement((current) => current.status === 'editing'
+                      ? { ...current, contentText: event.target.value, error: '' }
+                      : current)}
+                  />
+                  <label className="music-moment-privacy">
+                    <input
+                      type="checkbox"
+                      aria-label="编辑 Moment：公开给访客"
+                      checked={momentManagement.visibility === 'public'}
+                      onChange={(event) => setMomentManagement((current) => current.status === 'editing'
+                        ? { ...current, visibility: event.target.checked ? 'public' : 'private', error: '' }
+                        : current)}
+                    />
+                    <span>{momentManagement.visibility === 'public' ? '公开给访客' : '仅自己可见'}</span>
+                  </label>
+                  <div className="music-moment-owner-actions">
+                    <button className="music-secondary-button" type="submit" disabled={momentManagement.busy}>
+                      {momentManagement.busy ? '正在保存…' : '保存 Moment 修改'}
+                    </button>
+                    <button className="music-text-button" type="button" disabled={momentManagement.busy} onClick={() => setMomentManagement({ status: 'idle' })}>取消编辑</button>
+                  </div>
+                  {momentManagement.error && <p className="music-form-error" role="alert">{momentManagement.error}</p>}
+                </form>
+              : momentManagement.status === 'confirm-delete' && momentManagement.momentId === moment.id
+                ? <div className="music-moment-delete-confirm" role="group" aria-label="确认删除 Moment">
+                    <p>删除后，这条 Moment 会从访客页面和发现入口移除。</p>
+                    {momentManagement.error && <p className="music-form-error" role="alert">{momentManagement.error}</p>}
+                    <div className="music-moment-owner-actions">
+                      <button className="music-text-button is-danger" type="button" disabled={momentManagement.busy} onClick={() => { void deleteMoment() }}>
+                        {momentManagement.busy ? '正在删除…' : `确认删除 Moment：${moment.contentText.slice(0, 40) || moment.track.title}`}
+                      </button>
+                      <button className="music-text-button" type="button" disabled={momentManagement.busy} onClick={() => setMomentManagement({ status: 'idle' })}>
+                        {`取消删除 Moment：${moment.contentText.slice(0, 40) || moment.track.title}`}
+                      </button>
+                    </div>
+                  </div>
+                : <div className="music-moment-owner-actions">
+                    <button className="music-text-button" type="button" disabled={momentManagement.status !== 'idle'} aria-label={`编辑 Moment：${moment.contentText.slice(0, 40) || moment.track.title}`} onClick={() => beginMomentEdit(moment)}>编辑</button>
+                    <button className="music-text-button is-danger" type="button" disabled={momentManagement.status !== 'idle'} aria-label={`删除 Moment：${moment.contentText.slice(0, 40) || moment.track.title}`} onClick={() => setMomentManagement({ status: 'confirm-delete', momentId: moment.id, busy: false, error: '' })}>删除</button>
+                  </div>}
           </article>)}
         </section>
       </aside>}

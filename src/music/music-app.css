@@ -344,6 +344,16 @@
 .music-moment-item strong { color: var(--ink); font-size: 11px; font-weight: 500; }
 .music-moment-item span { flex: none; color: var(--faint); font-size: 9px; }
 .music-moment-item p { margin: 5px 0 0; color: var(--muted); font-size: 11px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.music-moment-owner-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 7px; }
+.music-moment-owner-actions button { min-height: 30px; font-size: 10px; }
+.music-moment-owner-actions button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.music-moment-owner-actions .is-danger { color: var(--danger); border-bottom-color: color-mix(in srgb, var(--danger) 58%, transparent); }
+.music-moment-editor, .music-moment-delete-confirm { display: grid; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--music-line); }
+.music-moment-editor > label:first-child { color: var(--muted); font-size: 10px; }
+.music-moment-editor textarea { width: 100%; min-width: 0; min-height: 72px; padding: 8px 10px; border: 1px solid var(--music-line); border-radius: 8px; outline: 0; background: oklch(.055 .012 205 / .88); color: var(--ink); font: inherit; font-size: 11px; line-height: 1.6; resize: vertical; }
+.music-moment-editor textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-soft); }
+.music-moment-editor .music-secondary-button { width: auto; min-height: 32px; padding-inline: 10px; font-size: 10px; }
+.music-moment-delete-confirm > p:first-child { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.55; }
 
 .music-drift-panel { display: grid; align-content: start; gap: 10px; }
 .music-bottle-form { display: grid; gap: 7px !important; margin-top: 3px; padding-top: 13px; border-top: 1px solid var(--music-line); }

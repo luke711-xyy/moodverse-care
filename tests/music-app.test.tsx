@@ -391,6 +391,96 @@ test('settings load server privacy preferences and only show confirmed planet an
   expect(planetVisibility.checked).toBe(false)
 })
 
+test('a planet owner can edit a Moment and only sees the saved version after the server confirms it', async () => {
+  const ownerPlanet = {
+    id: 'planet-owner', displayName: '夜航者', tagline: '慢慢靠岸', visibility: 'public' as const,
+    visualSchemaVersion: 1, visual: {}, createdAt: '2026-09-29T00:00:00.000Z', updatedAt: '2026-09-29T00:00:00.000Z', tracks: [],
+  }
+  const state = {
+    moment: {
+      id: 'moment-owner-edit', trackId: 'song-a', track: tracks[0], contentText: '今天想起这首歌。', photoUrl: null,
+      visibility: 'public' as 'public' | 'private', publishedAt: '2026-09-29T10:00:00.000Z',
+      createdAt: '2026-09-29T10:00:00.000Z', updatedAt: '2026-09-29T10:00:00.000Z',
+    },
+    failNextMomentUpdate: true,
+    requests: [] as Array<{ path: string; method?: string; body?: unknown }>,
+  }
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = new URL(String(input), 'https://moodverse.test').pathname
+    state.requests.push({ path, ...(init?.method ? { method: init.method } : {}), ...(init?.body ? { body: JSON.parse(String(init.body)) } : {}) })
+    if (path === '/api/music/catalog') return Response.json({ tracks })
+    if (path === '/api/me/music-planet') return Response.json({ planet: ownerPlanet })
+    if (path === '/api/me/music-planet/moments') return Response.json({ moments: [state.moment] })
+    if (path === '/api/me/music-planet/moments/moment-owner-edit' && init?.method === 'PATCH') {
+      if (state.failNextMomentUpdate) {
+        state.failNextMomentUpdate = false
+        return Response.json({ error: 'TEMPORARY_FAILURE' }, { status: 503 })
+      }
+      state.moment = { ...state.moment, ...JSON.parse(String(init.body)) as Partial<typeof state.moment> }
+      return Response.json({ moment: state.moment })
+    }
+    throw new Error(`Unexpected request: ${path}`)
+  }))
+
+  render(<MusicApp />)
+  await screen.findByText('今天想起这首歌。')
+  fireEvent.click(screen.getByRole('button', { name: '编辑 Moment：今天想起这首歌。' }))
+  fireEvent.change(screen.getByRole('textbox', { name: '编辑 Moment 文本' }), { target: { value: '改写后仍然属于这首歌。' } })
+  fireEvent.click(screen.getByRole('checkbox', { name: '编辑 Moment：公开给访客' }))
+  fireEvent.click(screen.getByRole('button', { name: '保存 Moment 修改' }))
+
+  expect(await screen.findByRole('alert')).toBeTruthy()
+  expect(screen.getByText('今天想起这首歌。')).toBeTruthy()
+  expect((screen.getByRole('textbox', { name: '编辑 Moment 文本' }) as HTMLTextAreaElement).value).toBe('改写后仍然属于这首歌。')
+  fireEvent.click(screen.getByRole('button', { name: '保存 Moment 修改' }))
+
+  expect(await screen.findByText('改写后仍然属于这首歌。')).toBeTruthy()
+  expect(screen.getByText(/仅自己 ·/)).toBeTruthy()
+  expect(state.requests).toContainEqual({
+    path: '/api/me/music-planet/moments/moment-owner-edit', method: 'PATCH',
+    body: { contentText: '改写后仍然属于这首歌。', visibility: 'private' },
+  })
+  expect(screen.queryByRole('textbox', { name: '编辑 Moment 文本' })).toBeNull()
+})
+
+test('a planet owner can view all Moments and confirm deletion before a Moment is removed', async () => {
+  const ownerPlanet = {
+    id: 'planet-owner', displayName: '夜航者', tagline: '', visibility: 'public' as const,
+    visualSchemaVersion: 1, visual: {}, createdAt: '2026-09-29T00:00:00.000Z', updatedAt: '2026-09-29T00:00:00.000Z', tracks: [],
+  }
+  const state = { moments: Array.from({ length: 6 }, (_, index) => ({
+    id: `moment-${index + 1}`, trackId: 'song-a', track: tracks[0], contentText: `第 ${index + 1} 条 Moment 内容。`, photoUrl: null,
+    visibility: 'public' as const, publishedAt: `2026-09-29T10:0${index}:00.000Z`,
+    createdAt: `2026-09-29T10:0${index}:00.000Z`, updatedAt: `2026-09-29T10:0${index}:00.000Z`,
+  })) }
+  const requests: Array<{ path: string; method?: string }> = []
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = new URL(String(input), 'https://moodverse.test').pathname
+    requests.push({ path, ...(init?.method ? { method: init.method } : {}) })
+    if (path === '/api/music/catalog') return Response.json({ tracks })
+    if (path === '/api/me/music-planet') return Response.json({ planet: ownerPlanet })
+    if (path === '/api/me/music-planet/moments') return Response.json({ moments: state.moments })
+    if (path === '/api/me/music-planet/moments/moment-2' && init?.method === 'DELETE') {
+      state.moments = state.moments.filter((moment) => moment.id !== 'moment-2')
+      return Response.json({ deleted: true })
+    }
+    throw new Error(`Unexpected request: ${path}`)
+  }))
+
+  render(<MusicApp />)
+  expect(await screen.findByText('第 6 条 Moment 内容。')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: '删除 Moment：第 2 条 Moment 内容。' }))
+  expect(screen.getByText('删除后，这条 Moment 会从访客页面和发现入口移除。')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: '取消删除 Moment：第 2 条 Moment 内容。' }))
+  expect(screen.getByText('第 2 条 Moment 内容。')).toBeTruthy()
+
+  fireEvent.click(screen.getByRole('button', { name: '删除 Moment：第 2 条 Moment 内容。' }))
+  fireEvent.click(screen.getByRole('button', { name: '确认删除 Moment：第 2 条 Moment 内容。' }))
+  await waitFor(() => expect(screen.queryByText('第 2 条 Moment 内容。')).toBeNull())
+  expect(requests).toContainEqual({ path: '/api/me/music-planet/moments/moment-2', method: 'DELETE' })
+  expect(screen.getByText('第 6 条 Moment 内容。')).toBeTruthy()
+})
+
 test('account deletion requires an emailed code and typed confirmation before resetting the authenticated app', async () => {
   const ownerPlanet = {
     id: 'planet-owner', displayName: '夜航者', tagline: '慢慢靠岸', visibility: 'public' as const,
