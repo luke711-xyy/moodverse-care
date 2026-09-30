@@ -439,6 +439,11 @@ async function assignNextRecipient(env: Env, bottleId: string, now: Date) {
       SELECT ?1, ?2, ?3, ?4, 'unread', ?5, ?6
       WHERE EXISTS (SELECT 1 FROM music_drift_bottles WHERE id = ?2 AND status = 'active')
         AND NOT EXISTS (SELECT 1 FROM music_drift_deliveries WHERE bottle_id = ?2 AND status IN ('unread', 'read'))
+        AND EXISTS (
+          SELECT 1 FROM music_planets p
+          WHERE p.owner_user_id = ?3 AND p.visibility = 'public'
+            AND COALESCE((SELECT allow_receiving FROM music_drift_preferences WHERE user_id = ?3), 1) = 1
+        )
         AND NOT EXISTS (
           SELECT 1 FROM music_user_blocks b WHERE (b.blocker_user_id = ?7 AND b.blocked_user_id = ?3)
             OR (b.blocker_user_id = ?3 AND b.blocked_user_id = ?7)

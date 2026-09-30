@@ -320,6 +320,77 @@ test('an unread delivery expires after one hour and is re-routed by the schedule
     .toEqual({ recipient_user_id: nextRecipient, status: 'unread' })
 })
 
+test.each(['receiving disabled', 'planet made private'] as const)(
+  'scheduled re-routing rechecks recipient eligibility atomically when %s during assignment',
+  async (change) => {
+    const suffix = change.replaceAll(' ', '-')
+    const recipientA = await identityFor(`bottle-race-a-${suffix}`)
+    createPlanet(`bottle-race-a-planet-${suffix}`, recipientA, 'public', 'bottle-song-b')
+    const recipientB = await identityFor(`bottle-race-b-${suffix}`)
+    createPlanet(`bottle-race-b-planet-${suffix}`, recipientB, 'public', 'bottle-song-b')
+
+    const created = await createSongBottle()
+    const { bottle } = await created.json() as { bottle: { id: string } }
+    const previous = fixture.sqlite.prepare(`SELECT id, recipient_user_id FROM music_drift_deliveries`).get() as {
+      id: string
+      recipient_user_id: string
+    }
+    const nextRecipient = previous.recipient_user_id === recipientA ? recipientB : recipientA
+    fixture.sqlite.prepare(`UPDATE music_drift_deliveries SET expires_at = ? WHERE id = ?`)
+      .run(new Date(Date.now() - 1).toISOString(), previous.id)
+
+    const baseEnv = env()
+    const originalPrepare = baseEnv.DB.prepare.bind(baseEnv.DB)
+    let changedAfterEligibilityRead = false
+    const racingDb = Object.assign({}, baseEnv.DB, {
+      prepare(sql: string) {
+        const statement = originalPrepare(sql)
+        if (!sql.includes('SELECT 1 AS ok FROM music_planets p')) return statement
+        return {
+          bind(...bindings: unknown[]) {
+            const bound = statement.bind(...bindings)
+            return new Proxy(bound, {
+              get(target, property, receiver) {
+                if (property === 'first') return async (...args: unknown[]) => {
+                  const result = await target.first(...args)
+                  if (result && !changedAfterEligibilityRead && bindings[0] === nextRecipient) {
+                    changedAfterEligibilityRead = true
+                    const now = new Date().toISOString()
+                    if (change === 'receiving disabled') {
+                      fixture.sqlite.prepare(`
+                        INSERT INTO music_drift_preferences (user_id, allow_receiving, updated_at)
+                        VALUES (?, 0, ?)
+                        ON CONFLICT(user_id) DO UPDATE SET allow_receiving = 0, updated_at = excluded.updated_at
+                      `).run(nextRecipient, now)
+                    } else {
+                      fixture.sqlite.prepare(`UPDATE music_planets SET visibility = 'private', updated_at = ? WHERE owner_user_id = ?`)
+                        .run(now, nextRecipient)
+                    }
+                  }
+                  return result
+                }
+                return Reflect.get(target, property, receiver)
+              },
+            })
+          },
+        } as unknown as D1PreparedStatement
+      },
+    }) as Env['DB']
+
+    await runScheduled(
+      { scheduledTime: Date.UTC(2026, 0, 1, 0, 5), cron: '*/5 * * * *' } as ScheduledEvent,
+      env({ DB: racingDb }),
+    )
+
+    expect(changedAfterEligibilityRead).toBe(true)
+    expect(fixture.sqlite.prepare(`SELECT status FROM music_drift_deliveries WHERE id = ?`).get(previous.id))
+      .toEqual({ status: 'expired' })
+    expect(fixture.sqlite.prepare(`
+      SELECT count(*) AS count FROM music_drift_deliveries WHERE bottle_id = ? AND status IN ('unread', 'read')
+    `).get(bottle.id)).toEqual({ count: 0 })
+  },
+)
+
 test('a public Moment turned private before opening stops the bottle without exposing its text', async () => {
   const recipientId = await identityFor('bottle-moment-recipient')
   createPlanet('bottle-moment-recipient-planet', recipientId, 'public', 'bottle-song-b')
