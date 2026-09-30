@@ -41,11 +41,14 @@ Validate the resulting tables and indexes before deploying either Worker.
    account; create the staging D1 database and configure its ID in both files.
 2. Apply the schema baseline above, then configure the Pages Email Service and
    Moodverse AI gateway Secrets using the linked setup guides.
-3. Build and deploy the Pages app with
+3. Build the app and run `npm run music:staging:preflight`. It must pass before
+   any deployment; it fails closed while either manifest has a placeholder ID,
+   the manifests point at different databases, or either target is production.
+4. Deploy the Pages app with
    `npx wrangler pages deploy dist --config wrangler.music-staging.pages.toml --branch staging`.
-4. Deploy the cron Worker with
+5. Deploy the cron Worker with
    `npx wrangler deploy --config wrangler.music-staging-scheduler.toml`.
-5. Confirm in Cloudflare that the Worker has the `*/5 * * * *` Cron Trigger and
+6. Confirm in Cloudflare that the Worker has the `*/5 * * * *` Cron Trigger and
    that its D1 binding targets the same staging database as Pages. A five-minute
    poll means unread bottles are re-routed at the first run after their one-hour
    expiry, with at most one poll interval of scheduling delay.

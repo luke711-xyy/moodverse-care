@@ -6,14 +6,14 @@
 
 1. 确认发件域名的 DNS 托管在 Cloudflare；在 Cloudflare Email Service 中为该域名完成 onboarding，并确认 SPF、DKIM、DMARC 记录已生效。
 2. 创建仅包含 `Email Sending: Edit` 权限的 API Token，并准备 Cloudflare account ID。
-3. 在 Pages 项目的 Production 与 Preview 环境分别设置普通变量：
+3. 仅在独立的 `moodverse-music-staging` Pages 项目的 Preview（staging 分支）环境设置普通变量：
    - `MUSIC_EMAIL_ACCOUNT_ID`：Cloudflare account ID（32 位十六进制）
    - `MUSIC_EMAIL_FROM`：已完成 Email Service onboarding 的发件地址，例如 `login@example.com`
-4. 设置加密 Secrets：
+4. 仅在独立的 `moodverse-music-staging` Pages 项目的 Preview（staging 分支）环境设置加密 Secrets：
    - `MUSIC_EMAIL_API_TOKEN`：Email Sending API Token
    - `MUSIC_AUTH_SECRET`：至少 32 个字符的随机密钥，用于验证码与 IP 标识的 HMAC
-5. 确保 Pages 应用与 `/api/auth/*` 对外可访问，不要让 Cloudflare Access 在登录前拦截整个应用；应用私有 API 自己会验证 `mv_music_session`。
-6. 在已有 Music MVP 数据库中，按编号顺序应用尚未执行的增量迁移（至少包括 `0011_music_email_auth.sql` 至当前版本 `0015_music_account_deletion.sql`），然后部署 Pages 项目。全新隔离 staging 数据库应按 `docs/music-staging-setup.md` 使用 `schema.sql` 初始化，不要把完整旧库迁移链重复灌入空库。
+5. 确认这些变量与 Secrets 写入的是 `moodverse-music-staging`，而不是原有 `moodverse-care` Pages 项目。登录页及 `/api/auth/*` 在登录前必须可访问；不要用 Cloudflare Access 把整个应用挡在邮箱验证码之前，应用私有 API 会自行验证 `mv_music_session`。
+6. 全新隔离 staging 数据库应按 `docs/music-staging-setup.md` 使用 `schema.sql` 初始化，不要把完整旧库迁移链重复灌入空库。若维护的是由旧 schema 逐步升级的音乐 MVP 数据库，则按编号顺序执行尚未应用的增量迁移，至少覆盖 `0011_music_email_auth.sql` 至当前版本 `0016_music_social_rate_limits.sql`，并在部署前核对目标数据库确为 staging。
 
 演示账号使用与普通账号相同的邮箱验证码登录，不存在固定验证码、共享登录口令或绕过认证的演示入口。在 **Preview/staging** 可选配置普通变量 `MUSIC_DEMO_EMAIL`，值为团队实际控制、已完成邮箱验证的演示账号邮箱；匹配时，私有首页会显示“演示账号”标记。此变量不创建用户或演示数据，也不会让 API 返回邮箱地址。不要在 Production 配置该变量。演示账号产生的访问、好友、私信和漂流瓶记录必须来自真实操作，不能预置成虚构互动。
 

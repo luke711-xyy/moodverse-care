@@ -70,7 +70,7 @@ Cloudflare 当前对多数使用场景推荐 remotely-managed Tunnel。以下配
 
 ## 4. Pages staging 环境配置
 
-只在音乐 MVP 的 staging Pages 项目配置以下值；Preview 与 Production 是独立环境，按实际测试范围分别设置。先确认具体 Pages project 和环境，避免误改旧的 `moodverse-care` 正式项目。
+只在 `moodverse-music-staging` Pages 项目的 Preview（staging 分支）环境配置以下值。不要在 Production 或旧的 `moodverse-care` 正式项目中配置这些变量与 Secrets。
 
 普通变量（不是秘密）：
 
