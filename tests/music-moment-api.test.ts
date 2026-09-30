@@ -145,6 +145,7 @@ test('creating a public Moment automatically queues a planet composition refresh
     MUSIC_AI_GATEWAY_URL: 'https://ai.example/v1/planet/compose',
     MUSIC_AI_ACCESS_CLIENT_ID: 'access-client-id',
     MUSIC_AI_ACCESS_CLIENT_SECRET: 'access-client-secret',
+    MUSIC_AI_GATEWAY_TOKEN: 'test-gateway-secret',
   }, pending)
 
   expect(created.status).toBe(201)

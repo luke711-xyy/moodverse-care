@@ -1,10 +1,21 @@
+import { emailMusicSession } from './_music-email-auth'
+
 export type Env = {
   DB: D1Database
   CF_ACCESS_TEAM_DOMAIN?: string
   CF_ACCESS_AUD?: string
+  MUSIC_ALLOW_LEGACY_ACCESS_AUTH?: string
+  MUSIC_AUTH_SECRET?: string
+  MUSIC_EMAIL_ACCOUNT_ID?: string
+  MUSIC_EMAIL_API_TOKEN?: string
+  MUSIC_EMAIL_FROM?: string
+  MUSIC_DEMO_EMAIL?: string
   MUSIC_AI_GATEWAY_URL?: string
+  MUSIC_AI_SONG_PORTAL_URL?: string
+  MUSIC_AI_EMBEDDING_URL?: string
   MUSIC_AI_ACCESS_CLIENT_ID?: string
   MUSIC_AI_ACCESS_CLIENT_SECRET?: string
+  MUSIC_AI_GATEWAY_TOKEN?: string
 }
 
 const COOKIE = 'mv_session'
@@ -123,8 +134,16 @@ async function verifiedAccessClaims(request: Request, env: Env): Promise<{ issue
   }
 }
 
-/** Resolve the verified Cloudflare Access identity used by music-MVP APIs. */
+/** Resolve app-issued email sessions; legacy Access auth is disabled unless explicitly opted in. */
 export async function authenticatedMusicUser(request: Request, env: Env) {
+  const emailIdentity = await emailMusicSession(request, env)
+  if (emailIdentity) {
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method.toUpperCase()) && !hasSameOrigin(request)) return null
+    return emailIdentity
+  }
+
+  if (env.MUSIC_ALLOW_LEGACY_ACCESS_AUTH?.trim() !== 'true') return null
+
   const identity = await verifiedAccessClaims(request, env)
   if (!identity || typeof identity.claims.sub !== 'string' || typeof identity.claims.email !== 'string') return null
 
@@ -156,6 +175,12 @@ export async function authenticatedMusicUser(request: Request, env: Env) {
   `).bind(identity.issuer, subject).first<{ user_id: string }>()
   if (!mapped?.user_id) return null
   return { userId: mapped.user_id, email }
+}
+
+function hasSameOrigin(request: Request) {
+  const origin = request.headers.get('Origin')
+  if (!origin) return false
+  try { return new URL(origin).origin === new URL(request.url).origin } catch { return false }
 }
 
 export async function session(request: Request, env: Env) {

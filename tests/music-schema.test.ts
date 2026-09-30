@@ -4,6 +4,12 @@ import { expect, test } from 'vitest'
 
 const migrationSql = readFileSync(new URL('../migrations/0007_music_mvp_core.sql', import.meta.url), 'utf8')
 const identityMigrationSql = readFileSync(new URL('../migrations/0008_music_access_identity.sql', import.meta.url), 'utf8')
+const visitMigrationSql = readFileSync(new URL('../migrations/0009_music_planet_visits.sql', import.meta.url), 'utf8')
+const orbitMigrationSql = readFileSync(new URL('../migrations/0010_music_orbit.sql', import.meta.url), 'utf8')
+const emailAuthMigrationSql = readFileSync(new URL('../migrations/0011_music_email_auth.sql', import.meta.url), 'utf8')
+const socialMigrationSql = readFileSync(new URL('../migrations/0012_music_social.sql', import.meta.url), 'utf8')
+const driftBottleMigrationSql = readFileSync(new URL('../migrations/0013_music_drift_bottles.sql', import.meta.url), 'utf8')
+const contentReportMigrationSql = readFileSync(new URL('../migrations/0014_music_content_reports.sql', import.meta.url), 'utf8')
 const schemaSql = readFileSync(new URL('../schema.sql', import.meta.url), 'utf8')
 
 function database() {
@@ -76,10 +82,22 @@ test('migration adds the music core without changing legacy user or planet recor
   const db = createPreMusicDatabase()
   db.exec(migrationSql)
   db.exec(identityMigrationSql)
+  db.exec(visitMigrationSql)
+  db.exec(orbitMigrationSql)
+  db.exec(emailAuthMigrationSql)
+  db.exec(socialMigrationSql)
+  db.exec(driftBottleMigrationSql)
+  db.exec(contentReportMigrationSql)
 
   expect(tableNames(db)).toEqual(expect.arrayContaining([
     'users', 'planets', 'music_track_catalog', 'music_planets', 'music_planet_tracks', 'music_moments', 'music_ai_tasks',
     'music_access_identities',
+    'music_planet_visits',
+    'music_song_encounters', 'music_friendships', 'music_daily_roam',
+    'music_auth_challenges', 'music_email_identities', 'music_auth_sessions',
+    'music_social_preferences', 'music_friend_requests', 'music_user_blocks', 'music_direct_messages',
+    'music_drift_preferences', 'music_drift_bottles', 'music_drift_deliveries', 'music_drift_comments', 'music_drift_comment_likes',
+    'music_content_reports',
   ]))
   expect(db.prepare('SELECT alias, theme FROM planets WHERE user_id = ?').get('owner-1')).toEqual({
     alias: '旧星球',
@@ -143,13 +161,24 @@ test('schema.sql mirrors the migration and deleting a music planet cascades thro
   const migratedDb = createPreMusicDatabase()
   migratedDb.exec(migrationSql)
   migratedDb.exec(identityMigrationSql)
+  migratedDb.exec(visitMigrationSql)
+  migratedDb.exec(orbitMigrationSql)
+  migratedDb.exec(emailAuthMigrationSql)
+  migratedDb.exec(socialMigrationSql)
+  migratedDb.exec(driftBottleMigrationSql)
+  migratedDb.exec(contentReportMigrationSql)
 
   const db = database()
   db.exec(schemaSql)
   expect(musicSchemaObjects(db)).toEqual(musicSchemaObjects(migratedDb))
   const names = tableNames(db)
   expect(names).toEqual(expect.arrayContaining([
-    'music_track_catalog', 'music_planets', 'music_planet_tracks', 'music_moments', 'music_ai_tasks', 'music_access_identities',
+    'music_track_catalog', 'music_planets', 'music_planet_tracks', 'music_moments', 'music_ai_tasks', 'music_access_identities', 'music_planet_visits',
+    'music_song_encounters', 'music_friendships', 'music_daily_roam',
+    'music_auth_challenges', 'music_email_identities', 'music_auth_sessions',
+    'music_social_preferences', 'music_friend_requests', 'music_user_blocks', 'music_direct_messages',
+    'music_drift_preferences', 'music_drift_bottles', 'music_drift_deliveries', 'music_drift_comments', 'music_drift_comment_likes',
+    'music_content_reports',
   ]))
 
   db.prepare(`
@@ -184,6 +213,10 @@ test('schema.sql mirrors the migration and deleting a music planet cascades thro
   expect(db.prepare('SELECT count(*) AS count FROM music_planet_tracks').get()).toEqual({ count: 0 })
   expect(db.prepare('SELECT count(*) AS count FROM music_moments').get()).toEqual({ count: 0 })
   expect(db.prepare('SELECT count(*) AS count FROM music_ai_tasks').get()).toEqual({ count: 0 })
+  expect(db.prepare('SELECT count(*) AS count FROM music_planet_visits').get()).toEqual({ count: 0 })
+  expect(db.prepare('SELECT count(*) AS count FROM music_song_encounters').get()).toEqual({ count: 0 })
+  expect(db.prepare('SELECT count(*) AS count FROM music_daily_roam').get()).toEqual({ count: 0 })
+  expect(db.prepare('SELECT count(*) AS count FROM music_friendships').get()).toEqual({ count: 0 })
   expect(db.prepare('SELECT alias FROM planets WHERE user_id = ?').get('owner-1')).toEqual({ alias: '我的星球' })
 
   db.close()

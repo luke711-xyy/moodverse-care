@@ -206,7 +206,8 @@ export async function schedulePlanetComposition(
   waitUntil: (task: Promise<unknown>) => void,
 ): Promise<QueueResult> {
   const endpoint = gatewayUrl(env)
-  if (!endpoint || !env.MUSIC_AI_ACCESS_CLIENT_ID?.trim() || !env.MUSIC_AI_ACCESS_CLIENT_SECRET?.trim()) {
+  const gatewayToken = env.MUSIC_AI_GATEWAY_TOKEN?.trim()
+  if (!endpoint || !env.MUSIC_AI_ACCESS_CLIENT_ID?.trim() || !env.MUSIC_AI_ACCESS_CLIENT_SECRET?.trim() || !gatewayToken) {
     return { state: 'not_configured' }
   }
 
@@ -259,6 +260,7 @@ async function processComposition(
         accept: 'application/json',
         'Cf-Access-Client-Id': env.MUSIC_AI_ACCESS_CLIENT_ID!,
         'Cf-Access-Client-Secret': env.MUSIC_AI_ACCESS_CLIENT_SECRET!,
+        authorization: `Bearer ${env.MUSIC_AI_GATEWAY_TOKEN!.trim()}`,
       },
       body: JSON.stringify({ taskId, schemaVersion: VISUAL_SCHEMA_VERSION, ...input }),
       redirect: 'error',

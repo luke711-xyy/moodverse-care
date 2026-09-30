@@ -1,4 +1,5 @@
 import { careCardInsert, makeCareCard } from './functions/_care'
+import { processDriftBottleQueue } from './functions/_music-drift-bottles'
 
 type Env = { DB: D1Database }
 type CheckInRow = {
@@ -55,10 +56,15 @@ async function generateMissing(env: Env) {
   return { checked: rows.results.length, generated }
 }
 
+export async function scheduled(event: ScheduledEvent, env: Env) {
+  // Bottle deliveries expire at the one-hour boundary; run the queue every
+  // five minutes while keeping daily care-card generation on the hour.
+  if (new Date(event.scheduledTime).getUTCMinutes() === 0) await generateMissing(env)
+  await processDriftBottleQueue(env)
+}
+
 export default {
-  async scheduled(_event: ScheduledEvent, env: Env) {
-    await generateMissing(env)
-  },
+  scheduled,
   async fetch(request: Request) {
     if (new URL(request.url).pathname === '/health') return Response.json({ ok: true })
     return new Response('Moodverse care worker', { status: 200 })

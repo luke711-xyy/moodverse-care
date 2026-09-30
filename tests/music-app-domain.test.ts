@@ -33,8 +33,8 @@ describe('new planet draft validation', () => {
 })
 
 describe('music API errors', () => {
-  test('recognizes missing Cloudflare Access identity separately from service failures', () => {
-    expect(classifyMusicApiError(401, 'UNAUTHENTICATED')).toBe('access-required')
+  test('recognizes missing email authentication separately from service failures', () => {
+    expect(classifyMusicApiError(401, 'UNAUTHENTICATED')).toBe('auth-required')
     expect(classifyMusicApiError(503, 'AI_GATEWAY_NOT_CONFIGURED')).toBe('ai-unavailable')
     expect(classifyMusicApiError(503, 'SERVICE_UNAVAILABLE')).toBe('request-failed')
   })

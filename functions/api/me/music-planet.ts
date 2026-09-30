@@ -134,7 +134,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   const identity = await authenticatedMusicUser(request, env)
   if (!identity) return response({ error: 'UNAUTHENTICATED' }, 401)
   const planet = await readOwnerPlanet(env, identity.userId)
-  return response({ planet })
+  const demoEmail = env.MUSIC_DEMO_EMAIL?.trim().toLocaleLowerCase() ?? ''
+  const accountEmail = identity.email?.trim().toLocaleLowerCase() ?? ''
+  return response({ planet, isDemoAccount: Boolean(demoEmail && accountEmail && demoEmail === accountEmail) })
 }
 
 export const onRequestPost: PagesFunction<Env> = async (context) => {

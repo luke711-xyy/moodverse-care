@@ -1,0 +1,40 @@
+# Music MVP 邮箱验证码登录配置
+
+## Cloudflare 配置
+
+当前应用运行在 Cloudflare Pages Functions，因此登录邮件通过 Cloudflare Email Service REST API 发送；官方说明 REST API 可从任意后端调用，不依赖 Workers 邮件绑定。Cloudflare Email Service 负责投递，不是身份提供方：验证码校验、账号关联和应用会话由 Moodverse Functions 管理。
+
+1. 确认发件域名的 DNS 托管在 Cloudflare；在 Cloudflare Email Service 中为该域名完成 onboarding，并确认 SPF、DKIM、DMARC 记录已生效。
+2. 创建仅包含 `Email Sending: Edit` 权限的 API Token，并准备 Cloudflare account ID。
+3. 在 Pages 项目的 Production 与 Preview 环境分别设置普通变量：
+   - `MUSIC_EMAIL_ACCOUNT_ID`：Cloudflare account ID（32 位十六进制）
+   - `MUSIC_EMAIL_FROM`：已完成 Email Service onboarding 的发件地址，例如 `login@example.com`
+4. 设置加密 Secrets：
+   - `MUSIC_EMAIL_API_TOKEN`：Email Sending API Token
+   - `MUSIC_AUTH_SECRET`：至少 32 个字符的随机密钥，用于验证码与 IP 标识的 HMAC
+5. 确保 Pages 应用与 `/api/auth/*` 对外可访问，不要让 Cloudflare Access 在登录前拦截整个应用；应用私有 API 自己会验证 `mv_music_session`。
+6. 应用 D1 迁移 `0011_music_email_auth.sql`，然后部署 Pages 项目。
+
+演示账号使用与普通账号相同的邮箱验证码登录，不存在固定验证码、共享登录口令或绕过认证的演示入口。在 **Preview/staging** 可选配置普通变量 `MUSIC_DEMO_EMAIL`，值为团队实际控制、已完成邮箱验证的演示账号邮箱；匹配时，私有首页会显示“演示账号”标记。此变量不创建用户或演示数据，也不会让 API 返回邮箱地址。不要在 Production 配置该变量。演示账号产生的访问、好友、私信和漂流瓶记录必须来自真实操作，不能预置成虚构互动。
+
+`MUSIC_ALLOW_LEGACY_ACCESS_AUTH` 默认必须保持未设置。它只为显式批准的私有过渡环境保留旧 Access 身份兼容，不是公开登录方式；Email 验证成功仍可按唯一、已验证邮箱关联旧 Access 账号，冲突时拒绝自动合并。
+
+Cloudflare 官方参考：
+
+- Email Service 发件设置：<https://developers.cloudflare.com/email-service/get-started/send-emails/>
+- Email Sending REST API：<https://developers.cloudflare.com/email-service/api/send-emails/rest-api/>
+- Email Service 定价与任意收件人规则：<https://developers.cloudflare.com/email-service/platform/pricing/>
+- Pages Functions 绑定清单：<https://developers.cloudflare.com/pages/functions/bindings/>
+
+Email Service 任意收件人发送依赖 Workers Paid 计划；完成 API 侧配置前，应用会安全地拒绝创建可用登录码，不会降级为固定码或匿名音乐账号。
+
+按 Cloudflare 当前定价说明，向任意收件人发送要求 Workers Paid；每个账户每月含 3,000 封，超出后为每 1,000 封 $0.35。Email Sending 目前仍标记为 Beta。请在启用 Preview/Production 前确认该 Cloudflare 账户有资格使用并接受对应计费。
+
+## 应用安全与限额
+
+- OTP 为 6 位数字，10 分钟有效、单次使用，数据库仅保存 `MUSIC_AUTH_SECRET` HMAC 摘要。
+- 每个邮箱每小时最多 3 次，单一来源 IP 每小时最多 10 次；同邮箱 60 秒冷却。
+- 单个验证码最多尝试 5 次；重新发送会作废先前验证码。
+- 邮箱验证后签发 30 天 HttpOnly、Secure、SameSite=Lax 会话；登出可撤销服务端会话。
+- 登录前后统一返回文案，不在发码接口查询账号是否存在。若旧 Cloudflare Access 邮箱唯一映射到一个用户，首次邮箱验证会关联回原 user ID，避免迁移旧星球数据；多个旧用户共享同一邮箱时会拒绝自动合并。
+- Email Sending API Token 和 HMAC Secret 只能配置在 Cloudflare 加密 Secrets，不要写入 `wrangler.toml`、客户端代码或仓库变量文件。

@@ -22,10 +22,10 @@ export function validatePlanetDraft(displayName: string, trackIds: string[]): Pl
   return { ok: true }
 }
 
-export type MusicApiErrorKind = 'access-required' | 'ai-unavailable' | 'request-failed'
+export type MusicApiErrorKind = 'auth-required' | 'ai-unavailable' | 'request-failed'
 
 export function classifyMusicApiError(status: number, code?: string): MusicApiErrorKind {
-  if (status === 401 || code === 'UNAUTHENTICATED') return 'access-required'
+  if (status === 401 || code === 'UNAUTHENTICATED') return 'auth-required'
   if (status === 503 && code === 'AI_GATEWAY_NOT_CONFIGURED') return 'ai-unavailable'
   return 'request-failed'
 }

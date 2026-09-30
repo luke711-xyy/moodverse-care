@@ -59,7 +59,7 @@ async function call(
 
 async function readPlanet(subject = 'owner-subject-1') {
   const response = await call(onRequestGet, 'GET', undefined, subject)
-  return { response, body: await response.json() as { planet: null | Record<string, any> } }
+  return { response, body: await response.json() as { planet: null | Record<string, any>; isDemoAccount: boolean } }
 }
 
 async function createPlanet(body: unknown, subject = 'owner-subject-1') {
@@ -75,8 +75,22 @@ test('music planet GET requires verified Access identity and returns an empty ow
 
   const { response, body } = await readPlanet()
   expect(response.status).toBe(200)
-  expect(body).toEqual({ planet: null })
+  expect(body).toEqual({ planet: null, isDemoAccount: false })
   expect(fixture.sqlite.prepare('SELECT count(*) AS count FROM music_planets').get()).toEqual({ count: 0 })
+})
+
+test('marks only the configured demo email without returning its email address', async () => {
+  const demo = await call(onRequestGet, 'GET', undefined, 'hackathon-demo', {
+    MUSIC_DEMO_EMAIL: '  HACKATHON-DEMO@example.com  ',
+  })
+  const demoBody = await demo.json() as Record<string, unknown>
+  expect(demoBody).toMatchObject({ planet: null, isDemoAccount: true })
+  expect(demoBody).not.toHaveProperty('email')
+
+  const regular = await call(onRequestGet, 'GET', undefined, 'regular-user', {
+    MUSIC_DEMO_EMAIL: 'hackathon-demo@example.com',
+  })
+  expect(await regular.json()).toMatchObject({ planet: null, isDemoAccount: false })
 })
 
 test('creation requires three active tracks and defaults to a public planet with the first track primary', async () => {
@@ -190,6 +204,7 @@ test('changing selected tracks automatically queues a planet composition refresh
     MUSIC_AI_GATEWAY_URL: 'https://ai.example/v1/planet/compose',
     MUSIC_AI_ACCESS_CLIENT_ID: 'access-client-id',
     MUSIC_AI_ACCESS_CLIENT_SECRET: 'access-client-secret',
+    MUSIC_AI_GATEWAY_TOKEN: 'test-gateway-secret',
   }, pending)
 
   expect(updated.status).toBe(200)

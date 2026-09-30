@@ -108,6 +108,24 @@ test('composer requires a verified owner and configured authenticated local gate
   expect(unconfigured.response.status).toBe(503)
   expect(await unconfigured.response.json()).toEqual({ error: 'AI_GATEWAY_NOT_CONFIGURED' })
   expect(fixture.sqlite.prepare('SELECT count(*) AS count FROM music_ai_tasks').get()).toEqual({ count: 0 })
+
+  const originalFetch = globalThis.fetch
+  let modelCalls = 0
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (new URL(input.toString()).origin === issuer) return originalFetch(input, init)
+    modelCalls += 1
+    return Response.json({ model: { name: 'qwen-local', version: '4b-q4-v1' }, output: expectedVisual })
+  }))
+  const missingOriginToken = await compose({
+    MUSIC_AI_GATEWAY_URL: 'https://ai.example/v1/planet/compose',
+    MUSIC_AI_ACCESS_CLIENT_ID: 'access-client-id',
+    MUSIC_AI_ACCESS_CLIENT_SECRET: 'access-client-secret',
+  })
+  await Promise.all(missingOriginToken.pending)
+  expect(missingOriginToken.response.status).toBe(503)
+  expect(await missingOriginToken.response.json()).toEqual({ error: 'AI_GATEWAY_NOT_CONFIGURED' })
+  expect(missingOriginToken.pending).toHaveLength(0)
+  expect(modelCalls).toBe(0)
 })
 
 test('composer sends only selected track metadata and public Moments, then stores the validated visual result', async () => {
@@ -127,6 +145,7 @@ test('composer sends only selected track metadata and public Moments, then store
     MUSIC_AI_GATEWAY_URL: 'https://ai.example/v1/planet/compose',
     MUSIC_AI_ACCESS_CLIENT_ID: 'access-client-id',
     MUSIC_AI_ACCESS_CLIENT_SECRET: 'access-client-secret',
+    MUSIC_AI_GATEWAY_TOKEN: 'test-gateway-secret',
   })
   const accepted = await response.json() as { task: { id: string; status: string } }
   expect(response.status).toBe(202)
@@ -137,6 +156,7 @@ test('composer sends only selected track metadata and public Moments, then store
   const headers = new Headers(gatewayRequest?.init.headers)
   expect(headers.get('Cf-Access-Client-Id')).toBe('access-client-id')
   expect(headers.get('Cf-Access-Client-Secret')).toBe('access-client-secret')
+  expect(headers.get('Authorization')).toBe('Bearer test-gateway-secret')
   const payload = JSON.parse(String(gatewayRequest?.init.body)) as Record<string, any>
   expect(payload).toMatchObject({
     taskId: accepted.task.id,
@@ -182,6 +202,7 @@ test('malformed model output fails closed and cannot replace the previous planet
     MUSIC_AI_GATEWAY_URL: 'https://ai.example/v1/planet/compose',
     MUSIC_AI_ACCESS_CLIENT_ID: 'access-client-id',
     MUSIC_AI_ACCESS_CLIENT_SECRET: 'access-client-secret',
+    MUSIC_AI_GATEWAY_TOKEN: 'test-gateway-secret',
   })
   const accepted = await response.json() as { task: { id: string } }
   await Promise.all(pending)
@@ -197,6 +218,7 @@ test('another Access identity cannot compose or read the owner task', async () =
     MUSIC_AI_GATEWAY_URL: 'https://ai.example/v1/planet/compose',
     MUSIC_AI_ACCESS_CLIENT_ID: 'access-client-id',
     MUSIC_AI_ACCESS_CLIENT_SECRET: 'access-client-secret',
+    MUSIC_AI_GATEWAY_TOKEN: 'test-gateway-secret',
   }, 'different-subject')
   expect(outsider.response.status).toBe(404)
   expect(fixture.sqlite.prepare('SELECT count(*) AS count FROM music_ai_tasks').get()).toEqual({ count: 0 })

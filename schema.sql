@@ -31,6 +31,46 @@ CREATE TABLE IF NOT EXISTS music_access_identities (
 CREATE INDEX IF NOT EXISTS music_access_identities_email
   ON music_access_identities(email);
 
+-- Email OTP authentication for the music MVP. OTPs are stored as HMAC digests;
+-- authenticated sessions use a dedicated cookie and are not anonymous legacy sessions.
+CREATE TABLE IF NOT EXISTS music_auth_challenges (
+  id TEXT PRIMARY KEY,
+  email TEXT NOT NULL COLLATE NOCASE,
+  code_hash TEXT NOT NULL,
+  request_ip_hash TEXT NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts BETWEEN 0 AND 5),
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  consumed_at TEXT,
+  consumed_nonce TEXT,
+  invalidated_at TEXT,
+  locked_at TEXT
+);
+CREATE INDEX IF NOT EXISTS music_auth_challenges_email_created
+  ON music_auth_challenges(email, created_at DESC);
+CREATE INDEX IF NOT EXISTS music_auth_challenges_ip_created
+  ON music_auth_challenges(request_ip_hash, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS music_email_identities (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  email TEXT NOT NULL COLLATE NOCASE UNIQUE,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (user_id, email)
+);
+CREATE INDEX IF NOT EXISTS music_email_identities_user
+  ON music_email_identities(user_id);
+
+CREATE TABLE IF NOT EXISTS music_auth_sessions (
+  token_hash TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  revoked_at TEXT
+);
+CREATE INDEX IF NOT EXISTS music_auth_sessions_user_expiry
+  ON music_auth_sessions(user_id, expires_at DESC);
+
 CREATE TABLE IF NOT EXISTS planets (
   user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   alias TEXT NOT NULL DEFAULT '我的星球',
@@ -243,3 +283,203 @@ CREATE INDEX IF NOT EXISTS music_ai_tasks_requester_created
   ON music_ai_tasks(requester_user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS music_ai_tasks_status_created
   ON music_ai_tasks(status, created_at);
+
+-- Latest public-planet visit per viewer; hidden visits remain private to the visitor.
+CREATE TABLE IF NOT EXISTS music_planet_visits (
+  planet_id TEXT NOT NULL REFERENCES music_planets(id) ON DELETE CASCADE,
+  visitor_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  last_visited_at TEXT NOT NULL,
+  is_incognito INTEGER NOT NULL DEFAULT 0 CHECK (is_incognito IN (0, 1)),
+  PRIMARY KEY (planet_id, visitor_user_id)
+);
+CREATE INDEX IF NOT EXISTS music_planet_visits_by_visitor
+  ON music_planet_visits(visitor_user_id, last_visited_at DESC);
+CREATE INDEX IF NOT EXISTS music_planet_visits_visible_by_planet
+  ON music_planet_visits(planet_id, last_visited_at DESC) WHERE is_incognito = 0;
+
+-- Orbit encounter, friendship, and daily roam data. No legacy visit rows are
+-- reclassified into new relationship types.
+CREATE TABLE IF NOT EXISTS music_song_encounters (
+  visitor_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  planet_id TEXT NOT NULL REFERENCES music_planets(id) ON DELETE CASCADE,
+  track_id TEXT NOT NULL REFERENCES music_track_catalog(id) ON DELETE RESTRICT,
+  first_encountered_at TEXT NOT NULL,
+  last_encountered_at TEXT NOT NULL,
+  PRIMARY KEY (visitor_user_id, planet_id, track_id)
+);
+CREATE INDEX IF NOT EXISTS music_song_encounters_by_user
+  ON music_song_encounters(visitor_user_id, last_encountered_at DESC);
+
+CREATE TABLE IF NOT EXISTS music_friendships (
+  user_a_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_b_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (user_a_id, user_b_id),
+  CHECK (user_a_id < user_b_id)
+);
+CREATE INDEX IF NOT EXISTS music_friendships_by_user_b
+  ON music_friendships(user_b_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS music_daily_roam (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  recommendation_date TEXT NOT NULL,
+  planet_id TEXT NOT NULL REFERENCES music_planets(id) ON DELETE CASCADE,
+  position INTEGER NOT NULL CHECK (position BETWEEN 0 AND 5),
+  reason_code TEXT NOT NULL CHECK (reason_code IN (
+    'similar_genre', 'similar_mood', 'similar_moment', 'semantic_profile', 'random'
+  )),
+  match_score REAL NOT NULL CHECK (match_score BETWEEN 0 AND 1),
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (user_id, recommendation_date, planet_id),
+  UNIQUE (user_id, recommendation_date, position)
+);
+CREATE INDEX IF NOT EXISTS music_daily_roam_by_day
+  ON music_daily_roam(user_id, recommendation_date DESC, position ASC);
+
+CREATE TABLE IF NOT EXISTS music_social_preferences (
+  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  allow_friend_requests INTEGER NOT NULL DEFAULT 1 CHECK (allow_friend_requests IN (0, 1)),
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS music_friend_requests (
+  id TEXT PRIMARY KEY,
+  requester_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  recipient_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  planet_id TEXT REFERENCES music_planets(id) ON DELETE SET NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'rejected', 'cancelled')),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  responded_at TEXT,
+  CHECK (requester_user_id <> recipient_user_id),
+  UNIQUE (requester_user_id, recipient_user_id)
+);
+CREATE INDEX IF NOT EXISTS music_friend_requests_incoming
+  ON music_friend_requests(recipient_user_id, status, created_at DESC);
+CREATE INDEX IF NOT EXISTS music_friend_requests_outgoing
+  ON music_friend_requests(requester_user_id, status, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS music_user_blocks (
+  blocker_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  blocked_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (blocker_user_id, blocked_user_id),
+  CHECK (blocker_user_id <> blocked_user_id)
+);
+CREATE INDEX IF NOT EXISTS music_user_blocks_blocked
+  ON music_user_blocks(blocked_user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS music_direct_messages (
+  id TEXT PRIMARY KEY,
+  sender_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  recipient_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  content_text TEXT NOT NULL CHECK (length(trim(content_text)) BETWEEN 1 AND 2000),
+  created_at TEXT NOT NULL,
+  read_at TEXT,
+  hidden_for_sender INTEGER NOT NULL DEFAULT 0 CHECK (hidden_for_sender IN (0, 1)),
+  hidden_for_recipient INTEGER NOT NULL DEFAULT 0 CHECK (hidden_for_recipient IN (0, 1)),
+  CHECK (sender_user_id <> recipient_user_id)
+);
+CREATE INDEX IF NOT EXISTS music_direct_messages_sender
+  ON music_direct_messages(sender_user_id, recipient_user_id, created_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS music_direct_messages_recipient
+  ON music_direct_messages(recipient_user_id, sender_user_id, created_at DESC, id DESC);
+
+CREATE TABLE IF NOT EXISTS music_drift_preferences (
+  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  allow_receiving INTEGER NOT NULL DEFAULT 1 CHECK (allow_receiving IN (0, 1)),
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS music_drift_bottles (
+  id TEXT PRIMARY KEY,
+  sender_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  topic_type TEXT NOT NULL CHECK (topic_type IN ('song', 'info', 'moment')),
+  track_id TEXT REFERENCES music_track_catalog(id) ON DELETE RESTRICT,
+  moment_id TEXT REFERENCES music_moments(id) ON DELETE SET NULL,
+  info_title TEXT,
+  info_url TEXT,
+  info_summary TEXT,
+  message_text TEXT NOT NULL DEFAULT '' CHECK (length(message_text) <= 500),
+  created_day_utc TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'stopped', 'unavailable')),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  CHECK (
+    (topic_type = 'song' AND track_id IS NOT NULL AND moment_id IS NULL AND info_title IS NULL AND info_url IS NULL AND info_summary IS NULL)
+    OR (topic_type = 'info' AND track_id IS NULL AND moment_id IS NULL AND info_title IS NOT NULL AND info_url IS NOT NULL AND info_summary IS NOT NULL)
+    OR (topic_type = 'moment' AND track_id IS NULL AND (moment_id IS NOT NULL OR status = 'unavailable') AND info_title IS NULL AND info_url IS NULL AND info_summary IS NULL)
+  ),
+  UNIQUE (sender_user_id, created_day_utc)
+);
+CREATE INDEX IF NOT EXISTS music_drift_bottles_sender_created
+  ON music_drift_bottles(sender_user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS music_drift_bottles_active_created
+  ON music_drift_bottles(status, created_at);
+
+CREATE TABLE IF NOT EXISTS music_drift_deliveries (
+  id TEXT PRIMARY KEY,
+  bottle_id TEXT NOT NULL REFERENCES music_drift_bottles(id) ON DELETE CASCADE,
+  recipient_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  hop INTEGER NOT NULL CHECK (hop > 0),
+  status TEXT NOT NULL CHECK (status IN ('unread', 'read', 'released', 'expired')),
+  delivered_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  opened_at TEXT,
+  released_at TEXT,
+  UNIQUE (bottle_id, hop)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS music_drift_deliveries_one_active
+  ON music_drift_deliveries(bottle_id) WHERE status IN ('unread', 'read');
+CREATE INDEX IF NOT EXISTS music_drift_deliveries_recipient_active
+  ON music_drift_deliveries(recipient_user_id, status, delivered_at DESC);
+CREATE INDEX IF NOT EXISTS music_drift_deliveries_bottle_history
+  ON music_drift_deliveries(bottle_id, hop DESC);
+
+CREATE TABLE IF NOT EXISTS music_drift_comments (
+  id TEXT PRIMARY KEY,
+  bottle_id TEXT NOT NULL REFERENCES music_drift_bottles(id) ON DELETE CASCADE,
+  delivery_id TEXT NOT NULL REFERENCES music_drift_deliveries(id) ON DELETE CASCADE,
+  author_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  content_text TEXT NOT NULL CHECK (length(trim(content_text)) BETWEEN 1 AND 500),
+  created_at TEXT NOT NULL,
+  UNIQUE (delivery_id, author_user_id, id)
+);
+CREATE INDEX IF NOT EXISTS music_drift_comments_bottle_created
+  ON music_drift_comments(bottle_id, created_at, id);
+
+CREATE TABLE IF NOT EXISTS music_drift_comment_likes (
+  comment_id TEXT NOT NULL REFERENCES music_drift_comments(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (comment_id, user_id)
+);
+
+-- Minimal user-submitted moderation intake. Target IDs are intentionally not
+-- foreign keys so a report remains reviewable after its content is removed.
+CREATE TABLE IF NOT EXISTS music_content_reports (
+  id TEXT PRIMARY KEY,
+  reporter_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  target_type TEXT NOT NULL CHECK (target_type IN ('planet', 'moment', 'drift_bottle', 'drift_comment', 'direct_message')),
+  target_id TEXT NOT NULL CHECK (length(trim(target_id)) BETWEEN 1 AND 128),
+  reason TEXT NOT NULL CHECK (reason IN ('spam', 'harassment', 'inappropriate', 'privacy', 'copyright', 'other')),
+  detail TEXT NOT NULL DEFAULT '' CHECK (length(detail) <= 500),
+  status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'reviewing', 'actioned', 'dismissed')),
+  created_at TEXT NOT NULL,
+  UNIQUE (reporter_user_id, target_type, target_id)
+);
+CREATE INDEX IF NOT EXISTS music_content_reports_review_queue
+  ON music_content_reports(status, created_at ASC);
+CREATE INDEX IF NOT EXISTS music_content_reports_reporter_created
+  ON music_content_reports(reporter_user_id, created_at DESC);
+
+CREATE TRIGGER IF NOT EXISTS music_content_reports_daily_limit
+BEFORE INSERT ON music_content_reports
+WHEN (
+  SELECT count(*) FROM music_content_reports
+  WHERE reporter_user_id = NEW.reporter_user_id
+    AND substr(created_at, 1, 10) = substr(NEW.created_at, 1, 10)
+) >= 5
+BEGIN
+  SELECT RAISE(ABORT, 'MUSIC_REPORT_DAILY_LIMIT');
+END;

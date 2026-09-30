@@ -108,11 +108,24 @@ export const onRequestDelete: PagesFunction<Env> = async (context) => {
   `).bind(momentId, identity.userId).first<{ visibility: 'public' | 'private' }>()
   if (!existing) return respond({ error: 'MOMENT_NOT_FOUND' }, 404)
 
-  const deleted = await env.DB.prepare(`
-    DELETE FROM music_moments
-    WHERE id = ?1
-      AND planet_id IN (SELECT id FROM music_planets WHERE owner_user_id = ?2)
-  `).bind(momentId, identity.userId).run()
+  const [, , deleted] = await env.DB.batch([
+    env.DB.prepare(`
+      UPDATE music_drift_bottles
+      SET status = 'unavailable', updated_at = ?1
+      WHERE topic_type = 'moment' AND moment_id = ?2
+    `).bind(new Date().toISOString(), momentId),
+    env.DB.prepare(`
+      UPDATE music_drift_deliveries SET status = 'expired'
+      WHERE status IN ('unread', 'read') AND bottle_id IN (
+        SELECT id FROM music_drift_bottles WHERE topic_type = 'moment' AND moment_id = ?1 AND status = 'unavailable'
+      )
+    `).bind(momentId),
+    env.DB.prepare(`
+      DELETE FROM music_moments
+      WHERE id = ?1
+        AND planet_id IN (SELECT id FROM music_planets WHERE owner_user_id = ?2)
+    `).bind(momentId, identity.userId),
+  ])
   if (deleted.meta.changes !== 1) return respond({ error: 'MOMENT_NOT_FOUND' }, 404)
   const composition = existing.visibility === 'public'
     ? await schedulePlanetComposition(env, identity.userId, (task) => context.waitUntil(task))

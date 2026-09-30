@@ -71,6 +71,18 @@ export function createMusicApiFixture() {
 
   const identityMigration = new URL('../../migrations/0008_music_access_identity.sql', import.meta.url)
   if (existsSync(identityMigration)) sqlite.exec(readFileSync(identityMigration, 'utf8'))
+  const visitMigration = new URL('../../migrations/0009_music_planet_visits.sql', import.meta.url)
+  if (existsSync(visitMigration)) sqlite.exec(readFileSync(visitMigration, 'utf8'))
+  const orbitMigration = new URL('../../migrations/0010_music_orbit.sql', import.meta.url)
+  if (existsSync(orbitMigration)) sqlite.exec(readFileSync(orbitMigration, 'utf8'))
+  const emailAuthMigration = new URL('../../migrations/0011_music_email_auth.sql', import.meta.url)
+  if (existsSync(emailAuthMigration)) sqlite.exec(readFileSync(emailAuthMigration, 'utf8'))
+  const socialMigration = new URL('../../migrations/0012_music_social.sql', import.meta.url)
+  if (existsSync(socialMigration)) sqlite.exec(readFileSync(socialMigration, 'utf8'))
+  const driftBottleMigration = new URL('../../migrations/0013_music_drift_bottles.sql', import.meta.url)
+  if (existsSync(driftBottleMigration)) sqlite.exec(readFileSync(driftBottleMigration, 'utf8'))
+  const contentReportMigration = new URL('../../migrations/0014_music_content_reports.sql', import.meta.url)
+  if (existsSync(contentReportMigration)) sqlite.exec(readFileSync(contentReportMigration, 'utf8'))
 
   return {
     db: createD1Adapter(sqlite),
@@ -84,6 +96,9 @@ export function createMusicApiEnv(db: D1Database, overrides: Partial<Env> = {}):
     DB: db,
     CF_ACCESS_TEAM_DOMAIN: 'https://moodverse-test.cloudflareaccess.com',
     CF_ACCESS_AUD: 'music-api-test-audience',
+    // Most API suites exercise the explicitly retained, test-only legacy auth
+    // path. Production Wrangler config leaves this unset; email sessions are primary.
+    MUSIC_ALLOW_LEGACY_ACCESS_AUTH: 'true',
     ...overrides,
   } as Env
 }

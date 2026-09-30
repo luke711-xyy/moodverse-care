@@ -4,3 +4,5 @@ dist/
 .playwright-cli/
 output/
 .DS_Store
+__pycache__/
+*.py[cod]

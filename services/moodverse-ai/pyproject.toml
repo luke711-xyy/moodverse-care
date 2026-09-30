@@ -1,0 +1,12 @@
+[project]
+name = "moodverse-ai-gateway"
+version = "0.1.0"
+description = "Loopback-only MLX inference gateway for Moodverse"
+requires-python = ">=3.11"
+dependencies = [
+  "mlx-vlm",
+  "mlx-embeddings",
+]
+
+[tool.uv]
+package = false

@@ -1,4 +1,4 @@
-import { safeHttpsUrl, type Env } from '../../../_shared'
+import { authenticatedMusicUser, safeHttpsUrl, type Env } from '../../../_shared'
 import type { MusicTrackSummary } from '../../../../src/music-domain'
 import { mapMoment, type MomentRow, stringArray } from '../../../_music-moments'
 
@@ -68,16 +68,18 @@ function trackSummary(row: PublicTrackRow): MusicTrackSummary & {
   }
 }
 
-export const onRequestGet: PagesFunction<Env> = async ({ env, params }) => {
-  const planetId = typeof params?.id === 'string' ? params.id.trim() : ''
-  if (!planetId || planetId.length > 128) return respond({ error: 'PLANET_NOT_FOUND' }, 404)
-
+export async function readPublicPlanet(env: Env, planetId: string, viewerUserId?: string | null) {
   const row = await env.DB.prepare(`
     SELECT id, display_name, tagline, visibility, visual_schema_version, visual_json, created_at, updated_at
     FROM music_planets
     WHERE id = ?1 AND visibility = 'public'
-  `).bind(planetId).first<PublicPlanetRow>()
-  if (!row) return respond({ error: 'PLANET_NOT_FOUND' }, 404)
+      AND (?2 IS NULL OR NOT EXISTS (
+        SELECT 1 FROM music_user_blocks b
+        WHERE (b.blocker_user_id = ?2 AND b.blocked_user_id = music_planets.owner_user_id)
+           OR (b.blocker_user_id = music_planets.owner_user_id AND b.blocked_user_id = ?2)
+      ))
+  `).bind(planetId, viewerUserId ?? null).first<PublicPlanetRow>()
+  if (!row) return null
 
   const [{ results: trackRows }, { results: momentRows }] = await Promise.all([
     env.DB.prepare(`
@@ -105,18 +107,24 @@ export const onRequestGet: PagesFunction<Env> = async ({ env, params }) => {
     `).bind(row.id).all<MomentRow>(),
   ])
 
-  return respond({
-    planet: {
-      id: row.id,
-      displayName: row.display_name,
-      tagline: row.tagline,
-      visibility: row.visibility,
-      visualSchemaVersion: row.visual_schema_version,
-      visual: visualObject(row.visual_json),
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-      tracks: trackRows.map(trackSummary),
-      moments: momentRows.map(mapMoment),
-    },
-  })
+  return {
+    id: row.id,
+    displayName: row.display_name,
+    tagline: row.tagline,
+    visibility: row.visibility,
+    visualSchemaVersion: row.visual_schema_version,
+    visual: visualObject(row.visual_json),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    tracks: trackRows.map(trackSummary),
+    moments: momentRows.map(mapMoment),
+  }
+}
+
+export const onRequestGet: PagesFunction<Env> = async ({ request, env, params }) => {
+  const planetId = typeof params?.id === 'string' ? params.id.trim() : ''
+  if (!planetId || planetId.length > 128) return respond({ error: 'PLANET_NOT_FOUND' }, 404)
+  const identity = await authenticatedMusicUser(request, env)
+  const planet = await readPublicPlanet(env, planetId, identity?.userId)
+  return planet ? respond({ planet }) : respond({ error: 'PLANET_NOT_FOUND' }, 404)
 }
