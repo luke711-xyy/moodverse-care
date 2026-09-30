@@ -83,6 +83,8 @@ export function createMusicApiFixture() {
   if (existsSync(driftBottleMigration)) sqlite.exec(readFileSync(driftBottleMigration, 'utf8'))
   const contentReportMigration = new URL('../../migrations/0014_music_content_reports.sql', import.meta.url)
   if (existsSync(contentReportMigration)) sqlite.exec(readFileSync(contentReportMigration, 'utf8'))
+  const accountDeletionMigration = new URL('../../migrations/0015_music_account_deletion.sql', import.meta.url)
+  if (existsSync(accountDeletionMigration)) sqlite.exec(readFileSync(accountDeletionMigration, 'utf8'))
 
   return {
     db: createD1Adapter(sqlite),

@@ -46,6 +46,21 @@ describe('music API client', () => {
     ])
   })
 
+  test('requests a step-up code and confirms irreversible account deletion with DELETE', async () => {
+    const requests: Array<{ path: string; init?: RequestInit }> = []
+    const api = createMusicApi(async (input, init) => {
+      requests.push({ path: new URL(input.toString(), 'https://moodverse.test').pathname, init })
+      return Response.json({ ok: true })
+    })
+
+    await expect(api.requestAccountDeletionCode()).resolves.toEqual({ ok: true })
+    await expect(api.deleteAccount('123456', 'DELETE')).resolves.toEqual({ ok: true })
+    expect(requests.map(({ path }) => path)).toEqual(['/api/me/account/deletion-code', '/api/me/account'])
+    expect(requests.map(({ init }) => init?.method)).toEqual(['POST', 'DELETE'])
+    expect(requests[1]?.init?.body).toBe(JSON.stringify({ code: '123456', confirmation: 'DELETE' }))
+    expect(requests.every(({ init }) => init?.credentials === 'same-origin')).toBe(true)
+  })
+
   test('creates a planet with three track IDs and preserves the queued composer task', async () => {
     const api = createMusicApi(async (input, init) => {
       expect(new URL(input.toString(), 'https://moodverse.test').pathname).toBe('/api/me/music-planet')

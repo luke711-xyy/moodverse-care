@@ -67,7 +67,7 @@ const configured = (env: Env) => {
   return { secret, accountId, token, sender }
 }
 
-const hasSameOrigin = (request: Request) => {
+export const hasSameOrigin = (request: Request) => {
   const origin = request.headers.get('Origin')
   if (!origin) return false
   try { return new URL(origin).origin === new URL(request.url).origin } catch { return false }
@@ -124,10 +124,18 @@ export async function emailMusicSession(request: Request, env: Env) {
     : null)
 }
 
-async function sendCode(targetEmail: string, code: string, account: NonNullable<ReturnType<typeof configured>>) {
+async function sendCode(
+  targetEmail: string,
+  code: string,
+  account: NonNullable<ReturnType<typeof configured>>,
+  purpose: 'login' | 'account-deletion' = 'login',
+) {
   const endpoint = `https://api.cloudflare.com/client/v4/accounts/${account.accountId}/email/sending/send`
-  const text = `你的 Moodverse 登录验证码是 ${code}，10 分钟内有效，且只能使用一次。若这不是你发起的操作，请忽略此邮件。`
-  const html = `<p>你的 Moodverse 登录验证码是：</p><p style="font-size:28px;letter-spacing:8px"><strong>${code}</strong></p><p>验证码 10 分钟内有效，且只能使用一次。若这不是你发起的操作，请忽略此邮件。</p>`
+  const deleting = purpose === 'account-deletion'
+  const subject = deleting ? '确认删除你的 Moodverse 账号' : '你的 Moodverse 登录验证码'
+  const action = deleting ? '删除账号' : '登录'
+  const text = `你的 Moodverse ${action}验证码是 ${code}，10 分钟内有效，且只能使用一次。若这不是你发起的操作，请忽略此邮件。`
+  const html = `<p>你的 Moodverse ${action}验证码是：</p><p style="font-size:28px;letter-spacing:8px"><strong>${code}</strong></p><p>验证码 10 分钟内有效，且只能使用一次。若这不是你发起的操作，请忽略此邮件。</p>`
   const sent = await fetch(endpoint, {
     method: 'POST',
     headers: {
@@ -135,7 +143,7 @@ async function sendCode(targetEmail: string, code: string, account: NonNullable<
       'content-type': 'application/json',
       accept: 'application/json',
     },
-    body: JSON.stringify({ to: targetEmail, from: account.sender, subject: '你的 Moodverse 登录验证码', text, html }),
+    body: JSON.stringify({ to: targetEmail, from: account.sender, subject, text, html }),
     redirect: 'error',
   })
   let payload: { success?: unknown; result?: { delivered?: unknown; queued?: unknown } } | null = null
@@ -145,6 +153,122 @@ async function sendCode(targetEmail: string, code: string, account: NonNullable<
     ...(Array.isArray(payload?.result?.queued) ? payload.result.queued : []),
   ]
   return sent.ok && payload?.success === true && acceptedRecipients.some((address) => typeof address === 'string' && address.toLowerCase() === targetEmail)
+}
+
+export async function requestMusicAccountDeletionCode(
+  request: Request,
+  env: Env,
+  identity: { userId: string; email: string } | null,
+) {
+  if (request.method !== 'POST' || !hasSameOrigin(request)) return response({ error: 'ORIGIN_NOT_ALLOWED' }, 403)
+  if (!identity?.userId || !normalizeEmail(identity.email)) return response({ error: 'UNAUTHENTICATED' }, 401)
+  const account = configured(env)
+  if (!account) return response({ error: 'EMAIL_AUTH_NOT_CONFIGURED' }, 503)
+
+  const email = normalizeEmail(identity.email)!
+  const now = new Date()
+  const nowText = now.toISOString()
+  const hourAgo = minusMs(now, EMAIL_WINDOW_MS)
+  const ipHourAgo = minusMs(now, IP_WINDOW_MS)
+  const cooldownBoundary = minusMs(now, EMAIL_COOLDOWN_MS)
+  const ip = request.headers.get('CF-Connecting-IP')?.trim().slice(0, 64) || 'unknown'
+  const ipHash = await hmacHex(account.secret, `moodverse:account-deletion-ip:v1:${ip}`)
+  const challengeId = crypto.randomUUID()
+  const code = randomCode()
+  const codeHash = await hmacHex(account.secret, `moodverse:account-deletion-otp:v1:${challengeId}:${identity.userId}:${email}:${code}`)
+  const issued = await env.DB.batch([
+    env.DB.prepare(`
+      INSERT INTO music_account_deletion_codes
+        (id, user_id, email, code_hash, request_ip_hash, attempts, created_at, expires_at)
+      SELECT ?1, ?2, ?3, ?4, ?5, 0, ?6, ?7
+      WHERE (SELECT count(*) FROM music_account_deletion_codes WHERE user_id = ?2 AND created_at >= ?8) < ?10
+        AND (SELECT count(*) FROM music_account_deletion_codes WHERE request_ip_hash = ?5 AND created_at >= ?9) < ?11
+        AND NOT EXISTS (
+          SELECT 1 FROM music_account_deletion_codes WHERE user_id = ?2 AND created_at >= ?12
+        )
+    `).bind(challengeId, identity.userId, email, codeHash, ipHash, nowText, plusMs(now, CODE_TTL_MS), hourAgo, ipHourAgo, EMAIL_SEND_LIMIT, IP_SEND_LIMIT, cooldownBoundary),
+    env.DB.prepare(`
+      UPDATE music_account_deletion_codes SET invalidated_at = ?2
+      WHERE user_id = ?1 AND id <> ?3 AND consumed_at IS NULL AND invalidated_at IS NULL AND locked_at IS NULL
+        AND EXISTS (SELECT 1 FROM music_account_deletion_codes WHERE id = ?3)
+    `).bind(identity.userId, nowText, challengeId),
+  ])
+  if (issued[0]?.meta.changes !== 1) return response({ error: 'RATE_LIMITED' }, 429)
+
+  try {
+    const delivered = await sendCode(email, code, account, 'account-deletion')
+    if (!delivered) throw new Error('CLOUDFLARE_EMAIL_NOT_ACCEPTED')
+  } catch {
+    await env.DB.prepare('UPDATE music_account_deletion_codes SET invalidated_at = ?2 WHERE id = ?1 AND invalidated_at IS NULL')
+      .bind(challengeId, timestamp()).run()
+    return response({ error: 'EMAIL_DELIVERY_UNAVAILABLE' }, 503)
+  }
+
+  return response({ ok: true })
+}
+
+export async function deleteMusicAccount(
+  request: Request,
+  env: Env,
+  identity: { userId: string; email: string } | null,
+) {
+  if (request.method !== 'DELETE' || !hasSameOrigin(request)) return response({ error: 'ORIGIN_NOT_ALLOWED' }, 403)
+  if (!identity?.userId || !normalizeEmail(identity.email)) return response({ error: 'UNAUTHENTICATED' }, 401)
+  const body = await parseSmallBody<{ code?: unknown; confirmation?: unknown }>(request)
+  if (!body || Object.keys(body).length !== 2 || body.confirmation !== 'DELETE'
+    || typeof body.code !== 'string' || !/^\d{6}$/.test(body.code)) {
+    return response({ error: 'INVALID_DELETION_CONFIRMATION' }, 400)
+  }
+  const account = configured(env)
+  if (!account) return response({ error: 'EMAIL_AUTH_NOT_CONFIGURED' }, 503)
+
+  const email = normalizeEmail(identity.email)!
+  const current = timestamp()
+  const challenge = await env.DB.prepare(`
+    SELECT id, code_hash, attempts FROM music_account_deletion_codes
+    WHERE user_id = ?1 AND email = ?2 AND consumed_at IS NULL AND invalidated_at IS NULL AND locked_at IS NULL
+      AND attempts < ?3 AND expires_at > ?4
+    ORDER BY rowid DESC LIMIT 1
+  `).bind(identity.userId, email, MAX_CODE_ATTEMPTS, current).first<{ id: string; code_hash: string; attempts: number }>()
+  if (!challenge) return response({ error: 'INVALID_OR_EXPIRED_CODE' }, 400)
+
+  const submittedHash = await hmacHex(account.secret, `moodverse:account-deletion-otp:v1:${challenge.id}:${identity.userId}:${email}:${body.code}`)
+  if (!secureEqual(submittedHash, challenge.code_hash)) {
+    const attemptedAt = timestamp()
+    await env.DB.prepare(`
+      UPDATE music_account_deletion_codes
+      SET attempts = attempts + 1,
+          locked_at = CASE WHEN attempts + 1 >= ?2 THEN ?3 ELSE locked_at END
+      WHERE id = ?1 AND user_id = ?4 AND consumed_at IS NULL AND invalidated_at IS NULL AND locked_at IS NULL AND attempts < ?2
+    `).bind(challenge.id, MAX_CODE_ATTEMPTS, attemptedAt, identity.userId).run()
+    return response({ error: 'INVALID_OR_EXPIRED_CODE' }, 400)
+  }
+
+  const consumedAt = timestamp()
+  const results = await env.DB.batch([
+    env.DB.prepare(`
+      UPDATE music_account_deletion_codes SET consumed_at = ?2
+      WHERE id = ?1 AND user_id = ?3 AND email = ?4 AND code_hash = ?5 AND consumed_at IS NULL
+        AND invalidated_at IS NULL AND locked_at IS NULL AND attempts < ?6 AND expires_at > ?7
+    `).bind(challenge.id, consumedAt, identity.userId, email, challenge.code_hash, MAX_CODE_ATTEMPTS, consumedAt),
+    env.DB.prepare(`
+      DELETE FROM music_auth_challenges WHERE email = ?1 AND EXISTS (
+        SELECT 1 FROM music_account_deletion_codes WHERE id = ?2 AND user_id = ?3 AND consumed_at = ?4
+      )
+    `).bind(email, challenge.id, identity.userId, consumedAt),
+    env.DB.prepare(`
+      DELETE FROM users WHERE id = ?1 AND EXISTS (
+        SELECT 1 FROM music_account_deletion_codes WHERE id = ?2 AND user_id = ?1 AND consumed_at = ?3
+      )
+    `).bind(identity.userId, challenge.id, consumedAt),
+  ])
+  if (results[0]?.meta.changes !== 1 || results[2]?.meta.changes !== 1) {
+    return response({ error: 'INVALID_OR_EXPIRED_CODE' }, 400)
+  }
+
+  const headers = new Headers()
+  headers.set('set-cookie', `${SESSION_COOKIE}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax`)
+  return response({ ok: true }, 200, headers)
 }
 
 export async function requestMusicEmailCode(request: Request, env: Env) {

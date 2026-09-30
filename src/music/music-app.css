@@ -133,6 +133,14 @@
 .music-settings-panel { display: grid; align-content: start; gap: 10px; }
 .music-settings-content { display: grid; gap: 8px; }
 .music-settings-section { display: grid; gap: 7px; margin-top: 7px; padding-top: 13px; border-top: 1px solid var(--music-line); }
+.music-danger-zone { border-top-color: color-mix(in srgb, #d98182 38%, var(--music-line)); }
+.music-danger-zone .music-section-heading > span { color: #d99a9a; }
+.music-account-deletion-form { display: grid; gap: 9px; }
+.music-danger-button { display: inline-flex; align-items: center; justify-content: center; min-height: 38px; padding: 0 13px; border: 1px solid color-mix(in srgb, #e18484 55%, transparent); border-radius: 8px; background: color-mix(in srgb, #602e36 36%, transparent); color: #f0b5b5; font-size: 11px; transition: background .16s, border-color .16s, opacity .16s; }
+.music-danger-button:hover:not(:disabled) { border-color: #e18484; background: color-mix(in srgb, #7d3740 55%, transparent); }
+.music-danger-button:disabled { opacity: .45; cursor: not-allowed; }
+.music-account-deletion-form > .music-panel-note { margin: 0; }
+.music-account-deletion-form .music-auth-links { margin: 0; }
 .music-settings-planet-form { display: grid; gap: 8px; }
 .music-settings-planet-form .music-settings-section { margin-top: 0; }
 .music-settings-song-heading { margin-top: 8px; }

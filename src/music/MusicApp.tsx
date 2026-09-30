@@ -575,6 +575,12 @@ function MusicApp() {
   const [loginCodeSent, setLoginCodeSent] = useState(false)
   const [authBusy, setAuthBusy] = useState(false)
   const [authFeedback, setAuthFeedback] = useState('')
+  const [accountDeletionCode, setAccountDeletionCode] = useState('')
+  const [accountDeletionCodeSent, setAccountDeletionCodeSent] = useState(false)
+  const [accountDeletionConfirmation, setAccountDeletionConfirmation] = useState('')
+  const [accountDeletionBusy, setAccountDeletionBusy] = useState(false)
+  const [accountDeletionError, setAccountDeletionError] = useState('')
+  const [accountDeletionFeedback, setAccountDeletionFeedback] = useState('')
   const visitDialogRef = useRef<HTMLElement>(null)
   const accountEpoch = useRef(0)
   const tabId = useRef(`${Date.now()}-${Math.random()}`)
@@ -631,6 +637,12 @@ function MusicApp() {
     setLoginCode('')
     setLoginCodeSent(false)
     setAuthFeedback('')
+    setAccountDeletionCode('')
+    setAccountDeletionCodeSent(false)
+    setAccountDeletionConfirmation('')
+    setAccountDeletionBusy(false)
+    setAccountDeletionError('')
+    setAccountDeletionFeedback('')
   }, [])
 
   const reloadHome = useCallback(async () => {
@@ -1317,6 +1329,44 @@ function MusicApp() {
     }
   }
 
+  const requestAccountDeletionCode = async () => {
+    if (accountDeletionBusy) return
+    setAccountDeletionBusy(true)
+    setAccountDeletionError('')
+    setAccountDeletionFeedback('')
+    try {
+      await api.requestAccountDeletionCode()
+      setAccountDeletionCodeSent(true)
+      setAccountDeletionCode('')
+      setAccountDeletionFeedback('如果账户邮箱有效，删除验证码已发送；请查看收件箱或垃圾邮件。验证码 10 分钟内有效。')
+    } catch (error) {
+      if (error instanceof MusicApiError && error.status === 429) setAccountDeletionError('请求太频繁了，请稍等一会再试。')
+      else setAccountDeletionError('暂时无法发送删除验证码，请稍后重试。')
+    } finally {
+      setAccountDeletionBusy(false)
+    }
+  }
+
+  const submitAccountDeletion = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (accountDeletionBusy || accountDeletionCode.length !== 6 || accountDeletionConfirmation !== 'DELETE') return
+    setAccountDeletionBusy(true)
+    setAccountDeletionError('')
+    setAccountDeletionFeedback('')
+    try {
+      await api.deleteAccount(accountDeletionCode, 'DELETE')
+      notifyOtherMusicTabs(tabId.current)
+      resetAccountScopedState()
+      await reloadHome()
+    } catch (error) {
+      if (error instanceof MusicApiError && error.status === 400) setAccountDeletionError('验证码无效或已过期，或者确认文字不匹配。请检查后重试。')
+      else if (error instanceof MusicApiError && error.status === 429) setAccountDeletionError('尝试次数或请求频率已达上限，请稍后重试。')
+      else setAccountDeletionError('删除请求暂时未完成；账户仍保留。请稍后重试。')
+    } finally {
+      setAccountDeletionBusy(false)
+    }
+  }
+
   if (home.status === 'loading') return <main className="music-app music-loading"><BrandHeader connected={false} /><div className="music-loading-mark" role="status"><span /><p>正在校准你的星际档案…</p></div></main>
 
   if (home.status === 'error') return <main className="music-app music-gate">
@@ -1493,6 +1543,30 @@ function MusicApp() {
                   </label>)}</div>}
           </section>
         </div>}
+        <section className="music-settings-section music-danger-zone" aria-label="账号与数据处理">
+          <div className="music-section-heading"><h3>账号与数据</h3><span>不可撤销</span></div>
+          <p className="music-panel-note">删除后将移除登录身份、星球、Moment、私信、Orbit 与其他账号关联资料。为安全审查而保留的针对内容举报记录可能继续保留，但不再关联你的登录身份。</p>
+          {!accountDeletionCodeSent
+            ? <button className="music-danger-button" type="button" disabled={accountDeletionBusy} onClick={() => { void requestAccountDeletionCode() }}>{accountDeletionBusy ? '正在发送验证码…' : '发送账号删除验证码'}</button>
+            : <form className="music-account-deletion-form" onSubmit={(event) => { void submitAccountDeletion(event) }}>
+                <p className="music-panel-note">验证码已发送到登录邮箱，10 分钟内有效，最多可尝试 5 次。</p>
+                <div className="music-fields">
+                  <label htmlFor="music-account-deletion-code">六位验证码</label>
+                  <input id="music-account-deletion-code" type="text" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} required value={accountDeletionCode} disabled={accountDeletionBusy} onChange={(event) => setAccountDeletionCode(event.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="000000" />
+                  <label htmlFor="music-account-deletion-confirmation">输入 DELETE 确认</label>
+                  <input id="music-account-deletion-confirmation" type="text" autoComplete="off" required value={accountDeletionConfirmation} disabled={accountDeletionBusy} onChange={(event) => setAccountDeletionConfirmation(event.target.value)} placeholder="DELETE" />
+                </div>
+                {accountDeletionError && <p className="music-form-error" role="alert">{accountDeletionError}</p>}
+                {accountDeletionFeedback && <p className="music-feedback" role="status">{accountDeletionFeedback}</p>}
+                <button className="music-danger-button" type="submit" disabled={accountDeletionBusy || accountDeletionCode.length !== 6 || accountDeletionConfirmation !== 'DELETE'}>{accountDeletionBusy ? '正在删除账号…' : '永久删除账号与资料'}</button>
+                <div className="music-auth-links">
+                  <button className="music-text-button" type="button" disabled={accountDeletionBusy} onClick={() => { void requestAccountDeletionCode() }}>重新发送验证码</button>
+                  <button className="music-text-button" type="button" disabled={accountDeletionBusy} onClick={() => { setAccountDeletionCodeSent(false); setAccountDeletionCode(''); setAccountDeletionConfirmation(''); setAccountDeletionError(''); setAccountDeletionFeedback('') }}>取消</button>
+                </div>
+              </form>}
+          {!accountDeletionCodeSent && accountDeletionError && <p className="music-form-error" role="alert">{accountDeletionError}</p>}
+          {!accountDeletionCodeSent && accountDeletionFeedback && <p className="music-feedback" role="status">{accountDeletionFeedback}</p>}
+        </section>
       </aside>}
 
       {visitedPlanet && <aside className="music-panel music-public-planet-panel" aria-label={`公开星球 ${visitedPlanet.displayName}`}>

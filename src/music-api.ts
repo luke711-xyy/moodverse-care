@@ -284,6 +284,14 @@ export function createMusicApi(fetcher: typeof fetch = fetch) {
     logout() {
       return request<{ ok: true }>('/api/auth/logout', { method: 'POST' })
     },
+    requestAccountDeletionCode() {
+      return request<{ ok: true }>('/api/me/account/deletion-code', { method: 'POST' })
+    },
+    deleteAccount(code: string, confirmation: 'DELETE') {
+      return request<{ ok: true }>('/api/me/account', {
+        method: 'DELETE', body: JSON.stringify({ code, confirmation }),
+      })
+    },
     async loadHome() {
       const [catalog, owned] = await Promise.all([
         request<{ tracks: MusicTrackSummary[] }>('/api/music/catalog'),

@@ -391,6 +391,47 @@ test('settings load server privacy preferences and only show confirmed planet an
   expect(planetVisibility.checked).toBe(false)
 })
 
+test('account deletion requires an emailed code and typed confirmation before resetting the authenticated app', async () => {
+  const ownerPlanet = {
+    id: 'planet-owner', displayName: '夜航者', tagline: '慢慢靠岸', visibility: 'public' as const,
+    visualSchemaVersion: 1, visual: {}, createdAt: '2026-09-29T00:00:00.000Z', updatedAt: '2026-09-29T00:00:00.000Z',
+    tracks: tracks.slice(0, 3).map((track, position) => ({ ...track, position, isPrimary: position === 0, selectedAt: '2026-09-29T00:00:00.000Z' })),
+  }
+  let authenticated = true
+  const requests: Array<{ path: string; method?: string; body?: unknown }> = []
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = new URL(String(input), 'https://moodverse.test').pathname
+    requests.push({ path, ...(init?.method ? { method: init.method } : {}), ...(init?.body ? { body: JSON.parse(String(init.body)) } : {}) })
+    if (path === '/api/music/catalog') return Response.json({ tracks })
+    if (path === '/api/me/music-planet' && !authenticated) return Response.json({ error: 'UNAUTHENTICATED' }, { status: 401 })
+    if (path === '/api/me/music-planet') return Response.json({ planet: ownerPlanet })
+    if (path === '/api/me/music-planet/moments') return Response.json({ moments: [] })
+    if (path === '/api/me/social-settings') return Response.json({ allowFriendRequests: true, allowDriftBottles: true })
+    if (path === '/api/me/account/deletion-code' && init?.method === 'POST') return Response.json({ ok: true })
+    if (path === '/api/me/account' && init?.method === 'DELETE') {
+      authenticated = false
+      return Response.json({ ok: true })
+    }
+    throw new Error(`Unexpected request: ${path}`)
+  }))
+
+  render(<MusicApp />)
+  await screen.findByRole('button', { name: '我的星球' })
+  fireEvent.click(screen.getByRole('button', { name: '设置' }))
+  await screen.findByRole('heading', { name: '账户与隐私设置' })
+  expect(screen.getByText(/删除后将移除登录身份、星球、Moment、私信、Orbit/)).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: '发送账号删除验证码' }))
+  await screen.findByText(/删除验证码已发送/)
+  fireEvent.change(screen.getByLabelText('六位验证码'), { target: { value: '123456' } })
+  fireEvent.change(screen.getByLabelText('输入 DELETE 确认'), { target: { value: 'delete' } })
+  expect((screen.getByRole('button', { name: '永久删除账号与资料' }) as HTMLButtonElement).disabled).toBe(true)
+  fireEvent.change(screen.getByLabelText('输入 DELETE 确认'), { target: { value: 'DELETE' } })
+  fireEvent.click(screen.getByRole('button', { name: '永久删除账号与资料' }))
+  await screen.findByRole('heading', { name: /邮箱验证码，进入 Moodverse/ })
+  expect(requests).toContainEqual({ path: '/api/me/account/deletion-code', method: 'POST' })
+  expect(requests).toContainEqual({ path: '/api/me/account', method: 'DELETE', body: { code: '123456', confirmation: 'DELETE' } })
+})
+
 test('an owner can edit planet details, manage one to five selected songs, and choose a primary song', async () => {
   const ownerPlanet = {
     id: 'planet-owner', displayName: '夜航者', tagline: '慢慢靠岸', visibility: 'public' as const,

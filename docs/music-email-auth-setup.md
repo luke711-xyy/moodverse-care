@@ -13,7 +13,7 @@
    - `MUSIC_EMAIL_API_TOKEN`：Email Sending API Token
    - `MUSIC_AUTH_SECRET`：至少 32 个字符的随机密钥，用于验证码与 IP 标识的 HMAC
 5. 确保 Pages 应用与 `/api/auth/*` 对外可访问，不要让 Cloudflare Access 在登录前拦截整个应用；应用私有 API 自己会验证 `mv_music_session`。
-6. 应用 D1 迁移 `0011_music_email_auth.sql`，然后部署 Pages 项目。
+6. 在已有 Music MVP 数据库中，按编号顺序应用尚未执行的增量迁移（至少包括 `0011_music_email_auth.sql` 至当前版本 `0015_music_account_deletion.sql`），然后部署 Pages 项目。全新隔离 staging 数据库应按 `docs/music-staging-setup.md` 使用 `schema.sql` 初始化，不要把完整旧库迁移链重复灌入空库。
 
 演示账号使用与普通账号相同的邮箱验证码登录，不存在固定验证码、共享登录口令或绕过认证的演示入口。在 **Preview/staging** 可选配置普通变量 `MUSIC_DEMO_EMAIL`，值为团队实际控制、已完成邮箱验证的演示账号邮箱；匹配时，私有首页会显示“演示账号”标记。此变量不创建用户或演示数据，也不会让 API 返回邮箱地址。不要在 Production 配置该变量。演示账号产生的访问、好友、私信和漂流瓶记录必须来自真实操作，不能预置成虚构互动。
 
@@ -38,3 +38,7 @@ Email Service 任意收件人发送依赖 Workers Paid 计划；完成 API 侧�
 - 邮箱验证后签发 30 天 HttpOnly、Secure、SameSite=Lax 会话；登出可撤销服务端会话。
 - 登录前后统一返回文案，不在发码接口查询账号是否存在。若旧 Cloudflare Access 邮箱唯一映射到一个用户，首次邮箱验证会关联回原 user ID，避免迁移旧星球数据；多个旧用户共享同一邮箱时会拒绝自动合并。
 - Email Sending API Token 和 HMAC Secret 只能配置在 Cloudflare 加密 Secrets，不要写入 `wrangler.toml`、客户端代码或仓库变量文件。
+
+## 账号删除确认
+
+设置页复用同一 Cloudflare Email Sending 配置发送短时删除验证码。删除请求必须来自同源、有效登录会话，并同时提交验证码和精确确认词 `DELETE`；验证码 10 分钟有效、单次使用，错误 5 次锁定，按账号/IP 限流。数据库只存 HMAC 摘要，投递失败会作废验证码。确认后删除账号及其级联关联资料，并撤销当前应用会话；针对内容的举报证据可按界面提示保留为不再关联登录身份的安全审查记录。该操作不可撤销，只能在已隔离且经批准的环境进行完整验收；本仓库实现不构成对生产数据执行删除。

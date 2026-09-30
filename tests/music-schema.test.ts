@@ -10,6 +10,7 @@ const emailAuthMigrationSql = readFileSync(new URL('../migrations/0011_music_ema
 const socialMigrationSql = readFileSync(new URL('../migrations/0012_music_social.sql', import.meta.url), 'utf8')
 const driftBottleMigrationSql = readFileSync(new URL('../migrations/0013_music_drift_bottles.sql', import.meta.url), 'utf8')
 const contentReportMigrationSql = readFileSync(new URL('../migrations/0014_music_content_reports.sql', import.meta.url), 'utf8')
+const accountDeletionMigrationSql = readFileSync(new URL('../migrations/0015_music_account_deletion.sql', import.meta.url), 'utf8')
 const schemaSql = readFileSync(new URL('../schema.sql', import.meta.url), 'utf8')
 
 function database() {
@@ -88,6 +89,7 @@ test('migration adds the music core without changing legacy user or planet recor
   db.exec(socialMigrationSql)
   db.exec(driftBottleMigrationSql)
   db.exec(contentReportMigrationSql)
+  db.exec(accountDeletionMigrationSql)
 
   expect(tableNames(db)).toEqual(expect.arrayContaining([
     'users', 'planets', 'music_track_catalog', 'music_planets', 'music_planet_tracks', 'music_moments', 'music_ai_tasks',
@@ -167,6 +169,7 @@ test('schema.sql mirrors the migration and deleting a music planet cascades thro
   migratedDb.exec(socialMigrationSql)
   migratedDb.exec(driftBottleMigrationSql)
   migratedDb.exec(contentReportMigrationSql)
+  migratedDb.exec(accountDeletionMigrationSql)
 
   const db = database()
   db.exec(schemaSql)
@@ -178,7 +181,7 @@ test('schema.sql mirrors the migration and deleting a music planet cascades thro
     'music_auth_challenges', 'music_email_identities', 'music_auth_sessions',
     'music_social_preferences', 'music_friend_requests', 'music_user_blocks', 'music_direct_messages',
     'music_drift_preferences', 'music_drift_bottles', 'music_drift_deliveries', 'music_drift_comments', 'music_drift_comment_likes',
-    'music_content_reports',
+    'music_content_reports', 'music_account_deletion_codes',
   ]))
 
   db.prepare(`
