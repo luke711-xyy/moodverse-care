@@ -101,6 +101,29 @@ test('message text must be non-empty and at most 2000 characters', async () => {
   expect(atLimit.status).toBe(201)
 })
 
+test('direct-message rate limit is account-wide across all friend conversations', async () => {
+  const charlieId = await identityFor('dm-charlie')
+  becomeFriends(aliceId, bobId)
+  becomeFriends(aliceId, charlieId)
+
+  for (let index = 0; index < 30; index += 1) {
+    const peer = index % 2 === 0 ? bobId : charlieId
+    const subject = index % 2 === 0 ? 'dm-bob' : 'dm-charlie'
+    const response = await call('dm-alice', `/api/me/friends/${peer}/messages`, postMessage, {
+      method: 'POST', params: { userId: peer }, body: { contentText: `第 ${index + 1} 条消息` },
+    })
+    expect(response.status, `message ${index + 1} to ${subject}`).toBe(201)
+  }
+
+  const overLimit = await call('dm-alice', `/api/me/friends/${charlieId}/messages`, postMessage, {
+    method: 'POST', params: { userId: charlieId }, body: { contentText: '跨聊天也不能绕过限额。' },
+  })
+  expect(overLimit.status).toBe(429)
+  expect(await overLimit.json()).toEqual({ error: 'MESSAGE_RATE_LIMITED' })
+  expect(fixture.sqlite.prepare('SELECT count(*) AS count FROM music_direct_messages WHERE sender_user_id = ?').get(aliceId))
+    .toEqual({ count: 30 })
+})
+
 test('hiding a message is private to the participant and friendship removal immediately denies conversation access', async () => {
   becomeFriends()
   const sent = await call('dm-alice', `/api/me/friends/${bobId}/messages`, postMessage, {

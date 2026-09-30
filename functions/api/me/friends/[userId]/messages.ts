@@ -75,12 +75,6 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   }
 
   const windowStart = new Date(Date.now() - 60_000).toISOString()
-  const recent = await env.DB.prepare(`
-    SELECT count(*) AS count FROM music_direct_messages
-    WHERE sender_user_id = ?1 AND recipient_user_id = ?2 AND created_at >= ?3
-  `).bind(identity.userId, peerId, windowStart).first<{ count: number }>()
-  if ((recent?.count ?? 0) >= MAX_MESSAGES_PER_MINUTE) return socialResponse({ error: 'MESSAGE_RATE_LIMITED' }, 429)
-
   const id = crypto.randomUUID()
   const createdAt = new Date().toISOString()
   const inserted = await env.DB.prepare(`
@@ -94,12 +88,25 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
         SELECT 1 FROM music_user_blocks b WHERE (b.blocker_user_id = ?2 AND b.blocked_user_id = ?3)
           OR (b.blocker_user_id = ?3 AND b.blocked_user_id = ?2)
       )
-  `).bind(id, identity.userId, peerId, contentText, createdAt).run()
+      AND (
+        SELECT count(*) FROM music_direct_messages recent
+        WHERE recent.sender_user_id = ?2 AND recent.created_at >= ?6
+      ) < ?7
+  `).bind(id, identity.userId, peerId, contentText, createdAt, windowStart, MAX_MESSAGES_PER_MINUTE).run()
   if (!inserted.meta.changes) {
     const blocked = await pairIsBlocked(env, identity.userId, peerId)
-    return blocked
-      ? socialResponse({ error: 'USER_BLOCKED' }, 403)
-      : socialResponse({ error: 'FRIENDSHIP_REQUIRED' }, 403)
+    if (blocked) return socialResponse({ error: 'USER_BLOCKED' }, 403)
+    if (!await pairIsFriends(env, identity.userId, peerId)) {
+      return socialResponse({ error: 'FRIENDSHIP_REQUIRED' }, 403)
+    }
+    const recent = await env.DB.prepare(`
+      SELECT count(*) AS count FROM music_direct_messages
+      WHERE sender_user_id = ?1 AND created_at >= ?2
+    `).bind(identity.userId, windowStart).first<{ count: number }>()
+    if ((recent?.count ?? 0) >= MAX_MESSAGES_PER_MINUTE) {
+      return socialResponse({ error: 'MESSAGE_RATE_LIMITED' }, 429)
+    }
+    return socialResponse({ error: 'MESSAGE_WRITE_CONFLICT' }, 409)
   }
   return socialResponse({ message: {
     id,

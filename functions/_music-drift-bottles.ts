@@ -2,6 +2,7 @@ import { pairIsBlocked, isSocialRecord, socialResponse } from './_music-social'
 import { safeHttpsUrl, type Env } from './_shared'
 
 const MAX_BOTTLE_TEXT = 500
+const MAX_BOTTLE_COMMENTS_PER_MINUTE = 30
 const MAX_MODEL_CANDIDATES = 80
 const MODEL_ID = 'qwen3-embedding:0.6b'
 const MODEL_TIMEOUT_MS = 8_000
@@ -681,12 +682,26 @@ export async function addDriftBottleComment(env: Env, bottleId: string, userId: 
   if (!current) return { status: 409, body: { error: 'BOTTLE_MUST_BE_OPENED' } }
   const id = crypto.randomUUID()
   const createdAt = now.toISOString()
+  const windowStart = new Date(now.getTime() - 60_000).toISOString()
   const result = await env.DB.prepare(`
     INSERT INTO music_drift_comments (id, bottle_id, delivery_id, author_user_id, content_text, created_at)
     SELECT ?1, ?2, ?3, ?4, ?5, ?6
     WHERE EXISTS (SELECT 1 FROM music_drift_deliveries WHERE id = ?3 AND status = 'read' AND recipient_user_id = ?4)
-  `).bind(id, bottleId, current.delivery.id, userId, contentText, createdAt).run()
-  if (!result.meta.changes) return { status: 409, body: { error: 'BOTTLE_DELIVERY_CHANGED' } }
+      AND (
+        SELECT count(*) FROM music_drift_comments recent
+        WHERE recent.author_user_id = ?4 AND recent.created_at >= ?7
+      ) < ?8
+  `).bind(id, bottleId, current.delivery.id, userId, contentText, createdAt, windowStart, MAX_BOTTLE_COMMENTS_PER_MINUTE).run()
+  if (!result.meta.changes) {
+    if (!await currentReadDelivery(env, bottleId, userId)) return { status: 409, body: { error: 'BOTTLE_DELIVERY_CHANGED' } }
+    const recent = await env.DB.prepare(`
+      SELECT count(*) AS count FROM music_drift_comments
+      WHERE author_user_id = ?1 AND created_at >= ?2
+    `).bind(userId, windowStart).first<{ count: number }>()
+    return (recent?.count ?? 0) >= MAX_BOTTLE_COMMENTS_PER_MINUTE
+      ? { status: 429, body: { error: 'COMMENT_RATE_LIMITED' } }
+      : { status: 409, body: { error: 'BOTTLE_DELIVERY_CHANGED' } }
+  }
   return { status: 201, body: { comment: { id, contentText, createdAt, authorName: '你', likeCount: 0, likedByMe: false } } }
 }
 

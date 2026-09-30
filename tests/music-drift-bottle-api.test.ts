@@ -301,6 +301,37 @@ test('a recipient must open a bottle before commenting or releasing, then the bo
   expect(await unliked.json()).toEqual({ liked: false, likeCount: 1 })
 })
 
+test('drift-bottle comments are limited to 30 per user per minute', async () => {
+  const recipientId = await identityFor('bottle-comment-rate-recipient')
+  createPlanet('bottle-comment-rate-planet', recipientId, 'public', 'bottle-song-a')
+  const created = await createSongBottle()
+  const { bottle } = await created.json() as { bottle: { id: string } }
+  const delivery = fixture.sqlite.prepare(`SELECT recipient_user_id FROM music_drift_deliveries WHERE bottle_id = ?`).get(bottle.id) as {
+    recipient_user_id: string
+  }
+  expect(delivery.recipient_user_id).toBe(recipientId)
+
+  const opened = await call('bottle-comment-rate-recipient', `/api/me/drift-bottles/${bottle.id}`, updateBottle, {
+    method: 'PATCH', body: { action: 'open' }, params: { id: bottle.id },
+  })
+  expect(opened.status).toBe(200)
+
+  for (let index = 0; index < 30; index += 1) {
+    const response = await call('bottle-comment-rate-recipient', `/api/me/drift-bottles/${bottle.id}/comments`, addComment, {
+      method: 'POST', body: { contentText: `第 ${index + 1} 条评论` }, params: { id: bottle.id },
+    })
+    expect(response.status, `comment ${index + 1}`).toBe(201)
+  }
+
+  const overLimit = await call('bottle-comment-rate-recipient', `/api/me/drift-bottles/${bottle.id}/comments`, addComment, {
+    method: 'POST', body: { contentText: '超过一分钟限额的评论。' }, params: { id: bottle.id },
+  })
+  expect(overLimit.status).toBe(429)
+  expect(await overLimit.json()).toEqual({ error: 'COMMENT_RATE_LIMITED' })
+  expect(fixture.sqlite.prepare('SELECT count(*) AS count FROM music_drift_comments WHERE author_user_id = ?').get(recipientId))
+    .toEqual({ count: 30 })
+})
+
 test('an unread delivery expires after one hour and is re-routed by the scheduled worker', async () => {
   const recipientA = await identityFor('bottle-timeout-a')
   createPlanet('bottle-timeout-a-planet', recipientA, 'public', 'bottle-song-b')
