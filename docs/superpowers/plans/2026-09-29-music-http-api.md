@@ -51,7 +51,7 @@
 - [x] Run `npm test -- tests/music-email-auth-api.test.ts` and confirm the expected missing/incorrect auth behavior.
 - [x] Add the additive email identity/session tables, Cloudflare Email Sending adapter, OTP verification, and SQLite D1 test fixture. Keep legacy `session()` separate and make direct Access fallback opt-in only.
 - [x] Run `npm test -- tests/music-email-auth-api.test.ts`; invalid codes and disabled legacy Access assertions must fail before creating/resolving a user.
-- [ ] Commit the email-auth migration, shared auth helper, fixture, and tests as `feat: add Cloudflare email OTP auth`.
+- [x] Included in aggregate current-version commit `8803556`, pushed to `origin/codex/music-hackathon-mvp`.
 
 ### Task 2: Catalog read endpoint
 
@@ -66,7 +66,7 @@
 - [x] Add tests for active-only listing, literal search over title/artist, field mapping, and no write side effects.
 - [x] Verify `GET /api/music/catalog` is implemented with bound parameters and does not return internal ingestion metadata.
 - [x] Run `npm test -- tests/music-catalog-api.test.ts` (3 tests passed).
-- [ ] Commit only the catalog route and test as `feat: add music catalog API`.
+- [x] Included in aggregate current-version commit `8803556`, pushed to `origin/codex/music-hackathon-mvp`.
 
 ### Task 3: Owned music planet creation and updates
 
@@ -81,7 +81,7 @@
 - [x] Add tests for no-current-planet GET, exactly-three creation, public default, explicit private creation, invalid count/duplicate/unknown/inactive track rejection, one planet per owner, 1–5 updates, primary-track validation, identity isolation, and preservation of planet ID/creation history.
 - [x] Verify the route validates the authenticated session and catalog IDs, updates ordered links atomically, defaults primary track, rejects invalid primary IDs, and maps uniqueness conflicts to stable errors.
 - [x] Run `npm test -- tests/music-planet-api.test.ts` (8 tests passed).
-- [ ] Commit the route and tests as `feat: add music planet API`.
+- [x] Included in aggregate current-version commit `8803556`, pushed to `origin/codex/music-hackathon-mvp`.
 
 ### Task 4: Moment APIs and public planet projection
 
@@ -98,7 +98,7 @@
 - [x] Verify mutations enforce ownership and public projection filters both planet and Moment visibility at read time.
 - [x] Run `npm test -- tests/music-moment-api.test.ts` (8 tests passed).
 - [x] Run the full suite and build after the current changes: `npm test` (39 files / 228 tests), `npm run typecheck`, `npm run build`; `git diff --check` is clean.
-- [ ] Commit the Moment/public projection routes and tests as `feat: add music Moment APIs`.
+- [x] Included in aggregate current-version commit `8803556`, pushed to `origin/codex/music-hackathon-mvp`.
 
 ### Task 5: Reviewed controlled catalog import
 
@@ -113,7 +113,7 @@
 - [x] Run `npm test -- tests/music-catalog-import.test.ts` and confirm the importer module is missing.
 - [x] Implement the validator and SQL generator; preserve original creation time and use `is_active = 0` instead of deleting catalog rows.
 - [x] Run focused tests, the full suite, typecheck, build, and `git diff --check`.
-- [ ] Commit only the importer, its test, and the operator instructions as `feat: add reviewed music catalog importer`.
+- [x] Included in aggregate current-version commit `8803556`, pushed to `origin/codex/music-hackathon-mvp`.
 
 ## Completion Boundary
 
@@ -145,4 +145,4 @@ This plan establishes Cloudflare Email Service OTP and real D1-backed data contr
 - [x] Add a failing settings interaction test covering profile edits, reaching five selected songs, selecting a primary song, and protecting the final remaining song.
 - [x] Implement accessible settings controls and send only changed track-selection fields, preserving the API's stable primary/selection semantics.
 - [x] Run focused app/API tests (`37/37`), full tests (`39 files / 237 tests`), typecheck, build, and `git diff --check`.
-- [ ] Commit only the settings UI/client/test changes as `feat: add editable planet song settings`.
+- [x] Included in aggregate current-version commit `8803556`, pushed to `origin/codex/music-hackathon-mvp`.
