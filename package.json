@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 0.0.0.0",
     "music:staging:preflight": "node scripts/music-staging-preflight.mjs",
+    "music:staging:seed-demo": "node scripts/seed-music-demo-world.mjs --confirm-staging",
     "test": "vitest run --maxWorkers=4",
     "typecheck": "tsc -b --pretty false"
   },
