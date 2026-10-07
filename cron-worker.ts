@@ -1,5 +1,6 @@
 import { careCardInsert, makeCareCard } from './functions/_care'
 import { processDriftBottleQueue } from './functions/_music-drift-bottles'
+import { oneSqlStatementPerLine } from './functions/_music-demo-seed'
 
 type Env = {
   DB: D1Database
@@ -74,8 +75,7 @@ async function seedDemoMusicWorld(env: Env) {
   const readSqlAsset = async (filename: string) => {
     const response = await env.ASSETS.fetch(new Request(`https://music-demo-seed.invalid/${filename}`))
     if (!response.ok) throw new Error(`Demo fixture asset unavailable: ${filename} (${response.status})`)
-    const source = await response.text()
-    return source.split(/\r?\n/).filter((line) => !line.trimStart().startsWith('--')).join('\n')
+    return oneSqlStatementPerLine(await response.text())
   }
 
   // These SQL files contain only synthetic, idempotent fixtures. The flag is
