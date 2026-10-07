@@ -74,7 +74,8 @@ async function seedDemoMusicWorld(env: Env) {
   const readSqlAsset = async (filename: string) => {
     const response = await env.ASSETS.fetch(new Request(`https://music-demo-seed.invalid/${filename}`))
     if (!response.ok) throw new Error(`Demo fixture asset unavailable: ${filename} (${response.status})`)
-    return response.text()
+    const source = await response.text()
+    return source.split(/\r?\n/).filter((line) => !line.trimStart().startsWith('--')).join('\n')
   }
 
   // These SQL files contain only synthetic, idempotent fixtures. The flag is
