@@ -53,6 +53,12 @@ export function inspectMusicStagingManifests(pagesSource, schedulerSource, produ
   if (configValue(schedulerSource, 'main') !== './cron-worker.ts') {
     problems.push('Scheduler must run ./cron-worker.ts.')
   }
+  if (configValue(schedulerSource, 'directory') !== './scripts' || configValue(schedulerSource, 'binding') !== 'ASSETS') {
+    problems.push('Scheduler must bind the isolated scripts directory as ASSETS for demo seeding.')
+  }
+  if (configValue(schedulerSource, 'MUSIC_DEMO_SEED_ENABLED') !== 'true') {
+    problems.push('Demo world seeding must be explicitly enabled only in the staging scheduler.')
+  }
   if (!/^workers_dev\s*=\s*false\s*$/m.test(schedulerSource)) {
     problems.push('Scheduler must not expose a workers.dev endpoint (workers_dev = false).')
   }

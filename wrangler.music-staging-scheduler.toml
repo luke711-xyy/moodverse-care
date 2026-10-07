@@ -8,6 +8,13 @@ workers_dev = false
 [triggers]
 crons = ["*/5 * * * *"]
 
+[assets]
+directory = "./scripts"
+binding = "ASSETS"
+
+[vars]
+MUSIC_DEMO_SEED_ENABLED = "true"
+
 [[d1_databases]]
 binding = "DB"
 database_name = "moodverse-music-staging-db"

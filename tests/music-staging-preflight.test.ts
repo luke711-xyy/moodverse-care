@@ -17,6 +17,11 @@ main = "./cron-worker.ts"
 workers_dev = false
 [triggers]
 crons = ["*/5 * * * *"]
+[assets]
+directory = "./scripts"
+binding = "ASSETS"
+[vars]
+MUSIC_DEMO_SEED_ENABLED = "true"
 [[d1_databases]]
 binding = "DB"
 database_name = "moodverse-music-staging-db"
@@ -60,5 +65,13 @@ describe('music staging deployment preflight', () => {
     const exposed = inspect(validPagesManifest, validSchedulerManifest.replace('workers_dev = false', 'workers_dev = true'))
     expect(exposed.ok).toBe(false)
     expect(exposed.problems.join(' ')).toMatch(/workers_dev/i)
+  })
+
+  it('requires demo seeding to be isolated to the private staging scheduler', () => {
+    const missingAssets = inspect(validPagesManifest, validSchedulerManifest.replace('binding = "ASSETS"', 'binding = "FILES"'))
+    expect(missingAssets.problems.join(' ')).toMatch(/scripts directory as ASSETS/i)
+
+    const disabledSeed = inspect(validPagesManifest, validSchedulerManifest.replace('MUSIC_DEMO_SEED_ENABLED = "true"', 'MUSIC_DEMO_SEED_ENABLED = "false"'))
+    expect(disabledSeed.problems.join(' ')).toMatch(/explicitly enabled only in the staging scheduler/i)
   })
 })

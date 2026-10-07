@@ -33,5 +33,8 @@ describe('isolated music staging deployment manifests', () => {
     expect(pagesDatabaseId).not.toBe(productionDatabaseId)
     expect(scheduler).toMatch(/^crons\s*=\s*\[\s*"\*\/5 \* \* \* \*"\s*\]/m)
     expect(scheduler).toMatch(/^workers_dev\s*=\s*false/m)
+    expect(configValue(scheduler, 'directory')).toBe('./scripts')
+    expect(configValue(scheduler, 'binding')).toBe('ASSETS')
+    expect(configValue(scheduler, 'MUSIC_DEMO_SEED_ENABLED')).toBe('true')
   })
 })

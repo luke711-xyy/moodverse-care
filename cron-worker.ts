@@ -1,7 +1,11 @@
 import { careCardInsert, makeCareCard } from './functions/_care'
 import { processDriftBottleQueue } from './functions/_music-drift-bottles'
 
-type Env = { DB: D1Database }
+type Env = {
+  DB: D1Database
+  ASSETS: Fetcher
+  MUSIC_DEMO_SEED_ENABLED?: string
+}
 type CheckInRow = {
   user_id: string
   planet_id: string
@@ -56,10 +60,39 @@ async function generateMissing(env: Env) {
   return { checked: rows.results.length, generated }
 }
 
+async function seedDemoMusicWorld(env: Env) {
+  if (env.MUSIC_DEMO_SEED_ENABLED !== 'true') return
+
+  const counts = await env.DB.prepare(`
+    SELECT
+      (SELECT count(*) FROM music_planets WHERE owner_user_id LIKE 'demo:user:%') AS planets,
+      (SELECT count(*) FROM music_planet_tracks WHERE planet_id LIKE 'demo:planet:%') AS tracks,
+      (SELECT count(*) FROM music_moments WHERE id LIKE 'demo:moment:%') AS moments
+  `).first<{ planets: number; tracks: number; moments: number }>()
+  if ((counts?.planets ?? 0) >= 12 && (counts?.tracks ?? 0) >= 24 && (counts?.moments ?? 0) >= 13) return
+
+  const readSqlAsset = async (filename: string) => {
+    const response = await env.ASSETS.fetch(new Request(`https://music-demo-seed.invalid/${filename}`))
+    if (!response.ok) throw new Error(`Demo fixture asset unavailable: ${filename} (${response.status})`)
+    return response.text()
+  }
+
+  // These SQL files contain only synthetic, idempotent fixtures. The flag is
+  // enabled solely in the isolated staging scheduler configuration.
+  await env.DB.exec(await readSqlAsset('seed-music-demo-tracks.sql'))
+  await env.DB.exec(await readSqlAsset('seed-music-demo-world.sql'))
+}
+
 export async function scheduled(event: ScheduledEvent, env: Env) {
   // Bottle deliveries expire at the one-hour boundary; run the queue every
   // five minutes while keeping daily care-card generation on the hour.
   let careCardError: unknown
+  let demoSeedError: unknown
+  try {
+    await seedDemoMusicWorld(env)
+  } catch (error) {
+    demoSeedError = error
+  }
   if (new Date(event.scheduledTime).getUTCMinutes() === 0) {
     try {
       await generateMissing(env)
@@ -72,6 +105,7 @@ export async function scheduled(event: ScheduledEvent, env: Env) {
   // must not keep the drift-bottle queue from expiring and re-routing bottles.
   await processDriftBottleQueue(env)
   if (careCardError) throw careCardError
+  if (demoSeedError) throw demoSeedError
 }
 
 export default {
