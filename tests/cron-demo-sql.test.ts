@@ -45,10 +45,10 @@ describe('staging demo SQL bootstrap', () => {
     applyOneLineStatements(database, worldSeed)
     applyOneLineStatements(database, worldSeed)
 
-    expect(database.prepare("SELECT count(*) AS value FROM music_planets WHERE owner_user_id LIKE 'demo:user:%' AND visibility = 'public'").get()).toMatchObject({ value: 10 })
+    expect(database.prepare("SELECT count(*) AS value FROM music_planets WHERE owner_user_id LIKE 'demo:user:%' AND visibility = 'public'").get()).toMatchObject({ value: 24 })
     expect(database.prepare("SELECT count(*) AS value FROM music_planets WHERE owner_user_id LIKE 'demo:user:%' AND visibility = 'private'").get()).toMatchObject({ value: 2 })
-    expect(database.prepare("SELECT count(*) AS value FROM music_planet_tracks WHERE planet_id LIKE 'demo:planet:%'").get()).toMatchObject({ value: 28 })
-    expect(database.prepare("SELECT count(*) AS value FROM music_moments WHERE id LIKE 'demo:moment:%'").get()).toMatchObject({ value: 13 })
+    expect(database.prepare("SELECT count(*) AS value FROM music_planet_tracks WHERE planet_id LIKE 'demo:planet:%'").get()).toMatchObject({ value: 56 })
+    expect(database.prepare("SELECT count(*) AS value FROM music_moments WHERE id LIKE 'demo:moment:%'").get()).toMatchObject({ value: 27 })
     expect(database.prepare("SELECT count(*) AS value FROM music_friendships WHERE user_a_id = 'fixture-owner' OR user_b_id = 'fixture-owner'").get()).toMatchObject({ value: 1 })
     expect(database.prepare("SELECT count(*) AS value FROM music_friend_requests WHERE recipient_user_id = 'fixture-owner' AND status = 'pending'").get()).toMatchObject({ value: 1 })
     expect(database.prepare("SELECT count(*) AS value FROM music_daily_roam WHERE user_id = 'fixture-owner'").get()).toMatchObject({ value: 6 })

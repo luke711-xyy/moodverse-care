@@ -70,7 +70,7 @@ async function seedDemoMusicWorld(env: Env) {
       (SELECT count(*) FROM music_planet_tracks WHERE planet_id LIKE 'demo:planet:%') AS tracks,
       (SELECT count(*) FROM music_moments WHERE id LIKE 'demo:moment:%') AS moments
   `).first<{ planets: number; tracks: number; moments: number }>()
-  if ((counts?.planets ?? 0) >= 12 && (counts?.tracks ?? 0) >= 24 && (counts?.moments ?? 0) >= 13) return
+  if ((counts?.planets ?? 0) >= 26 && (counts?.tracks ?? 0) >= 52 && (counts?.moments ?? 0) >= 27) return
 
   const readSqlAsset = async (filename: string) => {
     const response = await env.ASSETS.fetch(new Request(`https://music-demo-seed.invalid/${filename}`))

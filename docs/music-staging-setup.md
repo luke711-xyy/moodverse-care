@@ -55,8 +55,8 @@ catalog entries and official destinations are available.
 ## Seed a full demo world
 
 The isolated staging scheduler also seeds a synthetic social test world on its
-first scheduled run while `MUSIC_DEMO_SEED_ENABLED` is true. It creates 12
-clearly labeled planets (10 public and 2 private), overlapping demo-track
+first scheduled run while `MUSIC_DEMO_SEED_ENABLED` is true. It creates 26
+clearly labeled planets (24 public and 2 private), overlapping demo-track
 selections, public/private Moments, and per-real-account fixture actors for
 Orbit, song encounters, visits (including hidden visits), friendship requests,
 friends and DMs, six daily-roam entries, and an unread commented/liked drift
