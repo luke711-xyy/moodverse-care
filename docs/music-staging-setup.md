@@ -52,6 +52,23 @@ This seed is idempotent. Do not include it in `schema.sql`, the production
 migration chain, or any production database. Replace it only after approved
 catalog entries and official destinations are available.
 
+## Seed a full demo world
+
+The isolated staging scheduler also seeds a synthetic social test world on its
+first scheduled run while `MUSIC_DEMO_SEED_ENABLED` is true. It creates 12
+clearly labeled planets (10 public and 2 private), overlapping demo-track
+selections, public/private Moments, and per-real-account fixture actors for
+Orbit, song encounters, visits (including hidden visits), friendship requests,
+friends and DMs, six daily-roam entries, and an unread commented/liked drift
+bottle. Synthetic `demo:*` identities cannot sign in; personal activity is
+attached to an existing real staging music account without copying private
+content. The SQL is idempotent and lives in `scripts/` so the private scheduler
+can load it through its Assets binding.
+
+For a manual staging-only run when Wrangler's D1 SQL endpoint is available, use
+`npm run music:staging:seed-demo`. It verifies the exact staging project and D1
+IDs before applying the fictional track and world fixtures.
+
 ## Deploy only after external setup
 
 1. Create the Pages project and the separate scheduled Worker in the Cloudflare
