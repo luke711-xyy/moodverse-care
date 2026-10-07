@@ -38,6 +38,8 @@ beforeEach(async () => {
 afterEach(() => {
   fixture.close()
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
+  vi.useRealTimers()
 })
 
 function env(overrides: Partial<Env> = {}) {
@@ -246,10 +248,10 @@ test('song portal sends only exact public candidates to the local model and appl
     gatewayRequest = { url: url.toString(), init: init ?? {} }
     return Response.json({
       model: { name: 'qwen3-embedding-local', version: '0.6b-ml', },
-      output: { ranking: [
-        { planetId: 'planet-ai-moment', score: 0.93, reasonCode: 'shared_public_moment' },
-        { planetId: 'planet-ai-selected', score: 0.84, reasonCode: 'shared_selection_and_moment' },
-      ] },
+      ranking: [
+        { planetId: 'planet-ai-moment', score: 0.93 },
+        { planetId: 'planet-ai-selected', score: 0.84 },
+      ],
     })
   }))
 
@@ -295,7 +297,41 @@ test('song portal sends only exact public candidates to the local model and appl
   `).get() as { input_hash: string }).input_hash).toMatch(/^[a-f0-9]{64}$/)
 })
 
-test('song portal ignores model output that adds, drops, or invents candidate reasons', async () => {
+test('song portal allows the measured cold-start duration before falling back', async () => {
+  const candidateOwner = await createIdentity('cold-rank-candidate')
+  createPlanet('planet-cold-rank', candidateOwner, 'public')
+  addSelection('planet-cold-rank', 'track-a')
+
+  const originalFetch = globalThis.fetch
+  let timeoutMs = 0
+  vi.spyOn(AbortSignal, 'timeout').mockImplementation((milliseconds) => {
+    timeoutMs = milliseconds
+    return new AbortController().signal
+  })
+  vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(input.toString())
+    if (url.origin === issuer) return originalFetch(input, init)
+    return Promise.resolve(Response.json({
+      model: { name: 'qwen3-local', version: '4b-q4' },
+      ranking: [{ planetId: 'planet-cold-rank', score: 0.82 }],
+    }))
+  }))
+
+  const pendingResponse = getSongPortal('track-a', 'portal-owner', {
+    MUSIC_AI_SONG_PORTAL_URL: 'https://ai.example/v1/song-portal/rank',
+    MUSIC_AI_ACCESS_CLIENT_ID: 'access-client-id',
+    MUSIC_AI_ACCESS_CLIENT_SECRET: 'access-client-secret',
+    MUSIC_AI_GATEWAY_TOKEN: 'test-gateway-secret',
+  })
+  const response = await pendingResponse
+  const body = await response.json() as { ranking: Record<string, unknown>; matches: Array<Record<string, unknown>> }
+
+  expect(timeoutMs).toBeGreaterThanOrEqual(31_000)
+  expect(body.ranking).toMatchObject({ mode: 'model', status: 'ready' })
+  expect(body.matches[0]).toMatchObject({ planetId: 'planet-cold-rank', rankScore: 0.82 })
+})
+
+test('song portal rejects model-provided reason codes even when they match server evidence', async () => {
   const selectedOwner = await createIdentity('invalid-rank-owner')
   createPlanet('planet-valid-candidate', selectedOwner, 'public')
   addSelection('planet-valid-candidate', 'track-a', '2026-09-29T09:00:00.000Z')
@@ -306,10 +342,9 @@ test('song portal ignores model output that adds, drops, or invents candidate re
     if (url.origin === issuer) return originalFetch(input, init)
     return Response.json({
       model: { name: 'qwen3-local', version: '4b-q4' },
-      output: { ranking: [
-        { planetId: 'planet-valid-candidate', score: 0.9, reasonCode: 'same_artist' },
-        { planetId: 'invented-private-planet', score: 0.99, reasonCode: 'shared_song_selection' },
-      ] },
+      ranking: [
+        { planetId: 'planet-valid-candidate', score: 0.9, reasonCode: 'shared_song_selection' },
+      ],
     })
   }))
 

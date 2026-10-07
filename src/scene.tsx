@@ -5,7 +5,7 @@ import { billboardTextParts, planetBillboards } from './billboards'
 import { placeBillboards } from './billboard-placement'
 import { drawDoodleStrokes } from './doodle'
 import { orientationForDragAnchor, resolveSelfPlanet } from './scene-state'
-import { generatePlanetRivers, generatePlanetTextureData, hashString32, isPlanetLand, largestLandFocus, planetLandReliefScale, planetRiverDepth, planetSeaLine, planetVisualProfile, samplePlanetElevation, type PlanetVisualProfile } from './planet-visuals'
+import { generatePlanetRivers, generatePlanetTextureData, hashString32, isPlanetLand, largestLandFocus, planetLandReliefScale, planetRiverDepth, planetSeaLine, planetVisualProfile, samplePlanetElevation, type PlanetVisualProfile, type TerrainFeatureConfig } from './planet-visuals'
 import { derivePlanetClimate } from './climate'
 import { weatherAccent } from './weather'
 import { generateLightningPath } from './lightning'
@@ -620,7 +620,7 @@ function usePlanetTextures(planet: Planet, profile: PlanetVisualProfile, detail:
     }
     const width = detail === 'near' ? 192 : 96
     const height = detail === 'near' ? 96 : 48
-    const data = generatePlanetTextureData(hashString32(planetAppearanceSeed(planet)), profile, width, height, climate)
+    const data = generatePlanetTextureData(hashString32(planetAppearanceSeed(planet)), profile, width, height, climate, profile.terrainFeatureConfig)
     const color = new THREE.DataTexture(data.color, width, height, THREE.RGBAFormat)
     color.colorSpace = THREE.SRGBColorSpace
     color.wrapS = THREE.RepeatWrapping
@@ -744,9 +744,9 @@ function OceanSurface({ radius, profile, climate, detail }: { radius: number; pr
   </mesh>
 }
 
-function useTerrainGeometry(planet: Planet, radius: number, detail: 'mid' | 'near', seaLevel: number) {
+function useTerrainGeometry(planet: Planet, radius: number, detail: 'mid' | 'near', seaLevel: number, featureConfig?: TerrainFeatureConfig) {
   const cacheKey = planet.owner && detail === 'near'
-    ? JSON.stringify([planet.id, planetAppearanceSeed(planet), radius, detail, seaLevel])
+    ? JSON.stringify([planet.id, planetAppearanceSeed(planet), radius, detail, seaLevel, featureConfig])
     : undefined
   return useMemo(() => {
     if (cacheKey) {
@@ -771,7 +771,7 @@ function useTerrainGeometry(planet: Planet, radius: number, detail: 'mid' | 'nea
     const terrainReliefCache = new Map<string, number>()
     const reliefLongitudeStep = detail === 'near' ? 1 / 96 : 1 / 56
     const reliefLatitudeStep = detail === 'near' ? 1 / 64 : 1 / 36
-    const reliefElevationAt = (u: number, v: number, elevation = samplePlanetElevation(elevationSeed, u, v, seaLevel)) => {
+    const reliefElevationAt = (u: number, v: number, elevation = samplePlanetElevation(elevationSeed, u, v, seaLevel, featureConfig)) => {
       const wrappedU = (u % 1 + 1) % 1
       const clampedV = THREE.MathUtils.clamp(v, 0, 1)
       const key = `${wrappedU.toFixed(6)}:${clampedV.toFixed(6)}`
@@ -781,10 +781,10 @@ function useTerrainGeometry(planet: Planet, radius: number, detail: 'mid' | 'nea
       // field across existing mesh vertices. This rounds small triangulated
       // ridges without adding subdivisions or changing coast placement.
       const result = elevation <= shoreline + .0005 ? shoreline : Math.max(shoreline, elevation * .62 + (
-        samplePlanetElevation(elevationSeed, wrappedU + reliefLongitudeStep, clampedV, seaLevel)
-        + samplePlanetElevation(elevationSeed, wrappedU - reliefLongitudeStep, clampedV, seaLevel)
-        + samplePlanetElevation(elevationSeed, wrappedU, clampedV + reliefLatitudeStep, seaLevel)
-        + samplePlanetElevation(elevationSeed, wrappedU, clampedV - reliefLatitudeStep, seaLevel)
+        samplePlanetElevation(elevationSeed, wrappedU + reliefLongitudeStep, clampedV, seaLevel, featureConfig)
+        + samplePlanetElevation(elevationSeed, wrappedU - reliefLongitudeStep, clampedV, seaLevel, featureConfig)
+        + samplePlanetElevation(elevationSeed, wrappedU, clampedV + reliefLatitudeStep, seaLevel, featureConfig)
+        + samplePlanetElevation(elevationSeed, wrappedU, clampedV - reliefLatitudeStep, seaLevel, featureConfig)
       ) * .095)
       terrainReliefCache.set(key, result)
       return result
@@ -793,7 +793,7 @@ function useTerrainGeometry(planet: Planet, radius: number, detail: 'mid' | 'nea
       normal: new THREE.Vector3().fromBufferAttribute(positions, index).normalize(),
       u: uvs.getX(index),
       v: uvs.getY(index),
-      elevation: samplePlanetElevation(elevationSeed, uvs.getX(index), uvs.getY(index), seaLevel),
+      elevation: samplePlanetElevation(elevationSeed, uvs.getX(index), uvs.getY(index), seaLevel, featureConfig),
     })
     const coastIntersection = (start: TerrainVertex, end: TerrainVertex): TerrainVertex => {
       const amount = THREE.MathUtils.clamp((shoreline - start.elevation) / (end.elevation - start.elevation), 0, 1)
@@ -819,7 +819,7 @@ function useTerrainGeometry(planet: Planet, radius: number, detail: 'mid' | 'nea
       const east = new THREE.Vector3(Math.sin(longitudeAngle), 0, Math.cos(longitudeAngle))
       const north = new THREE.Vector3(Math.sin(latitudeAngle) * Math.cos(longitudeAngle), Math.cos(latitudeAngle), -Math.sin(latitudeAngle) * Math.sin(longitudeAngle))
       const radiusAt = (u: number, v: number) => {
-        const elevation = samplePlanetElevation(elevationSeed, u, THREE.MathUtils.clamp(v, 0, 1), seaLevel)
+        const elevation = samplePlanetElevation(elevationSeed, u, THREE.MathUtils.clamp(v, 0, 1), seaLevel, featureConfig)
         const height = THREE.MathUtils.clamp((reliefElevationAt(u, v, elevation) - shoreline) / Math.max(.08, .94 - shoreline), 0, 1)
         return waterRadius * (1.008 + Math.pow(height, .84) * planetLandReliefScale)
       }
@@ -875,10 +875,10 @@ function useTerrainGeometry(planet: Planet, radius: number, detail: 'mid' | 'nea
       }
     }
     return geometry
-  }, [cacheKey, detail, planet.id, planet.visualSeed, radius, seaLevel])
+  }, [cacheKey, detail, featureConfig, planet.id, planet.visualSeed, radius, seaLevel])
 }
 
-function TreeInstances({ radius, planet, climate }: { radius: number; planet: Planet; climate: ReturnType<typeof derivePlanetClimate> }) {
+function TreeInstances({ radius, planet, climate, featureConfig }: { radius: number; planet: Planet; climate: ReturnType<typeof derivePlanetClimate>; featureConfig?: TerrainFeatureConfig }) {
   const count = Math.round(20 + climate.vegetationHealth * 32)
   const trunkMesh = useRef<THREE.InstancedMesh>(null)
   const lowerMesh = useRef<THREE.InstancedMesh>(null)
@@ -891,9 +891,9 @@ function TreeInstances({ radius, planet, climate }: { radius: number; planet: Pl
     for (let attempt = 0; candidates.length < count && attempt < count * 48; attempt += 1) {
       const longitude = seeded(seed + attempt * 17.3)
       const latitude = Math.asin(seeded(seed + attempt * 31.7) * 2 - 1) / Math.PI + .5
-      if (!isPlanetLand(terrainSeed, longitude, latitude, climate.seaLevel)) continue
-      if (planetRiverDepth(terrainSeed, longitude, latitude, climate.seaLevel) > .012) continue
-      const elevation = samplePlanetElevation(terrainSeed, longitude, latitude, climate.seaLevel)
+      if (!isPlanetLand(terrainSeed, longitude, latitude, climate.seaLevel, featureConfig)) continue
+      if (planetRiverDepth(terrainSeed, longitude, latitude, climate.seaLevel, featureConfig) > .012) continue
+      const elevation = samplePlanetElevation(terrainSeed, longitude, latitude, climate.seaLevel, featureConfig)
       const altitude = THREE.MathUtils.clamp((elevation - shoreline) / Math.max(.08, .94 - shoreline), 0, 1)
       const latAngle = (latitude - .5) * Math.PI
       const lonAngle = longitude * Math.PI * 2
@@ -901,7 +901,7 @@ function TreeInstances({ radius, planet, climate }: { radius: number; planet: Pl
       candidates.push({ normal, surface: radius * (.982 + climate.seaLevel * .03) * (1.008 + Math.pow(altitude, .84) * planetLandReliefScale) })
     }
     return candidates
-  }, [climate.seaLevel, count, planet.id, planet.visualSeed, radius, seed, terrainSeed])
+  }, [climate.seaLevel, count, featureConfig, planet.id, planet.visualSeed, radius, seed, terrainSeed])
   const fireTransform = useMemo(() => {
     const firstTree = trees[0]
     if (!firstTree) return undefined
@@ -1126,7 +1126,7 @@ function createDoodleTexture(strokes: DoodleStroke[], themeColor: string) {
   return texture
 }
 
-function createDoodleSurfaceGeometry(planet: Planet, radius: number, seaLevel: number, focus: ReturnType<typeof largestLandFocus>) {
+function createDoodleSurfaceGeometry(planet: Planet, radius: number, seaLevel: number, focus: ReturnType<typeof largestLandFocus>, featureConfig?: TerrainFeatureConfig) {
   const segments = 28
   const seed = hashString32(planetAppearanceSeed(planet))
   const shoreline = planetSeaLine(seed, seaLevel)
@@ -1150,7 +1150,7 @@ function createDoodleSurfaceGeometry(planet: Planet, radius: number, seaLevel: n
       const normal = tangentPoint.normalize()
       const latitude = Math.asin(THREE.MathUtils.clamp(normal.y, -1, 1)) / Math.PI + .5
       const longitude = ((Math.atan2(normal.z, -normal.x) / (Math.PI * 2)) + 1) % 1
-      const elevation = samplePlanetElevation(seed, longitude, latitude, seaLevel)
+      const elevation = samplePlanetElevation(seed, longitude, latitude, seaLevel, featureConfig)
       const altitude = THREE.MathUtils.clamp((elevation - shoreline) / Math.max(.08, .94 - shoreline), 0, 1)
       const surface = elevation >= shoreline ? waterRadius * (1.008 + Math.pow(altitude, .84) * planetLandReliefScale) : waterRadius
       const offset = (y * (segments + 1) + x) * 3
@@ -1179,11 +1179,11 @@ function createDoodleSurfaceGeometry(planet: Planet, radius: number, seaLevel: n
   return geometry
 }
 
-function DoodleSurface({ planet, radius, seaLevel }: { planet: Planet; radius: number; seaLevel: number }) {
+function DoodleSurface({ planet, radius, seaLevel, featureConfig }: { planet: Planet; radius: number; seaLevel: number; featureConfig?: TerrainFeatureConfig }) {
   const strokes = planet.doodle ?? []
   const seed = useMemo(() => hashString32(planetAppearanceSeed(planet)), [planet.id, planet.visualSeed])
-  const focus = useMemo(() => largestLandFocus(seed, seaLevel), [seed, seaLevel])
-  const geometry = useMemo(() => createDoodleSurfaceGeometry(planet, radius, seaLevel, focus), [focus, planet.id, planet.visualSeed, radius, seaLevel])
+  const focus = useMemo(() => largestLandFocus(seed, seaLevel, featureConfig), [featureConfig, seed, seaLevel])
+  const geometry = useMemo(() => createDoodleSurfaceGeometry(planet, radius, seaLevel, focus, featureConfig), [featureConfig, focus, planet.id, planet.visualSeed, radius, seaLevel])
   const themeColor = themeById(planet.theme).color
   const texture = useMemo(() => createDoodleTexture(strokes, themeColor), [strokes, themeColor])
   useEffect(() => () => { geometry.dispose(); texture?.dispose() }, [geometry, texture])
@@ -1193,11 +1193,11 @@ function DoodleSurface({ planet, radius, seaLevel }: { planet: Planet; radius: n
   </mesh>
 }
 
-function createRiverGeometry(planet: Planet, radius: number, seaLevel: number, climate: ReturnType<typeof derivePlanetClimate>) {
+function createRiverGeometry(planet: Planet, radius: number, seaLevel: number, climate: ReturnType<typeof derivePlanetClimate>, featureConfig?: TerrainFeatureConfig) {
   const seed = hashString32(planetAppearanceSeed(planet))
   const shoreline = planetSeaLine(seed, seaLevel)
   const waterRadius = radius * (.982 + seaLevel * .03)
-  const rivers = generatePlanetRivers(seed, seaLevel)
+  const rivers = generatePlanetRivers(seed, seaLevel, featureConfig)
   const positions: number[] = []
   const uvs: number[] = []
   const indices: number[] = []
@@ -1212,7 +1212,7 @@ function createRiverGeometry(planet: Planet, radius: number, seaLevel: number, c
         Math.sin(latitudeAngle),
         Math.cos(latitudeAngle) * Math.sin(longitudeAngle),
       )
-      const elevation = samplePlanetElevation(seed, point.longitude, point.latitude, seaLevel)
+      const elevation = samplePlanetElevation(seed, point.longitude, point.latitude, seaLevel, featureConfig)
       const altitude = THREE.MathUtils.clamp((elevation - shoreline) / Math.max(.08, .94 - shoreline), 0, 1)
       const surface = waterRadius * (1.008 + Math.pow(altitude, .84) * planetLandReliefScale) + radius * .0025
       centers.push(normal.multiplyScalar(surface))
@@ -1257,7 +1257,7 @@ function createRiverGeometry(planet: Planet, radius: number, seaLevel: number, c
 function RiverSystem({ planet, radius, profile, climate }: { planet: Planet; radius: number; profile: PlanetVisualProfile; climate: ReturnType<typeof derivePlanetClimate> }) {
   const material = useRef<THREE.ShaderMaterial>(null)
   const seaLevel = climate.seaLevel
-  const geometry = useMemo(() => createRiverGeometry(planet, radius, seaLevel, climate), [climate, planet.id, planet.visualSeed, radius, seaLevel])
+  const geometry = useMemo(() => createRiverGeometry(planet, radius, seaLevel, climate, profile.terrainFeatureConfig), [climate, planet.id, planet.visualSeed, profile.terrainFeatureConfig, radius, seaLevel])
   const shader = useMemo(() => ({
     uniforms: {
       uTime: { value: 0 },
@@ -1287,7 +1287,7 @@ function RiverSystem({ planet, radius, profile, climate }: { planet: Planet; rad
 function DetailedPlanet({ planet, radius, detail, warmup = false }: { planet: Planet; radius: number; detail: 'mid' | 'near'; warmup?: boolean }) {
   const profile = useMemo(() => planetVisualProfile(planet.theme, planet.mood, planet.intensity, planet.visualOverride), [planet.intensity, planet.mood, planet.theme, planet.visualOverride])
   const { textures, climate } = usePlanetTextures(planet, profile, detail)
-  const geometry = useTerrainGeometry(planet, radius, detail, climate.seaLevel)
+  const geometry = useTerrainGeometry(planet, radius, detail, climate.seaLevel, profile.terrainFeatureConfig)
   const renderer = useThree((state) => state.gl)
   useLayoutEffect(() => {
     if (!warmup) return
@@ -1309,9 +1309,9 @@ function DetailedPlanet({ planet, radius, detail, warmup = false }: { planet: Pl
       <meshBasicMaterial color={profile.palette.atmosphere} transparent opacity={0.08 + profile.glow * 0.08 + profile.fog * 0.1} side={THREE.BackSide} blending={THREE.AdditiveBlending} depthWrite={false} />
     </mesh>
     {detail === 'near' && <>
-      <TreeInstances radius={radius} planet={planet} climate={climate} />
+      <TreeInstances radius={radius} planet={planet} climate={climate} featureConfig={profile.terrainFeatureConfig} />
       <WeatherSystem radius={radius} planet={planet} climate={climate} profile={profile} />
-      {planet.doodle?.length ? <DoodleSurface planet={planet} radius={radius} seaLevel={climate.seaLevel} /> : null}
+      {planet.doodle?.length ? <DoodleSurface planet={planet} radius={radius} seaLevel={climate.seaLevel} featureConfig={profile.terrainFeatureConfig} /> : null}
     </>}
   </>
 }

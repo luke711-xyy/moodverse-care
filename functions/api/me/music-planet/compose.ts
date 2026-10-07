@@ -1,6 +1,7 @@
 import { authenticatedMusicUser, type Env } from '../../../_shared'
 
-const VISUAL_SCHEMA_VERSION = 1
+const COMPOSITION_REQUEST_SCHEMA_VERSION = 1
+const VISUAL_SCHEMA_VERSION = 2
 const MAX_GATEWAY_RESPONSE_CHARS = 8_192
 const MAX_COMPOSER_MOMENTS = 20
 
@@ -39,12 +40,13 @@ type CompositionInput = {
 }
 
 type PlanetVisual = {
-  schemaVersion: 1
+  schemaVersion: 2
   summary: string
   palette: { surface: string; ocean: string; accent: string }
   atmosphere: 'clear' | 'mist' | 'nebula' | 'starlit'
   motion: 'still' | 'drift' | 'flow' | 'pulse'
   particleDensity: number
+  terrainFeatures: { mountainRanges: number; basins: number; canyons: number; escarpments: number }
 }
 
 type GatewayResult = {
@@ -104,7 +106,7 @@ async function readCompositionInput(env: Env, userId: string) {
   ])
 
   const input: CompositionInput = {
-    schemaVersion: VISUAL_SCHEMA_VERSION,
+    schemaVersion: COMPOSITION_REQUEST_SCHEMA_VERSION,
     planet: {
       id: planet.id,
       displayName: planet.display_name,
@@ -147,7 +149,7 @@ function hasExactKeys(value: Record<string, unknown>, keys: string[]) {
 
 function validateVisual(value: unknown): PlanetVisual | null {
   if (!isRecord(value) || !hasExactKeys(value, [
-    'schemaVersion', 'summary', 'palette', 'atmosphere', 'motion', 'particleDensity',
+    'schemaVersion', 'summary', 'palette', 'atmosphere', 'motion', 'particleDensity', 'terrainFeatures',
   ])) return null
   if (value.schemaVersion !== VISUAL_SCHEMA_VERSION) return null
   if (typeof value.summary !== 'string' || !value.summary.trim() || Array.from(value.summary.trim()).length > 120) return null
@@ -155,6 +157,14 @@ function validateVisual(value: unknown): PlanetVisual | null {
   if (typeof value.motion !== 'string' || !['still', 'drift', 'flow', 'pulse'].includes(value.motion)) return null
   if (typeof value.particleDensity !== 'number' || !Number.isFinite(value.particleDensity) || value.particleDensity < 0 || value.particleDensity > 1) return null
   if (!isRecord(value.palette) || !hasExactKeys(value.palette, ['surface', 'ocean', 'accent'])) return null
+  if (!isRecord(value.terrainFeatures) || !hasExactKeys(value.terrainFeatures, [
+    'mountainRanges', 'basins', 'canyons', 'escarpments',
+  ])) return null
+  const terrainFeatureLimits = { mountainRanges: 6, basins: 4, canyons: 5, escarpments: 4 } as const
+  for (const [feature, maximum] of Object.entries(terrainFeatureLimits)) {
+    const count = value.terrainFeatures[feature]
+    if (typeof count !== 'number' || !Number.isInteger(count) || count < 0 || count > maximum) return null
+  }
 
   const colors = [value.palette.surface, value.palette.ocean, value.palette.accent]
   if (!colors.every((color) => typeof color === 'string' && /^#[0-9a-fA-F]{6}$/.test(color))) return null
@@ -170,6 +180,12 @@ function validateVisual(value: unknown): PlanetVisual | null {
     atmosphere: value.atmosphere as PlanetVisual['atmosphere'],
     motion: value.motion as PlanetVisual['motion'],
     particleDensity: value.particleDensity,
+    terrainFeatures: {
+      mountainRanges: value.terrainFeatures.mountainRanges as number,
+      basins: value.terrainFeatures.basins as number,
+      canyons: value.terrainFeatures.canyons as number,
+      escarpments: value.terrainFeatures.escarpments as number,
+    },
   }
 }
 
@@ -262,7 +278,7 @@ async function processComposition(
         'Cf-Access-Client-Secret': env.MUSIC_AI_ACCESS_CLIENT_SECRET!,
         authorization: `Bearer ${env.MUSIC_AI_GATEWAY_TOKEN!.trim()}`,
       },
-      body: JSON.stringify({ taskId, schemaVersion: VISUAL_SCHEMA_VERSION, ...input }),
+      body: JSON.stringify({ taskId, schemaVersion: COMPOSITION_REQUEST_SCHEMA_VERSION, ...input }),
       redirect: 'error',
       signal: AbortSignal.timeout(45_000),
     })

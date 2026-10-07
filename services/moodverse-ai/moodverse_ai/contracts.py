@@ -225,9 +225,9 @@ def validate_model_metadata(name, version):
 
 def validate_composition_output(value):
     output = _record(value, (
-        "schemaVersion", "summary", "palette", "atmosphere", "motion", "particleDensity",
+        "schemaVersion", "summary", "palette", "atmosphere", "motion", "particleDensity", "terrainFeatures",
     ), "planet visual output")
-    if isinstance(output["schemaVersion"], bool) or output["schemaVersion"] != 1:
+    if isinstance(output["schemaVersion"], bool) or output["schemaVersion"] != 2:
         _fail("unsupported visual schema version")
     summary = _string(output["summary"], "visual summary", 120)
     palette = _record(output["palette"], ("surface", "ocean", "accent"), "palette")
@@ -246,13 +246,24 @@ def validate_composition_output(value):
     density = output["particleDensity"]
     if isinstance(density, bool) or not isinstance(density, (int, float)) or not math.isfinite(density) or not 0 <= density <= 1:
         _fail("invalid particle density")
+    terrain = _record(output["terrainFeatures"], (
+        "mountainRanges", "basins", "canyons", "escarpments",
+    ), "terrain features")
+    limits = {"mountainRanges": 6, "basins": 4, "canyons": 5, "escarpments": 4}
+    clean_terrain = {}
+    for key, maximum in limits.items():
+        count = terrain[key]
+        if isinstance(count, bool) or not isinstance(count, int) or not 0 <= count <= maximum:
+            _fail("invalid terrain feature count")
+        clean_terrain[key] = count
     return {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "summary": summary,
         "palette": colors,
         "atmosphere": atmosphere,
         "motion": motion,
         "particleDensity": float(density),
+        "terrainFeatures": clean_terrain,
     }
 
 
@@ -265,7 +276,7 @@ def validate_ranking_output(value, candidates):
     seen = set()
     ranking = []
     for item in raw_ranking:
-        item = _record(item, ("planetId", "score", "reasonCode"), "ranked candidate")
+        item = _record(item, ("planetId", "score"), "ranked candidate")
         planet_id = _string(item["planetId"], "ranked planet id", 120)
         source = candidate_sources.get(planet_id)
         if source is None or planet_id in seen:
@@ -273,10 +284,8 @@ def validate_ranking_output(value, candidates):
         score = item["score"]
         if isinstance(score, bool) or not isinstance(score, (int, float)) or not math.isfinite(score) or not 0 <= score <= 1:
             _fail("invalid ranking score")
-        if item["reasonCode"] != _MATCH_REASONS[source]:
-            _fail("invalid ranking reason")
         seen.add(planet_id)
-        ranking.append({"planetId": planet_id, "score": float(score), "reasonCode": item["reasonCode"]})
+        ranking.append({"planetId": planet_id, "score": float(score), "reasonCode": _MATCH_REASONS[source]})
     if seen != set(candidate_sources):
         _fail("ranking omitted an eligible candidate")
     return sorted(ranking, key=lambda item: item["score"], reverse=True)

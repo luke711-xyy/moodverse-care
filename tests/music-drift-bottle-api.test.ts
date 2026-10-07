@@ -351,6 +351,45 @@ test('an unread delivery expires after one hour and is re-routed by the schedule
     .toEqual({ recipient_user_id: nextRecipient, status: 'unread' })
 })
 
+test('a care-card generation failure does not prevent scheduled drift-bottle retries', async () => {
+  const recipientA = await identityFor('bottle-care-failure-a')
+  createPlanet('bottle-care-failure-a-planet', recipientA, 'public', 'bottle-song-b')
+  const recipientB = await identityFor('bottle-care-failure-b')
+  createPlanet('bottle-care-failure-b-planet', recipientB, 'public', 'bottle-song-b')
+  const created = await createSongBottle()
+  const { bottle } = await created.json() as { bottle: { id: string } }
+  const previous = fixture.sqlite.prepare(`SELECT id, recipient_user_id FROM music_drift_deliveries WHERE bottle_id = ?`)
+    .get(bottle.id) as { id: string; recipient_user_id: string }
+  const nextRecipient = previous.recipient_user_id === recipientA ? recipientB : recipientA
+  fixture.sqlite.prepare(`UPDATE music_drift_deliveries SET expires_at = ? WHERE id = ?`)
+    .run(new Date(Date.now() - 1).toISOString(), previous.id)
+
+  const baseEnv = env()
+  const originalPrepare = baseEnv.DB.prepare.bind(baseEnv.DB)
+  const brokenCareCardDb = Object.assign({}, baseEnv.DB, {
+    prepare(sql: string) {
+      const statement = originalPrepare(sql)
+      if (!sql.includes('JOIN mood_entries e')) return statement
+      return new Proxy(statement, {
+        get(target, property, receiver) {
+          if (property === 'all') return async () => { throw new Error('care-card query unavailable') }
+          return Reflect.get(target, property, receiver)
+        },
+      })
+    },
+  }) as Env['DB']
+
+  await expect(runScheduled(
+    { scheduledTime: Date.UTC(2026, 0, 1, 12, 0), cron: '*/5 * * * *' } as ScheduledEvent,
+    env({ DB: brokenCareCardDb }),
+  )).rejects.toThrow('care-card query unavailable')
+
+  expect(fixture.sqlite.prepare(`SELECT status FROM music_drift_deliveries WHERE id = ?`).get(previous.id))
+    .toEqual({ status: 'expired' })
+  expect(fixture.sqlite.prepare(`SELECT recipient_user_id, status FROM music_drift_deliveries WHERE bottle_id = ? AND status = 'unread'`).get(bottle.id))
+    .toEqual({ recipient_user_id: nextRecipient, status: 'unread' })
+})
+
 test.each(['receiving disabled', 'planet made private'] as const)(
   'scheduled re-routing rechecks recipient eligibility atomically when %s during assignment',
   async (change) => {

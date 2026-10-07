@@ -9,6 +9,7 @@ type CatalogRow = {
   version_label: string
   genres_json: string
   mood_tags_json: string
+  provider: string
   official_url: string
   cover_url: string | null
   duration_seconds: number | null
@@ -27,7 +28,7 @@ function stringArray(value: string): string[] {
 export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   const search = new URL(request.url).searchParams.get('q')?.trim().slice(0, 120) ?? ''
   const { results } = await env.DB.prepare(`
-    SELECT id, title, artist_id, artist_name, version_label, genres_json, mood_tags_json,
+    SELECT id, title, artist_id, artist_name, version_label, genres_json, mood_tags_json, provider,
            official_url, cover_url, duration_seconds
     FROM music_track_catalog
     WHERE is_active = 1
@@ -47,6 +48,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     officialUrl: safeHttpsUrl(row.official_url),
     coverUrl: safeHttpsUrl(row.cover_url),
     durationSeconds: row.duration_seconds,
+    ...(row.provider === 'moodverse-demo' ? { isDemo: true } : {}),
   }))
 
   return new Response(JSON.stringify({ tracks }), {

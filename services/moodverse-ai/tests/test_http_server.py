@@ -26,11 +26,7 @@ class RoutingRuntime:
         if "candidates" in data:
             return json.dumps({
                 "ranking": [
-                    {"planetId": item["planetId"], "score": 0.7, "reasonCode": {
-                        "active_selection": "shared_song_selection",
-                        "public_moment": "shared_public_moment",
-                        "active_selection_and_public_moment": "shared_selection_and_moment",
-                    }[item["matchSource"]]}
+                    {"planetId": item["planetId"], "score": 0.7}
                     for item in data["candidates"]
                 ]
             })
@@ -106,9 +102,15 @@ class LocalGatewayHTTPTests(unittest.TestCase):
         embed_status, embedded = self.request("POST", "/v1/embed", embed_payload())
 
         self.assertEqual(compose_status, 200)
-        self.assertEqual(composed["output"]["schemaVersion"], 1)
+        self.assertEqual(composed["output"]["schemaVersion"], 2)
+        self.assertEqual(composed["output"]["terrainFeatures"], {
+            "mountainRanges": 4, "basins": 2, "canyons": 1, "escarpments": 1,
+        })
         self.assertEqual(rank_status, 200)
-        self.assertEqual({item["planetId"] for item in ranked["ranking"]}, {"planet-a", "planet-b"})
+        self.assertEqual(ranked["ranking"], [
+            {"planetId": "planet-a", "score": 0.7, "reasonCode": "shared_song_selection"},
+            {"planetId": "planet-b", "score": 0.7, "reasonCode": "shared_public_moment"},
+        ])
         self.assertEqual(embed_status, 200)
         self.assertEqual([item["id"] for item in embedded["embeddings"]], ["query", "planet:planet-a"])
 

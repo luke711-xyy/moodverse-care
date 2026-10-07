@@ -1,16 +1,15 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from 'react'
-import { UniverseCanvas } from '../scene'
-import type { GalaxyGroupBy, MusicApi, MusicDirectMessage, MusicDiscoveryResponse, MusicDriftBottleDetail, MusicDriftBottlesResponse, MusicFriendRequestsResponse, MusicGalaxyResponse, MusicMoment, MusicOrbitResponse, MusicPlanet, MusicPlanetVisitSource, MusicPlanetVisual, MusicReportReason, MusicReportTarget, MusicSocialSettings, PublicMusicPlanet, SongPortalMatch, SongPortalResponse } from '../music-api'
+import { Component, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react'
+import type { GalaxyGroupBy, MusicAdminReport, MusicApi, MusicDirectMessage, MusicDiscoveryResponse, MusicDriftBottleDetail, MusicDriftBottlesResponse, MusicFriendRequestsResponse, MusicGalaxyResponse, MusicMoment, MusicOrbitResponse, MusicPlanet, MusicPlanetVisitSource, MusicPlanetVisual, MusicReportQueueFilter, MusicReportReason, MusicReportStatus, MusicReportTarget, MusicSocialSettings, PublicMusicPlanet, SongPortalMatch, SongPortalResponse } from '../music-api'
 import { createMusicApi, MusicApiError } from '../music-api'
-import { classifyMusicApiError, togglePlanetTrack, validatePlanetDraft } from '../music-app-domain'
+import { togglePlanetTrack, validatePlanetDraft } from '../music-app-domain'
 import type { MusicTrackSummary } from '../music-domain'
 import type { Planet } from '../types'
 import './music-app.css'
 
 type HomeState =
   | { status: 'loading' }
-  | { status: 'error'; kind: 'auth-required' | 'request-failed' }
-  | { status: 'ready'; tracks: MusicTrackSummary[]; planet: MusicPlanet | null; moments: MusicMoment[]; isDemoAccount: boolean }
+  | { status: 'error' }
+  | { status: 'ready'; tracks: MusicTrackSummary[]; planet: MusicPlanet | null; moments: MusicMoment[] }
 
 type ComposerStatus = 'idle' | 'pending' | 'ready' | 'unavailable' | 'failed' | 'delayed'
 
@@ -20,7 +19,7 @@ type SongPortalState =
   | { status: 'ready'; track: MusicTrackSummary; response: SongPortalResponse }
   | { status: 'error'; track: MusicTrackSummary; message: string }
 
-type ProductView = 'planet' | 'galaxy' | 'roam' | 'orbit' | 'bottles' | 'settings'
+type ProductView = 'planet' | 'galaxy' | 'roam' | 'orbit' | 'bottles' | 'settings' | 'moderation'
 
 type GalaxyState =
   | { status: 'idle' }
@@ -52,45 +51,35 @@ type MomentManagementState =
   | { status: 'confirm-delete'; momentId: string; busy: boolean; error: string }
 
 const PLANET_PREVIEW: MusicPlanetVisual = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   summary: '等待三首歌为它点亮第一层色彩。',
   palette: { surface: '#3b6f80', ocean: '#071d31', accent: '#72dac0' },
   atmosphere: 'starlit',
   motion: 'drift',
   particleDensity: .34,
+  terrainFeatures: { mountainRanges: 3, basins: 1, canyons: 2, escarpments: 1 },
 }
 
 const MUSIC_AUTH_CHANNEL = 'moodverse-music-auth'
 const MUSIC_AUTH_STORAGE_KEY = 'moodverse-music-auth-change'
 
-function notifyOtherMusicTabs(sourceId: string) {
-  if (typeof window === 'undefined') return
-  const event = {
-    type: 'session-changed',
-    sourceId,
-    eventId: `${sourceId}-${Date.now()}-${Math.random()}`,
-  }
-  try {
-    if (typeof BroadcastChannel !== 'undefined') {
-      const channel = new BroadcastChannel(MUSIC_AUTH_CHANNEL)
-      channel.postMessage(event)
-      channel.close()
-    }
-  } catch {
-    // The storage-event path below also covers tabs with mixed BroadcastChannel support.
-  }
-  try {
-    window.localStorage.setItem(MUSIC_AUTH_STORAGE_KEY, JSON.stringify(event))
-  } catch {
-    // Private state is still reset in the current tab if browser storage is unavailable.
-  }
-}
-
 function validVisual(value: unknown): value is MusicPlanetVisual {
   if (typeof value !== 'object' || value === null) return false
   const visual = value as Partial<MusicPlanetVisual>
   const isHexColor = (color: unknown) => typeof color === 'string' && /^#[0-9a-f]{6}$/i.test(color)
-  return visual.schemaVersion === 1
+  const validLegacySchema = visual.schemaVersion === 1
+  const validCurrentTerrain = visual.schemaVersion === 2
+    && typeof visual.terrainFeatures === 'object'
+    && visual.terrainFeatures !== null
+    && Number.isInteger(visual.terrainFeatures.mountainRanges)
+    && visual.terrainFeatures.mountainRanges >= 0 && visual.terrainFeatures.mountainRanges <= 6
+    && Number.isInteger(visual.terrainFeatures.basins)
+    && visual.terrainFeatures.basins >= 0 && visual.terrainFeatures.basins <= 4
+    && Number.isInteger(visual.terrainFeatures.canyons)
+    && visual.terrainFeatures.canyons >= 0 && visual.terrainFeatures.canyons <= 5
+    && Number.isInteger(visual.terrainFeatures.escarpments)
+    && visual.terrainFeatures.escarpments >= 0 && visual.terrainFeatures.escarpments <= 4
+  return (validLegacySchema || validCurrentTerrain)
     && typeof visual.summary === 'string'
     && visual.summary.length <= 280
     && isHexColor(visual.palette?.surface)
@@ -102,12 +91,6 @@ function validVisual(value: unknown): value is MusicPlanetVisual {
     && Number.isFinite(visual.particleDensity)
     && visual.particleDensity >= 0
     && visual.particleDensity <= 1
-}
-
-function apiErrorKind(error: unknown) {
-  return error instanceof MusicApiError
-    ? classifyMusicApiError(error.status, error.code)
-    : 'request-failed'
 }
 
 function visualFor(planet: MusicPlanet | null): MusicPlanetVisual {
@@ -135,6 +118,7 @@ function toScenePlanet(planet: MusicPlanet | null, previewSeed: string): Planet 
       atmosphere: visual.atmosphere,
       motion: visual.motion,
       particleDensity: visual.particleDensity,
+      terrainFeatures: visual.terrainFeatures,
     },
   }
 }
@@ -143,7 +127,7 @@ function BrandMark() {
   return <span className="brand-lockup"><span className="brand-orb" aria-hidden="true"><i /></span><strong>MOODVERSE</strong></span>
 }
 
-function BrandHeader({ connected, view, onChangeView, onLogout, isDemoAccount = false }: { connected: boolean; view?: ProductView; onChangeView?: (view: ProductView) => void; onLogout?: () => void; isDemoAccount?: boolean }) {
+function BrandHeader({ connected, view, onChangeView }: { connected: boolean; view?: ProductView; onChangeView?: (view: ProductView) => void }) {
   return <header className="music-topbar">
     <BrandMark />
     {connected && onChangeView && <nav className="music-main-nav" aria-label="主导航">
@@ -156,9 +140,7 @@ function BrandHeader({ connected, view, onChangeView, onLogout, isDemoAccount = 
     </nav>}
     <div className="music-topbar-actions">
       <a className="music-legacy-link" href="/?legacy=1">经典星球版</a>
-      {connected && onLogout && <button className="music-logout-button" type="button" onClick={onLogout}>退出登录</button>}
-      {connected && isDemoAccount && <span className="music-demo-badge" aria-label="当前为演示账号">演示账号</span>}
-      <span className={`music-access-status${connected ? ' is-connected' : ''}`}><i />{connected ? '邮箱已验证' : '邮箱登录'}</span>
+      <span className={`music-access-status${connected ? ' is-connected' : ''}`}><i />{connected ? '匿名体验账号' : '匿名体验'}</span>
     </div>
   </header>
 }
@@ -171,6 +153,23 @@ const reportReasonOptions: Array<{ value: MusicReportReason; label: string }> = 
   { value: 'copyright', label: '版权或来源问题' },
   { value: 'other', label: '其他' },
 ]
+
+const reportStatusLabels: Record<MusicReportQueueFilter, string> = {
+  open: '待处理',
+  reviewing: '处理中',
+  actioned: '已处置',
+  dismissed: '已驳回',
+  all: '全部状态',
+}
+
+const reportReasonLabels: Record<MusicReportReason, string> = {
+  spam: '垃圾信息',
+  harassment: '骚扰或霸凌',
+  inappropriate: '不当内容',
+  privacy: '隐私问题',
+  copyright: '版权问题',
+  other: '其他',
+}
 
 function ReportControl({ api, target, ariaLabel }: { api: MusicApi; target: MusicReportTarget; ariaLabel: string }) {
   const [open, setOpen] = useState(false)
@@ -217,42 +216,89 @@ function ReportControl({ api, target, ariaLabel }: { api: MusicApi; target: Musi
   </div>
 }
 
+class SceneErrorBoundary extends Component<{ children: ReactNode; onRetry: () => void }, { failed: boolean }> {
+  state = { failed: false }
+
+  static getDerivedStateFromError() {
+    return { failed: true }
+  }
+
+  render() {
+    if (this.state.failed) return <div className="music-scene-degraded" role="status">
+      <span>3D 星球暂不可用，仍可继续选歌、浏览内容和使用社交功能。</span>
+      <button className="music-text-button" type="button" onClick={this.props.onRetry}>重试 3D 画面</button>
+    </div>
+    return this.props.children
+  }
+}
+
+function supportsWebGL2() {
+  if (typeof document === 'undefined' || typeof WebGL2RenderingContext === 'undefined') return false
+  try {
+    const canvas = document.createElement('canvas')
+    const context = canvas.getContext('webgl2', { alpha: false, antialias: true, powerPreference: 'high-performance' })
+    if (!context) return false
+    context.getExtension('WEBGL_lose_context')?.loseContext()
+    return true
+  } catch {
+    return false
+  }
+}
+
 function Stage({ planet, previewSeed, reducedMotion }: { planet: MusicPlanet | null; previewSeed: string; reducedMotion: boolean }) {
   const scenePlanet = useMemo(() => toScenePlanet(planet, previewSeed), [planet, previewSeed])
   const visual = visualFor(planet)
-  return <div className="music-scene-wrap" aria-hidden="true">
-    <div className="music-fallback-planet" style={{ '--surface-color': visual.palette.surface, '--ocean-color': visual.palette.ocean, '--accent-color': visual.palette.accent } as CSSProperties} />
-    <div className="music-scene-canvas">
-      <UniverseCanvas
-        view="self"
-        focusedThemes={[]}
-        ownPlanet={scenePlanet}
-        ownPlanets={[scenePlanet]}
-        starAppearance={{ color: visual.palette.accent }}
-        selectedPlanet={scenePlanet}
-        galaxyRotation={0}
-        selfReturning={false}
-        journey={0}
-        reducedMotion={reducedMotion}
-        onBillboardClick={() => undefined}
-        onPublicBillboardClick={() => undefined}
-        onArriveSelf={() => undefined}
-        onThemeClick={() => undefined}
-        onPlanetClick={() => undefined}
-        onOwnPlanetClick={() => undefined}
-        onOwnEmbryoClick={() => undefined}
-        onStarClick={() => undefined}
-      />
+  const [sceneAttempt, setSceneAttempt] = useState(0)
+  const canRenderScene = useMemo(() => supportsWebGL2(), [sceneAttempt])
+  const SceneCanvas = useMemo(() => lazy(() => import('../scene').then(({ UniverseCanvas }) => ({ default: UniverseCanvas }))), [sceneAttempt])
+  return <>
+    <div className="music-scene-wrap" aria-hidden="true">
+      <div className="music-fallback-planet" style={{ '--surface-color': visual.palette.surface, '--ocean-color': visual.palette.ocean, '--accent-color': visual.palette.accent } as CSSProperties} />
     </div>
-  </div>
+    {canRenderScene ? <SceneErrorBoundary key={sceneAttempt} onRetry={() => setSceneAttempt((attempt) => attempt + 1)}>
+      <div className="music-scene-canvas" aria-hidden="true">
+        <Suspense fallback={null}>
+          <SceneCanvas
+            view="self"
+            focusedThemes={[]}
+            ownPlanet={scenePlanet}
+            ownPlanets={[scenePlanet]}
+            starAppearance={{ color: visual.palette.accent }}
+            selectedPlanet={scenePlanet}
+            galaxyRotation={0}
+            selfReturning={false}
+            journey={0}
+            reducedMotion={reducedMotion}
+            onBillboardClick={() => undefined}
+            onPublicBillboardClick={() => undefined}
+            onArriveSelf={() => undefined}
+            onThemeClick={() => undefined}
+            onPlanetClick={() => undefined}
+            onOwnPlanetClick={() => undefined}
+            onOwnEmbryoClick={() => undefined}
+            onStarClick={() => undefined}
+          />
+        </Suspense>
+      </div>
+    </SceneErrorBoundary> : <div className="music-scene-degraded" role="status">
+      <span>3D 星球暂不可用，仍可继续选歌、浏览内容和使用社交功能。</span>
+      <button className="music-text-button" type="button" onClick={() => setSceneAttempt((attempt) => attempt + 1)}>重试 3D 画面</button>
+    </div>}
+  </>
 }
 
 function errorMessage(error: unknown) {
   if (!(error instanceof MusicApiError)) return '暂时无法连接星际档案库。请稍后再试。'
   if (error.code === 'PLANET_ALREADY_EXISTS') return '你的星球已经创建好了。正在重新读取它。'
   if (error.code === 'UNKNOWN_OR_INACTIVE_TRACK') return '有歌曲已从曲库下架，请重新选择仍可用的曲目。'
-  if (error.status === 401) return '邮箱验证已过期，请重新登录。'
+  if (error.status === 401) return '本机匿名身份暂不可用，请刷新页面后重试。'
   return '保存没有完成，已保留当前填写内容。请检查连接后重试。'
+}
+
+function isDemoTrack(track: Pick<MusicTrackSummary, 'id' | 'isDemo'>) {
+  // The ID prefix keeps the demo marker visible when a selected track is loaded
+  // from planet/Moment APIs that intentionally omit catalog-provider details.
+  return track.isDemo === true || track.id.startsWith('demo:')
 }
 
 function matchDescription(match: SongPortalMatch) {
@@ -262,7 +308,7 @@ function matchDescription(match: SongPortalMatch) {
 }
 
 function portalErrorMessage(error: unknown) {
-  if (error instanceof MusicApiError && error.status === 401) return '邮箱验证已过期，请重新登录。'
+  if (error instanceof MusicApiError && error.status === 401) return '本机匿名身份暂不可用，请刷新页面后重试。'
   if (error instanceof MusicApiError && error.status === 403) return '这首歌还没有出现在你的星球或公开 Moment 中。'
   return '同歌通道暂时没有响应，请稍后重试。'
 }
@@ -554,6 +600,13 @@ function MusicApp() {
   const [settingsStatus, setSettingsStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
   const [settingsError, setSettingsError] = useState('')
   const [settingsSaving, setSettingsSaving] = useState('')
+  const [moderatorAvailable, setModeratorAvailable] = useState(false)
+  const [moderationFilter, setModerationFilter] = useState<MusicReportQueueFilter>('open')
+  const [moderationStatus, setModerationStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
+  const [moderationReports, setModerationReports] = useState<MusicAdminReport[]>([])
+  const [moderationHasMore, setModerationHasMore] = useState(false)
+  const [moderationBusyId, setModerationBusyId] = useState('')
+  const [moderationError, setModerationError] = useState('')
   const [planetEditName, setPlanetEditName] = useState('')
   const [planetEditTagline, setPlanetEditTagline] = useState('')
   const [planetEditTrackIds, setPlanetEditTrackIds] = useState<string[]>([])
@@ -576,19 +629,9 @@ function MusicApp() {
   const [incognitoVisit, setIncognitoVisit] = useState(false)
   const [visitingPlanetId, setVisitingPlanetId] = useState('')
   const [visitError, setVisitError] = useState('')
-  const [loginEmail, setLoginEmail] = useState('')
-  const [loginCode, setLoginCode] = useState('')
-  const [loginCodeSent, setLoginCodeSent] = useState(false)
-  const [authBusy, setAuthBusy] = useState(false)
-  const [authFeedback, setAuthFeedback] = useState('')
-  const [accountDeletionCode, setAccountDeletionCode] = useState('')
-  const [accountDeletionCodeSent, setAccountDeletionCodeSent] = useState(false)
-  const [accountDeletionConfirmation, setAccountDeletionConfirmation] = useState('')
-  const [accountDeletionBusy, setAccountDeletionBusy] = useState(false)
-  const [accountDeletionError, setAccountDeletionError] = useState('')
-  const [accountDeletionFeedback, setAccountDeletionFeedback] = useState('')
   const visitDialogRef = useRef<HTMLElement>(null)
   const accountEpoch = useRef(0)
+  const moderationRequestId = useRef(0)
   const tabId = useRef(`${Date.now()}-${Math.random()}`)
   const seenAuthEvents = useRef(new Set<string>())
 
@@ -619,6 +662,14 @@ function MusicApp() {
     setSettingsStatus('idle')
     setSettingsError('')
     setSettingsSaving('')
+    moderationRequestId.current += 1
+    setModeratorAvailable(false)
+    setModerationFilter('open')
+    setModerationStatus('idle')
+    setModerationReports([])
+    setModerationHasMore(false)
+    setModerationBusyId('')
+    setModerationError('')
     setPlanetEditName('')
     setPlanetEditTagline('')
     setPlanetEditTrackIds([])
@@ -641,22 +692,13 @@ function MusicApp() {
     setIncognitoVisit(false)
     setVisitingPlanetId('')
     setVisitError('')
-    setLoginCode('')
-    setLoginCodeSent(false)
-    setAuthFeedback('')
-    setAccountDeletionCode('')
-    setAccountDeletionCodeSent(false)
-    setAccountDeletionConfirmation('')
-    setAccountDeletionBusy(false)
-    setAccountDeletionError('')
-    setAccountDeletionFeedback('')
   }, [])
 
   const reloadHome = useCallback(async () => {
     const epoch = accountEpoch.current
     setHome({ status: 'loading' })
     try {
-      const { tracks, planet, isDemoAccount } = await api.loadHome()
+      const { tracks, planet } = await api.loadHome()
       let moments: MusicMoment[] = []
       let failedToLoadMoments = false
       if (planet) {
@@ -668,14 +710,14 @@ function MusicApp() {
       }
       if (epoch !== accountEpoch.current) return
       setMomentsLoadError(failedToLoadMoments)
-      setHome({ status: 'ready', tracks, planet, moments, isDemoAccount })
+      setHome({ status: 'ready', tracks, planet, moments })
       if (planet) {
         setMomentTrackId(planet.tracks.find((track) => track.isPrimary)?.id ?? planet.tracks[0]?.id ?? '')
         setComposerStatus(validVisual(planet.visual) ? 'ready' : 'idle')
       }
     } catch (error) {
       if (epoch !== accountEpoch.current) return
-      setHome({ status: 'error', kind: apiErrorKind(error) === 'auth-required' ? 'auth-required' : 'request-failed' })
+      setHome({ status: 'error' })
     }
   }, [api])
 
@@ -953,10 +995,57 @@ function MusicApp() {
       if (epoch !== accountEpoch.current) return
       setSocialSettings(settings)
       setSettingsStatus('ready')
+      void api.loadReportQueue('open', 1).then(() => {
+        if (epoch === accountEpoch.current) setModeratorAvailable(true)
+      }).catch(() => {
+        if (epoch === accountEpoch.current) setModeratorAvailable(false)
+      })
     } catch {
       if (epoch !== accountEpoch.current) return
       setSettingsStatus('error')
       setSettingsError('暂时无法读取设置。你可以重试；已有设置不会被覆盖。')
+    }
+  }
+
+  const loadModerationQueue = async (filter: MusicReportQueueFilter, offset = 0, append = false) => {
+    const epoch = accountEpoch.current
+    const requestId = ++moderationRequestId.current
+    setModerationStatus('loading')
+    setModerationError('')
+    try {
+      const page = await api.loadReportQueue(filter, 50, offset)
+      if (epoch !== accountEpoch.current || requestId !== moderationRequestId.current) return
+      setModerationFilter(filter)
+      setModerationReports((current) => append ? [...current, ...page.reports] : page.reports)
+      setModerationHasMore(page.hasMore)
+      setModerationStatus('ready')
+    } catch (error) {
+      if (epoch !== accountEpoch.current || requestId !== moderationRequestId.current) return
+      setModerationStatus('error')
+      setModerationError('暂时无法读取审核队列。请稍后重试；举报状态没有改变。')
+      if (error instanceof MusicApiError && error.status === 404) {
+        setModeratorAvailable(false)
+        setView('settings')
+      }
+    }
+  }
+
+  const reviewModerationReport = async (reportId: string, status: Exclude<MusicReportStatus, 'open'>) => {
+    if (moderationBusyId) return
+    const epoch = accountEpoch.current
+    setModerationBusyId(reportId)
+    setModerationError('')
+    try {
+      await api.reviewReport(reportId, status)
+      if (epoch !== accountEpoch.current) return
+      await loadModerationQueue(moderationFilter)
+    } catch (error) {
+      if (epoch !== accountEpoch.current) return
+      setModerationError(error instanceof MusicApiError && error.status === 409
+        ? '这条举报已被其他审核员更新。请刷新队列后再处理。'
+        : '状态没有更新成功。请重试；已保存的内容不会被自动删除。')
+    } finally {
+      if (epoch === accountEpoch.current) setModerationBusyId('')
     }
   }
 
@@ -1248,6 +1337,14 @@ function MusicApp() {
         setPlanetEditFeedback('')
       }
     }
+    if (next === 'moderation') {
+      if (!moderatorAvailable) {
+        setView('settings')
+        return
+      }
+      setModerationFilter('open')
+      void loadModerationQueue('open')
+    }
   }
 
   const canOpenSongPortal = (trackId: string) => Boolean(planet?.tracks.some((track) => track.id === trackId)
@@ -1262,7 +1359,7 @@ function MusicApp() {
       setComposerTaskId(task.task.id)
     } catch (error) {
       if (epoch !== accountEpoch.current) return
-      setComposerStatus(apiErrorKind(error) === 'ai-unavailable' ? 'unavailable' : 'failed')
+      setComposerStatus(error instanceof MusicApiError && error.status === 503 && error.code === 'AI_GATEWAY_NOT_CONFIGURED' ? 'unavailable' : 'failed')
     }
   }
 
@@ -1337,146 +1434,35 @@ function MusicApp() {
 
   const retryComposition = () => { void beginComposition() }
 
-  const requestLoginCode = async () => {
-    if (authBusy || !loginEmail.trim()) return
-    setAuthBusy(true)
-    setAuthFeedback('')
-    try {
-      await api.requestEmailCode(loginEmail.trim())
-      setLoginCodeSent(true)
-      setLoginCode('')
-      setAuthFeedback('如果邮箱有效，验证码已发送；请查看收件箱或垃圾邮件。')
-    } catch (error) {
-      if (error instanceof MusicApiError && error.status === 429) setAuthFeedback('请求太频繁了，请稍等一会再试。')
-      else setAuthFeedback('登录服务暂时不可用，请稍后重试。')
-    } finally {
-      setAuthBusy(false)
-    }
-  }
-
-  const submitEmailLogin = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    if (authBusy) return
-    if (!loginCodeSent) {
-      await requestLoginCode()
-      return
-    }
-    setAuthBusy(true)
-    setAuthFeedback('')
-    try {
-      await api.verifyEmailCode(loginEmail.trim(), loginCode.trim())
-      resetAccountScopedState()
-      notifyOtherMusicTabs(tabId.current)
-      setAuthFeedback('邮箱验证成功，正在打开你的星球。')
-      await reloadHome()
-    } catch (error) {
-      if (error instanceof MusicApiError && error.status === 429) setAuthFeedback('请求太频繁了，请稍等一会再试。')
-      else if (error instanceof MusicApiError && error.status === 400) setAuthFeedback('验证码无效或已过期，请检查后重试，或重新发送。')
-      else if (error instanceof MusicApiError && error.code === 'EMAIL_IDENTITY_CONFLICT') setAuthFeedback('这个邮箱对应多个旧档案。为避免把星球数据合并错，请联系 Moodverse 管理员协助处理。')
-      else setAuthFeedback('登录服务暂时不可用，请稍后重试。')
-    } finally {
-      setAuthBusy(false)
-    }
-  }
-
-  const logout = async () => {
-    resetAccountScopedState()
-    try {
-      await api.logout()
-      notifyOtherMusicTabs(tabId.current)
-      await reloadHome()
-    } catch {
-      setHome({ status: 'error', kind: 'request-failed' })
-    }
-  }
-
-  const requestAccountDeletionCode = async () => {
-    if (accountDeletionBusy) return
-    setAccountDeletionBusy(true)
-    setAccountDeletionError('')
-    setAccountDeletionFeedback('')
-    try {
-      await api.requestAccountDeletionCode()
-      setAccountDeletionCodeSent(true)
-      setAccountDeletionCode('')
-      setAccountDeletionFeedback('如果账户邮箱有效，删除验证码已发送；请查看收件箱或垃圾邮件。验证码 10 分钟内有效。')
-    } catch (error) {
-      if (error instanceof MusicApiError && error.status === 429) setAccountDeletionError('请求太频繁了，请稍等一会再试。')
-      else setAccountDeletionError('暂时无法发送删除验证码，请稍后重试。')
-    } finally {
-      setAccountDeletionBusy(false)
-    }
-  }
-
-  const submitAccountDeletion = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    if (accountDeletionBusy || accountDeletionCode.length !== 6 || accountDeletionConfirmation !== 'DELETE') return
-    setAccountDeletionBusy(true)
-    setAccountDeletionError('')
-    setAccountDeletionFeedback('')
-    try {
-      await api.deleteAccount(accountDeletionCode, 'DELETE')
-      notifyOtherMusicTabs(tabId.current)
-      resetAccountScopedState()
-      await reloadHome()
-    } catch (error) {
-      if (error instanceof MusicApiError && error.status === 400) setAccountDeletionError('验证码无效或已过期，或者确认文字不匹配。请检查后重试。')
-      else if (error instanceof MusicApiError && error.status === 429) setAccountDeletionError('尝试次数或请求频率已达上限，请稍后重试。')
-      else setAccountDeletionError('删除请求暂时未完成；账户仍保留。请稍后重试。')
-    } finally {
-      setAccountDeletionBusy(false)
-    }
-  }
-
   if (home.status === 'loading') return <main className="music-app music-loading"><BrandHeader connected={false} /><div className="music-loading-mark" role="status"><span /><p>正在校准你的星际档案…</p></div></main>
 
   if (home.status === 'error') return <main className="music-app music-gate">
     <BrandHeader connected={false} />
     <section className="music-gate-copy" aria-live="polite">
-      <span className="music-kicker">身份校验 · 一次性邮箱验证码</span>
-      <h1>{home.kind === 'auth-required' ? <>邮箱验证码，<br />进入 Moodverse</> : <>暂时连接不上，<br />星际档案仍在原处</>}</h1>
-      {home.kind === 'auth-required' ? <>
-        <p>输入邮箱获取一次性验证码，不需要设置密码。验证码 10 分钟内有效，只能使用一次。</p>
-        <form className="music-auth-form" onSubmit={(event) => { void submitEmailLogin(event) }}>
-          <label htmlFor="music-login-email">邮箱地址</label>
-          <input id="music-login-email" type="email" autoComplete="email" maxLength={254} required value={loginEmail} onChange={(event) => setLoginEmail(event.target.value)} placeholder="you@example.com" />
-          {loginCodeSent && <>
-            <label htmlFor="music-login-code">六位验证码</label>
-            <input id="music-login-code" type="text" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} required value={loginCode} onChange={(event) => setLoginCode(event.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="000000" />
-          </>}
-          {authFeedback && <p className="music-auth-feedback" role="status">{authFeedback}</p>}
-          <button className="music-primary-button" type="submit" disabled={authBusy || !loginEmail.trim() || (loginCodeSent && loginCode.length !== 6)}>
-            {authBusy ? '正在验证…' : loginCodeSent ? '验证并进入 Moodverse' : '发送验证码'} <span aria-hidden="true">↗</span>
-          </button>
-          {loginCodeSent && <div className="music-auth-links">
-            <button className="music-text-button" type="button" disabled={authBusy} onClick={() => { void requestLoginCode() }}>重新发送验证码</button>
-            <button className="music-text-button" type="button" disabled={authBusy} onClick={() => { setLoginCodeSent(false); setLoginCode(''); setAuthFeedback('') }}>更换邮箱</button>
-          </div>}
-        </form>
-      </> : <>
-        <p>没有任何资料被覆盖。可以稍后重新尝试连接。</p>
-        <button className="music-primary-button" type="button" onClick={() => { void reloadHome() }}>重新连接 <span aria-hidden="true">↗</span></button>
-      </>}
+      <span className="music-kicker">匿名体验 · 自动为本机创建身份</span>
+      <h1>暂时连接不上，<br />星际档案仍在原处</h1>
+      <p>没有任何资料被覆盖。请检查网络或稍后重新连接。</p>
+      <button className="music-primary-button" type="button" onClick={() => { void reloadHome() }}>重新连接 <span aria-hidden="true">↗</span></button>
     </section>
   </main>
 
   const connected = home.status === 'ready'
   const canCreate = home.status === 'ready' && !planet
-  const isDemoAccount = home.status === 'ready' && home.isDemoAccount
 
   return <main className={`music-app${planet ? ' has-planet' : ' is-onboarding'}`}>
     <Stage planet={displayedPlanet} previewSeed={previewSeed} reducedMotion={reducedMotion} />
-    <BrandHeader connected={connected} view={view} onChangeView={changeView} onLogout={() => { void logout() }} isDemoAccount={isDemoAccount} />
+    <BrandHeader connected={connected} view={view} onChangeView={changeView} />
 
     <div className="music-layout">
       <section className="music-copy">
-        <span className="music-kicker">{visitedPlanet ? '公开星球 · 正在访问' : view === 'galaxy' ? 'Galaxy · 动态发现' : view === 'roam' ? '首页 · 随机漫游' : view === 'orbit' ? '相遇与来往 · 私人星图' : view === 'bottles' ? '漂流瓶 · 随机接力' : view === 'settings' ? '个人边界 · 由你决定' : planet ? '你的星球 · 正在播放自己的宇宙' : '从三首歌开始 · 让星球有形状'}</span>
+        <span className="music-kicker">{visitedPlanet ? '公开星球 · 正在访问' : view === 'galaxy' ? 'Galaxy · 动态发现' : view === 'roam' ? '首页 · 随机漫游' : view === 'orbit' ? '相遇与来往 · 私人星图' : view === 'bottles' ? '漂流瓶 · 随机接力' : view === 'moderation' ? '内容安全 · 内部审核' : view === 'settings' ? '个人边界 · 由你决定' : planet ? '你的星球 · 正在播放自己的宇宙' : '从三首歌开始 · 让星球有形状'}</span>
         <h1>{visitedPlanet
           ? <>{visitedPlanet.displayName}<em>{view === 'roam' ? '在漫游中相遇。' : '在 Galaxy 相遇。'}</em></>
           : view === 'galaxy' ? <>沿着歌声，<em>继续漫游。</em></>
           : view === 'roam' ? <>下一站，<em>交给歌声。</em></>
           : view === 'orbit' ? <>每一次相遇，<em>都有迹可循。</em></>
           : view === 'bottles' ? <>让一首歌，<em>漂向下一个人。</em></>
+          : view === 'moderation' ? <>让安全，<em>有迹可循。</em></>
           : view === 'settings' ? <>让边界，<em>由你决定。</em></>
           : planet ? <>{planet.displayName}<em>在歌声里生长。</em></> : <>把喜欢的歌<br /><em>安放成一颗星球。</em></>}</h1>
         <p>{visitedPlanet
@@ -1485,6 +1471,7 @@ function MusicApp() {
           : view === 'roam' ? '沿着相近的曲风与公开 Moment，随机遇见一颗真实的公开星球。这里只是发现，不会把相似说成撞歌。'
           : view === 'orbit' ? '这里收纳撞歌相遇、好友、访问足迹与今日路过的星球。推荐不会自动变成访问记录。'
           : view === 'bottles' ? '每天最多放出一只，收瓶完全随机；读后可以回应，也可以决定是否让它继续漂流。'
+          : view === 'moderation' ? '审核队列只展示举报元数据，不读取被举报正文。状态变更会写入审核记录，不会自动删除内容。'
           : view === 'settings' ? '控制你的星球是否可被访问、是否接收好友请求和漂流瓶，也可以逐条调整 Moment 的公开范围。'
           : planet
             ? planet.tagline || '选中的歌曲会成为它的轨道；你留下的 Moment，会让它继续变化。'
@@ -1504,6 +1491,7 @@ function MusicApp() {
         </div> : <form onSubmit={createPlanet}>
           <div className="music-panel-head"><div><span className="music-kicker">第一步 · 选择声音</span><h2>为你的星球选三首歌</h2></div><span className="music-count" aria-live="polite">{selectedTrackIds.length}<i>/3</i></span></div>
           <p className="music-panel-note">你的星球默认公开，可随时改为仅自己可见。完整音频不会嵌入 Moodverse。</p>
+          {tracks.some(isDemoTrack) && <p className="music-demo-catalog-note" role="note">演示曲库：曲名、艺人与曲风均为虚构示例，不提供播放或官方链接，也不代表已获版权授权。</p>}
           <label className="music-search-label" htmlFor="music-track-search">搜索曲名或艺人</label>
           <input id="music-track-search" className="music-search" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="曲名、艺人、曲风" />
           <div className="music-track-list" role="group" aria-label="曲库">
@@ -1512,7 +1500,7 @@ function MusicApp() {
               const disabled = !selected && selectedTrackIds.length >= 3
               return <button className={`music-track-choice${selected ? ' is-selected' : ''}`} type="button" key={track.id} aria-label={`${track.title} · ${track.artistName}`} aria-pressed={selected} disabled={disabled} onClick={() => toggleTrack(track.id)}>
                 {track.coverUrl ? <img src={track.coverUrl} alt="" loading="lazy" /> : <span className="music-cover-fallback" aria-hidden="true">♫</span>}
-                <span className="music-track-label"><strong>{track.title}</strong><small>{track.artistName}{track.versionLabel ? ` · ${track.versionLabel}` : ''}</small></span>
+                <span className="music-track-label"><strong>{track.title}</strong><small>{track.artistName}{track.versionLabel ? ` · ${track.versionLabel}` : ''}{isDemoTrack(track) ? ' · 演示曲目（不可播放）' : ''}</small></span>
                 <span className="music-track-check" aria-hidden="true">{selected ? '✓' : '+'}</span>
               </button>
             })}
@@ -1560,7 +1548,7 @@ function MusicApp() {
                   <label className={`music-track-choice music-settings-track${selected ? ' is-selected' : ''}`}>
                     <input type="checkbox" aria-label={`星球歌曲：${track.title} · ${track.artistName}`} checked={selected} disabled={Boolean(settingsSaving) || !canToggle} onChange={() => togglePlanetEditTrack(track.id)} />
                     {track.coverUrl ? <img src={track.coverUrl} alt="" loading="lazy" /> : <span className="music-cover-fallback" aria-hidden="true">♫</span>}
-                    <span className="music-track-label"><strong>{track.title}</strong><small>{track.artistName}{track.versionLabel ? ` · ${track.versionLabel}` : ''}</small></span>
+                    <span className="music-track-label"><strong>{track.title}</strong><small>{track.artistName}{track.versionLabel ? ` · ${track.versionLabel}` : ''}{isDemoTrack(track) ? ' · 演示曲目（不可播放）' : ''}</small></span>
                   </label>
                   <label className="music-primary-track-choice">
                     <input type="radio" name="music-planet-primary" aria-label={`星球主旋律：${track.title} · ${track.artistName}`} checked={planetEditPrimaryTrackId === track.id} disabled={!selected || Boolean(settingsSaving)} onChange={() => { setPlanetEditPrimaryTrackId(track.id); setPlanetEditFeedback('') }} />
@@ -1604,30 +1592,61 @@ function MusicApp() {
                   </label>)}</div>}
           </section>
         </div>}
-        <section className="music-settings-section music-danger-zone" aria-label="账号与数据处理">
-          <div className="music-section-heading"><h3>账号与数据</h3><span>不可撤销</span></div>
-          <p className="music-panel-note">删除后将移除登录身份、星球、Moment、私信、Orbit 与其他账号关联资料。为安全审查而保留的针对内容举报记录可能继续保留，但不再关联你的登录身份。</p>
-          {!accountDeletionCodeSent
-            ? <button className="music-danger-button" type="button" disabled={accountDeletionBusy} onClick={() => { void requestAccountDeletionCode() }}>{accountDeletionBusy ? '正在发送验证码…' : '发送账号删除验证码'}</button>
-            : <form className="music-account-deletion-form" onSubmit={(event) => { void submitAccountDeletion(event) }}>
-                <p className="music-panel-note">验证码已发送到登录邮箱，10 分钟内有效，最多可尝试 5 次。</p>
-                <div className="music-fields">
-                  <label htmlFor="music-account-deletion-code">六位验证码</label>
-                  <input id="music-account-deletion-code" type="text" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} required value={accountDeletionCode} disabled={accountDeletionBusy} onChange={(event) => setAccountDeletionCode(event.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="000000" />
-                  <label htmlFor="music-account-deletion-confirmation">输入 DELETE 确认</label>
-                  <input id="music-account-deletion-confirmation" type="text" autoComplete="off" required value={accountDeletionConfirmation} disabled={accountDeletionBusy} onChange={(event) => setAccountDeletionConfirmation(event.target.value)} placeholder="DELETE" />
-                </div>
-                {accountDeletionError && <p className="music-form-error" role="alert">{accountDeletionError}</p>}
-                {accountDeletionFeedback && <p className="music-feedback" role="status">{accountDeletionFeedback}</p>}
-                <button className="music-danger-button" type="submit" disabled={accountDeletionBusy || accountDeletionCode.length !== 6 || accountDeletionConfirmation !== 'DELETE'}>{accountDeletionBusy ? '正在删除账号…' : '永久删除账号与资料'}</button>
-                <div className="music-auth-links">
-                  <button className="music-text-button" type="button" disabled={accountDeletionBusy} onClick={() => { void requestAccountDeletionCode() }}>重新发送验证码</button>
-                  <button className="music-text-button" type="button" disabled={accountDeletionBusy} onClick={() => { setAccountDeletionCodeSent(false); setAccountDeletionCode(''); setAccountDeletionConfirmation(''); setAccountDeletionError(''); setAccountDeletionFeedback('') }}>取消</button>
-                </div>
-              </form>}
-          {!accountDeletionCodeSent && accountDeletionError && <p className="music-form-error" role="alert">{accountDeletionError}</p>}
-          {!accountDeletionCodeSent && accountDeletionFeedback && <p className="music-feedback" role="status">{accountDeletionFeedback}</p>}
+        {moderatorAvailable && settingsStatus === 'ready' && <section className="music-settings-section" aria-label="内部内容审核">
+          <div className="music-section-heading"><h3>内部内容审核</h3><span>仅授权账号</span></div>
+          <p className="music-panel-note">处理举报并记录状态。审核列表不展示被举报内容。</p>
+          <button className="music-secondary-button" type="button" onClick={() => changeView('moderation')}>打开审核队列</button>
+        </section>}
+        <section className="music-settings-section" aria-label="匿名体验身份">
+          <div className="music-section-heading"><h3>匿名体验身份</h3><span>自动创建</span></div>
+          <p className="music-panel-note">账号已保存在这个浏览器中。换浏览器或清除本站点数据后，会生成新的随机账号；当前演示阶段暂不支持跨设备找回。</p>
         </section>
+      </aside>}
+
+      {view === 'moderation' && !visitedPlanet && moderatorAvailable && <aside className="music-panel music-moderation-panel" aria-label="举报审核">
+        <div className="music-panel-head">
+          <div><span className="music-kicker">Moodverse · 内部工具</span><h2>举报审核</h2></div>
+          <button className="music-text-button" type="button" onClick={() => changeView('settings')}>返回设置</button>
+        </div>
+        <p className="music-panel-note">仅查看举报人提交的原因和补充说明，以及目标类型、编号等必要元数据。这里不会展示被举报的正文，也不会直接删除内容。</p>
+        <div className="music-moderation-toolbar">
+          <div><label className="music-moderation-filter-label" htmlFor="music-moderation-filter">筛选审核状态</label>
+            <select id="music-moderation-filter" className="music-moderation-filter" value={moderationFilter} disabled={moderationStatus === 'loading'} onChange={(event) => {
+              const nextFilter = event.target.value as MusicReportQueueFilter
+              setModerationFilter(nextFilter)
+              void loadModerationQueue(nextFilter)
+            }}>
+              {(['open', 'reviewing', 'actioned', 'dismissed', 'all'] as const).map((status) => <option key={status} value={status}>{reportStatusLabels[status]}</option>)}
+            </select>
+          </div>
+          <button className="music-secondary-button" type="button" disabled={moderationStatus === 'loading'} onClick={() => { void loadModerationQueue(moderationFilter) }}>刷新队列</button>
+        </div>
+        {moderationError && <p className="music-form-error" role="alert">{moderationError}</p>}
+        {moderationStatus === 'loading' && <p className="music-moments-empty" role="status">正在读取审核队列…</p>}
+        {moderationStatus === 'error' && <button className="music-text-button" type="button" onClick={() => { void loadModerationQueue(moderationFilter) }}>重试读取</button>}
+        {moderationStatus === 'ready' && !moderationReports.length && <p className="music-moments-empty">当前筛选下没有待审核记录。</p>}
+        {moderationStatus === 'ready' && moderationReports.length > 0 && <div className="music-moderation-list" aria-label="举报记录">
+          {moderationReports.map((report) => <article className="music-moderation-report" key={report.id}>
+            <div className="music-moderation-report-head">
+              <strong>{reportReasonLabels[report.reason]}</strong>
+              <span className={`music-moderation-status is-${report.status}`}>{reportStatusLabels[report.status]}</span>
+            </div>
+            <p className="music-moderation-detail">{report.detail || '举报人没有补充说明。'}</p>
+            <dl className="music-moderation-meta">
+              <div><dt>举报编号</dt><dd>{report.id}</dd></div>
+              <div><dt>目标</dt><dd>{report.target.type} · {report.target.id}</dd></div>
+              <div><dt>提交时间</dt><dd>{new Date(report.createdAt).toLocaleString()}</dd></div>
+              {report.lastReview && <div><dt>最近审核</dt><dd>{reportStatusLabels[report.lastReview.toStatus as MusicReportStatus] ?? report.lastReview.toStatus ?? '状态已更新'} · {new Date(report.lastReview.createdAt).toLocaleString()}</dd></div>}
+            </dl>
+            {(report.status === 'open' || report.status === 'reviewing') && <div className="music-moderation-actions">
+              {report.status === 'open' && <button className="music-text-button" type="button" disabled={Boolean(moderationBusyId)} aria-label={`开始处理 ${report.id}`} onClick={() => { void reviewModerationReport(report.id, 'reviewing') }}>开始处理</button>}
+              <button className="music-text-button" type="button" disabled={Boolean(moderationBusyId)} aria-label={`标记已处置 ${report.id}`} onClick={() => { void reviewModerationReport(report.id, 'actioned') }}>标记已处置</button>
+              <button className="music-text-button" type="button" disabled={Boolean(moderationBusyId)} aria-label={`驳回 ${report.id}`} onClick={() => { void reviewModerationReport(report.id, 'dismissed') }}>驳回</button>
+              {moderationBusyId === report.id && <span role="status">正在保存…</span>}
+            </div>}
+          </article>)}
+          {moderationHasMore && <button className="music-secondary-button music-moderation-more" type="button" disabled={Boolean(moderationBusyId)} onClick={() => { void loadModerationQueue(moderationFilter, moderationReports.length, true) }}>加载更多举报</button>}
+        </div>}
       </aside>}
 
       {visitedPlanet && <aside className="music-panel music-public-planet-panel" aria-label={`公开星球 ${visitedPlanet.displayName}`}>
@@ -1651,7 +1670,7 @@ function MusicApp() {
           <div className="music-owned-track-list">
             {visitedPlanet.tracks.map((track) => <article className="music-owned-track" key={track.id}>
               {track.coverUrl ? <img src={track.coverUrl} alt="" loading="lazy" /> : <span className="music-cover-fallback" aria-hidden="true">♫</span>}
-              <div className="music-track-label"><strong>{track.title}</strong><small>{track.artistName}{track.isPrimary ? ' · 星球主旋律' : ''}</small></div>
+              <div className="music-track-label"><strong>{track.title}</strong><small>{track.artistName}{track.isPrimary ? ' · 星球主旋律' : ''}{isDemoTrack(track) ? ' · 演示曲目（不可播放）' : ''}</small></div>
               {track.officialUrl
                 ? <a href={track.officialUrl} target="_blank" rel="noreferrer" aria-label={`${track.title} · ${track.artistName} · 在官方平台打开`}>↗</a>
                 : <span className="music-link-unavailable" title="暂无官方播放链接">—</span>}
@@ -1680,7 +1699,7 @@ function MusicApp() {
         <div className="music-owned-track-list">
           {planet.tracks.map((track) => <article className="music-owned-track" key={track.id}>
             {track.coverUrl ? <img src={track.coverUrl} alt="" loading="lazy" /> : <span className="music-cover-fallback" aria-hidden="true">♫</span>}
-            <div className="music-track-label"><strong>{track.title}</strong><small>{track.artistName}{track.isPrimary ? ' · 星球主旋律' : ''}</small></div>
+            <div className="music-track-label"><strong>{track.title}</strong><small>{track.artistName}{track.isPrimary ? ' · 星球主旋律' : ''}{isDemoTrack(track) ? ' · 演示曲目（不可播放）' : ''}</small></div>
             {track.officialUrl
               ? <a href={track.officialUrl} target="_blank" rel="noreferrer" aria-label={`${track.title} · ${track.artistName} · 在官方平台打开`}>↗</a>
               : <span className="music-link-unavailable" title="暂无官方播放链接">—</span>}

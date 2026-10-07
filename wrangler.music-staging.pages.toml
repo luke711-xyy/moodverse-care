@@ -1,5 +1,5 @@
-# Isolated Cloudflare Pages config for the music MVP. Keep the placeholder until
-# a dedicated staging D1 database exists; never copy the ID from wrangler.toml.
+# Isolated Cloudflare Pages config for the music MVP. Never copy the production
+# D1 ID from wrangler.toml.
 name = "moodverse-music-staging"
 compatibility_date = "2026-09-22"
 pages_build_output_dir = "./dist"
@@ -7,5 +7,9 @@ pages_build_output_dir = "./dist"
 [[d1_databases]]
 binding = "DB"
 database_name = "moodverse-music-staging-db"
-database_id = "REPLACE_WITH_STAGING_D1_DATABASE_ID"
+database_id = "58d7ea1b-aaaf-4639-8adb-5fb2136dddf4"
 migrations_dir = "./migrations-music-staging"
+
+[vars]
+MUSIC_EMAIL_LOGIN_ENABLED = "false"
+MUSIC_ALLOW_LEGACY_ACCESS_AUTH = "false"

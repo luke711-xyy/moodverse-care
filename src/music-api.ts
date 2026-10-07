@@ -1,4 +1,5 @@
 import type { MusicTrackSummary, MomentVisibility } from './music-domain'
+import type { PlanetTerrainFeatureCounts } from './types'
 
 export type MusicPlanetVisual = {
   schemaVersion: number
@@ -7,6 +8,7 @@ export type MusicPlanetVisual = {
   atmosphere: 'clear' | 'mist' | 'nebula' | 'starlit'
   motion: 'still' | 'drift' | 'flow' | 'pulse'
   particleDensity: number
+  terrainFeatures?: PlanetTerrainFeatureCounts
 }
 
 export type MusicPlanetTrack = MusicTrackSummary & {
@@ -209,6 +211,28 @@ export type MusicReportTarget = {
 
 export type MusicReportReason = 'spam' | 'harassment' | 'inappropriate' | 'privacy' | 'copyright' | 'other'
 
+export type MusicReportStatus = 'open' | 'reviewing' | 'actioned' | 'dismissed'
+export type MusicReportQueueFilter = MusicReportStatus | 'all'
+export type MusicAdminReport = {
+  id: string
+  target: MusicReportTarget
+  reason: MusicReportReason
+  detail: string
+  status: MusicReportStatus
+  createdAt: string
+  lastReview: {
+    fromStatus: string | null
+    toStatus: string | null
+    reviewerUserId: string | null
+    createdAt: string
+  } | null
+}
+
+export type MusicReportQueueResponse = {
+  reports: MusicAdminReport[]
+  hasMore: boolean
+}
+
 export type MusicPlanetVisitSource = 'direct' | 'song_portal' | 'galaxy' | 'random_roam' | 'daily_roam' | 'orbit'
 
 export type PlanetComposerTask = {
@@ -271,33 +295,12 @@ export function createMusicApi(fetcher: typeof fetch = fetch) {
   }
 
   return {
-    requestEmailCode(email: string) {
-      return request<{ ok: true }>('/api/auth/email/request', {
-        method: 'POST', body: JSON.stringify({ email }),
-      })
-    },
-    verifyEmailCode(email: string, code: string) {
-      return request<{ authenticated: true; email: string }>('/api/auth/email/verify', {
-        method: 'POST', body: JSON.stringify({ email, code }),
-      })
-    },
-    logout() {
-      return request<{ ok: true }>('/api/auth/logout', { method: 'POST' })
-    },
-    requestAccountDeletionCode() {
-      return request<{ ok: true }>('/api/me/account/deletion-code', { method: 'POST' })
-    },
-    deleteAccount(code: string, confirmation: 'DELETE') {
-      return request<{ ok: true }>('/api/me/account', {
-        method: 'DELETE', body: JSON.stringify({ code, confirmation }),
-      })
-    },
     async loadHome() {
       const [catalog, owned] = await Promise.all([
         request<{ tracks: MusicTrackSummary[] }>('/api/music/catalog'),
-        request<{ planet: MusicPlanet | null; isDemoAccount?: boolean }>('/api/me/music-planet'),
+        request<{ planet: MusicPlanet | null }>('/api/me/music-planet'),
       ])
-      return { tracks: catalog.tracks, planet: owned.planet, isDemoAccount: owned.isDemoAccount === true }
+      return { tracks: catalog.tracks, planet: owned.planet }
     },
     async loadMoments() {
       const response = await request<{ moments: MusicMoment[] }>('/api/me/music-planet/moments')
@@ -413,6 +416,15 @@ export function createMusicApi(fetcher: typeof fetch = fetch) {
     reportContent(target: MusicReportTarget, reason: MusicReportReason, detail = '') {
       return request<{ report: { id: string; targetType: MusicReportTarget['type']; reason: MusicReportReason; status: 'open'; createdAt: string } }>('/api/me/reports', {
         method: 'POST', body: JSON.stringify({ target, reason, detail }),
+      })
+    },
+    loadReportQueue(status: MusicReportQueueFilter = 'open', limit = 50, offset = 0) {
+      const query = new URLSearchParams({ status, limit: String(limit), offset: String(offset) })
+      return request<MusicReportQueueResponse>(`/api/admin/music-reports?${query.toString()}`)
+    },
+    reviewReport(reportId: string, status: Exclude<MusicReportStatus, 'open'>) {
+      return request<{ report: MusicAdminReport }>(`/api/admin/music-reports/${encodeURIComponent(reportId)}`, {
+        method: 'PATCH', body: JSON.stringify({ status }),
       })
     },
     async loadPublicPlanet(planetId: string) {

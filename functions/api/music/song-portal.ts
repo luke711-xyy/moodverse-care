@@ -5,7 +5,7 @@ const RANK_SCHEMA_VERSION = 1
 const MAX_GATEWAY_RESPONSE_CHARS = 16_384
 const MAX_PUBLIC_MOMENT_CHARS = 160
 const MAX_TRACK_TAGS = 12
-const RANK_TIMEOUT_MS = 8_000
+const RANK_TIMEOUT_MS = 45_000
 
 type MatchSource = 'active_selection' | 'public_moment' | 'active_selection_and_public_moment'
 type ReasonCode = 'shared_song_selection' | 'shared_public_moment' | 'shared_selection_and_moment'
@@ -157,33 +157,26 @@ function gatewayUrl(value: string | undefined) {
   }
 }
 
-function reasonMatchesSource(reasonCode: unknown, source: MatchSource): reasonCode is ReasonCode {
-  if (source === 'active_selection') return reasonCode === 'shared_song_selection'
-  if (source === 'public_moment') return reasonCode === 'shared_public_moment'
-  return reasonCode === 'shared_selection_and_moment'
-}
-
 function validateModelRank(value: unknown, candidates: PortalMatchRow[]): ModelRank | null {
-  if (!isRecord(value) || !hasExactKeys(value, ['model', 'output']) || !isRecord(value.model)) return null
-  if (!hasExactKeys(value.model, ['name', 'version']) || !isRecord(value.output)) return null
-  if (!hasExactKeys(value.output, ['ranking']) || !Array.isArray(value.output.ranking)) return null
+  if (!isRecord(value) || !hasExactKeys(value, ['model', 'ranking']) || !isRecord(value.model)) return null
+  if (!hasExactKeys(value.model, ['name', 'version']) || !Array.isArray(value.ranking)) return null
 
   const name = typeof value.model.name === 'string' ? value.model.name.trim() : ''
   const version = typeof value.model.version === 'string' ? value.model.version.trim() : ''
   if (!name || name.length > 80 || !version || version.length > 80) return null
-  if (value.output.ranking.length !== candidates.length) return null
+  if (value.ranking.length !== candidates.length) return null
 
   const candidateSources = new Map(candidates.map((row) => [row.planet_id, matchSource(row)]))
   const seen = new Set<string>()
   const ranking: RankedCandidate[] = []
-  for (const item of value.output.ranking) {
-    if (!isRecord(item) || !hasExactKeys(item, ['planetId', 'score', 'reasonCode'])) return null
+  for (const item of value.ranking) {
+    if (!isRecord(item) || !hasExactKeys(item, ['planetId', 'score'])) return null
     if (typeof item.planetId !== 'string' || seen.has(item.planetId)) return null
     const source = candidateSources.get(item.planetId)
-    if (!source || !reasonMatchesSource(item.reasonCode, source)) return null
+    if (!source) return null
     if (typeof item.score !== 'number' || !Number.isFinite(item.score) || item.score < 0 || item.score > 1) return null
     seen.add(item.planetId)
-    ranking.push({ planetId: item.planetId, score: item.score, reasonCode: item.reasonCode })
+    ranking.push({ planetId: item.planetId, score: item.score, reasonCode: fallbackReason(source) })
   }
 
   if (seen.size !== candidates.length) return null

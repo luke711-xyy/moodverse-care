@@ -3,11 +3,13 @@ import { authenticatedMusicUser } from '../functions/_shared'
 import { onRequestPost as requestEmailCode } from '../functions/api/auth/email/request'
 import { onRequestPost as verifyEmailCode } from '../functions/api/auth/email/verify'
 import { onRequestPost as logout } from '../functions/api/auth/logout'
+import { onRequestGet as getMusicPlanet, onRequestPost as createMusicPlanet } from '../functions/api/me/music-planet'
 import { createAccessTestAuthority } from './helpers/cloudflare-access-jwt'
-import { createMusicApiEnv, createMusicApiFixture } from './helpers/music-api-fixture'
+import { createMusicApiEnv, createMusicApiFixture, insertCatalogTrack } from './helpers/music-api-fixture'
 
 const makeContext = (request: Request, env: Env) => ({ request, env, waitUntil: vi.fn() }) as unknown as PagesFunctionEvent<Env>
 const authEnv = (database: D1Database, overrides: Partial<Env> = {}) => createMusicApiEnv(database, {
+  MUSIC_EMAIL_LOGIN_ENABLED: 'true',
   MUSIC_AUTH_SECRET: 'local-test-secret-with-at-least-32-characters',
   MUSIC_EMAIL_FROM: 'login@moodverse.example',
   MUSIC_EMAIL_ACCOUNT_ID: '0123456789abcdef0123456789abcdef',
@@ -57,6 +59,27 @@ let fixture: ReturnType<typeof createMusicApiFixture>
 afterEach(() => {
   fixture?.close()
   vi.unstubAllGlobals()
+  vi.useRealTimers()
+})
+
+test('email login endpoints are disabled unless explicitly enabled for an isolated auth test', async () => {
+  fixture = createMusicApiFixture()
+  const env = createMusicApiEnv(fixture.db, { MUSIC_ALLOW_LEGACY_ACCESS_AUTH: 'false' })
+  const response = await requestEmailCode(makeContext(new Request('https://moodverse.test/api/auth/email/request', {
+    method: 'POST', headers: { 'content-type': 'application/json', Origin: 'https://moodverse.test' },
+    body: JSON.stringify({ email: 'luna@example.com' }),
+  }), env))
+  expect(response.status).toBe(410)
+  expect(await response.json()).toEqual({ error: 'EMAIL_LOGIN_DISABLED' })
+  const verify = await verifyEmailCode(makeContext(new Request('https://moodverse.test/api/auth/email/verify', {
+    method: 'POST', headers: { 'content-type': 'application/json', Origin: 'https://moodverse.test' },
+    body: JSON.stringify({ email: 'luna@example.com', code: '123456' }),
+  }), env))
+  expect(verify.status).toBe(410)
+  expect(await logout(makeContext(new Request('https://moodverse.test/api/auth/logout', {
+    method: 'POST', headers: { Origin: 'https://moodverse.test' },
+  }), env)).status).toBe(410)
+  expect(fixture.sqlite.prepare('SELECT count(*) AS count FROM music_auth_challenges').get()).toEqual({ count: 0 })
 })
 
 test('sends a generic success for normalized email and stores only a keyed OTP digest', async () => {
@@ -117,6 +140,36 @@ test('refuses cross-origin auth actions and invalidates a challenge when Cloudfl
   expect(fixture.sqlite.prepare('SELECT invalidated_at FROM music_auth_challenges').get()).toMatchObject({ invalidated_at: expect.any(String) })
 })
 
+test('aborts a stalled Cloudflare Email Sending request and invalidates its challenge', async () => {
+  fixture = createMusicApiFixture()
+  const env = authEnv(fixture.db)
+  let deliverySignal: AbortSignal | undefined
+  vi.useFakeTimers()
+  let markFetchStarted!: () => void
+  const fetchStarted = new Promise<void>((resolve) => { markFetchStarted = resolve })
+  vi.stubGlobal('fetch', vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+    deliverySignal = init?.signal as AbortSignal | undefined
+    markFetchStarted()
+    return new Promise<Response>((_resolve, reject) => {
+      if (!deliverySignal) {
+        reject(new Error('Cloudflare request is missing an abort signal'))
+        return
+      }
+      deliverySignal?.addEventListener('abort', () => reject(new Error('Cloudflare request timed out')), { once: true })
+    })
+  }))
+
+  const pendingResponse = requestCode(env, 'luna@example.com')
+  await fetchStarted
+  vi.runOnlyPendingTimers()
+  const response = await pendingResponse
+
+  expect(deliverySignal).toBeInstanceOf(AbortSignal)
+  expect(deliverySignal?.aborted).toBe(true)
+  expect(response.status).toBe(503)
+  expect(fixture.sqlite.prepare('SELECT invalidated_at FROM music_auth_challenges').get()).toMatchObject({ invalidated_at: expect.any(String) })
+})
+
 test('wrong codes consume an attempt; a valid code is one-use and authorizes a secure cookie session', async () => {
   fixture = createMusicApiFixture()
   const env = authEnv(fixture.db)
@@ -148,7 +201,48 @@ test('wrong codes consume an attempt; a valid code is one-use and authorizes a s
   expect(fixture.sqlite.prepare('SELECT consumed_at FROM music_auth_challenges').get()).toMatchObject({ consumed_at: expect.any(String) })
 })
 
-test('Cloudflare Access PIN assertions are not a public music sign-in unless legacy auth is explicitly enabled', async () => {
+test('email sign-in creates a music planet and a later sign-in retrieves the same owned planet', async () => {
+  fixture = createMusicApiFixture()
+  const env = authEnv(fixture.db)
+  installEmailApi()
+  vi.useFakeTimers()
+  vi.setSystemTime(new Date('2026-09-30T00:00:00.000Z'))
+  for (const id of ['song-one', 'song-two', 'song-three']) insertCatalogTrack(fixture.sqlite, { id })
+
+  await requestCode(env, 'creator@example.com')
+  const firstLogin = await verifyCode(env, 'creator@example.com', lastSentCode(env))
+  const firstCookie = cookieValue(firstLogin)
+  expect(firstCookie).not.toBe('')
+
+  const created = await createMusicPlanet(makeContext(new Request('https://moodverse.test/api/me/music-planet', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      Origin: 'https://moodverse.test',
+      Cookie: `mv_music_session=${firstCookie}`,
+    },
+    body: JSON.stringify({ displayName: '一颗新星', trackIds: ['song-one', 'song-two', 'song-three'] }),
+  }), env))
+  expect(created.status).toBe(201)
+  const firstPlanetId = ((await created.json()) as { planet: { id: string } }).planet.id
+
+  vi.advanceTimersByTime(61_000)
+  await requestCode(env, 'CREATOR@example.com')
+  const secondLogin = await verifyCode(env, 'creator@example.com', lastSentCode(env))
+  const secondCookie = cookieValue(secondLogin)
+  expect(secondCookie).not.toBe(firstCookie)
+
+  const recovered = await getMusicPlanet(makeContext(new Request('https://moodverse.test/api/me/music-planet', {
+    headers: { Cookie: `mv_music_session=${secondCookie}` },
+  }), env))
+  expect(recovered.status).toBe(200)
+  expect(await recovered.json()).toMatchObject({
+    planet: { id: firstPlanetId, displayName: '一颗新星', tracks: [{ id: 'song-one' }, { id: 'song-two' }, { id: 'song-three' }] },
+  })
+  expect(fixture.sqlite.prepare('SELECT count(*) AS count FROM music_planets').get()).toEqual({ count: 1 })
+})
+
+test('a Cloudflare Access assertion is not linked to the default anonymous device identity', async () => {
   fixture = createMusicApiFixture()
   const issuer = 'https://legacy-access-test.cloudflareaccess.com'
   const audience = 'legacy-access-test-audience'
@@ -161,7 +255,9 @@ test('Cloudflare Access PIN assertions are not a public music sign-in unless leg
     MUSIC_ALLOW_LEGACY_ACCESS_AUTH: undefined,
   })
 
-  await expect(authenticatedMusicUser(accessRequest, env)).resolves.toBeNull()
+  const identity = await authenticatedMusicUser(accessRequest, env)
+  expect(identity?.email).toBeNull()
+  expect(identity?.setCookie).toMatch(/^mv_session=/)
   expect(fixture.sqlite.prepare('SELECT count(*) AS count FROM music_access_identities').get()).toEqual({ count: 0 })
 })
 

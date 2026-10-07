@@ -10,12 +10,11 @@ The isolated manifests are:
 - `wrangler.music-staging-scheduler.toml` — scheduled Worker
   `moodverse-music-staging-scheduler`.
 
-Both intentionally contain `REPLACE_WITH_STAGING_D1_DATABASE_ID`. Before any
-deployment, create a separate D1 database named `moodverse-music-staging-db`,
-replace that placeholder in both manifests with the new database ID, and
-verify it is not the production ID in `wrangler.toml`. The D1 ID is a resource
-identifier, not a secret; API tokens and authentication secrets remain in
-Cloudflare Secrets.
+Both manifests now target the isolated D1 database `moodverse-music-staging-db`
+(`58d7ea1b-aaaf-4639-8adb-5fb2136dddf4`). The ID is a resource identifier, not
+a secret; API tokens and authentication secrets remain in Cloudflare Secrets.
+Verify both manifests still use this same ID and that it differs from the
+production ID in `wrangler.toml` before future deployment work.
 
 ## Initialize the isolated database
 
@@ -34,6 +33,24 @@ Keep future staging-only schema changes in `migrations-music-staging/`; both
 staging manifests point at this same migration directory and D1 database.
 Do not add the already-applied `schema.sql` baseline as a second migration.
 Validate the resulting tables and indexes before deploying either Worker.
+
+## Seed fictional tracks for staging tests
+
+The isolated staging catalog can be populated with six clearly identified
+fictional rows while no approved catalog source or provider API is available.
+They are labeled `moodverse-demo`, use IDs prefixed with `demo:`, and have no
+playable/official URL. The UI labels them as non-playable demo data. Apply only
+to the dedicated staging database:
+
+```sh
+npx wrangler d1 execute moodverse-music-staging-db \
+  --remote --config wrangler.music-staging.pages.toml \
+  --file ./scripts/seed-music-demo-tracks.sql
+```
+
+This seed is idempotent. Do not include it in `schema.sql`, the production
+migration chain, or any production database. Replace it only after approved
+catalog entries and official destinations are available.
 
 ## Deploy only after external setup
 

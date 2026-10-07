@@ -85,6 +85,8 @@ export function createMusicApiFixture() {
   if (existsSync(contentReportMigration)) sqlite.exec(readFileSync(contentReportMigration, 'utf8'))
   const accountDeletionMigration = new URL('../../migrations/0015_music_account_deletion.sql', import.meta.url)
   if (existsSync(accountDeletionMigration)) sqlite.exec(readFileSync(accountDeletionMigration, 'utf8'))
+  const reportTriageMigration = new URL('../../migrations/0017_music_report_triage.sql', import.meta.url)
+  if (existsSync(reportTriageMigration)) sqlite.exec(readFileSync(reportTriageMigration, 'utf8'))
 
   return {
     db: createD1Adapter(sqlite),
@@ -98,8 +100,8 @@ export function createMusicApiEnv(db: D1Database, overrides: Partial<Env> = {}):
     DB: db,
     CF_ACCESS_TEAM_DOMAIN: 'https://moodverse-test.cloudflareaccess.com',
     CF_ACCESS_AUD: 'music-api-test-audience',
-    // Most API suites exercise the explicitly retained, test-only legacy auth
-    // path. Production Wrangler config leaves this unset; email sessions are primary.
+    // API suites opt into verified Access identity for deterministic auth tests.
+    // Staging explicitly disables both Access and email login and uses anonymous sessions.
     MUSIC_ALLOW_LEGACY_ACCESS_AUTH: 'true',
     ...overrides,
   } as Env

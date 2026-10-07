@@ -7,7 +7,7 @@ const track = {
 }
 
 describe('music API client', () => {
-  test('loads the controlled catalog and the Access-owned planet as separate resources', async () => {
+  test('loads the controlled catalog and the anonymous owner planet as separate resources', async () => {
     const api = createMusicApi(async (input) => {
       const path = new URL(input.toString(), 'https://moodverse.test').pathname
       return path === '/api/music/catalog'
@@ -15,7 +15,7 @@ describe('music API client', () => {
         : Response.json({ planet: null })
     })
 
-    await expect(api.loadHome()).resolves.toEqual({ tracks: [track], planet: null, isDemoAccount: false })
+    await expect(api.loadHome()).resolves.toEqual({ tracks: [track], planet: null })
   })
 
   test('surfaces an absent Cloudflare Access identity as a typed authorization error', async () => {
@@ -26,39 +26,14 @@ describe('music API client', () => {
     })
   })
 
-  test('sends an email code and verifies it through same-origin requests that retain the session cookie', async () => {
-    const requests: Array<{ path: string; init?: RequestInit }> = []
-    const api = createMusicApi(async (input, init) => {
-      requests.push({ path: new URL(input.toString(), 'https://moodverse.test').pathname, init })
-      return requests.at(-1)?.path.endsWith('/verify')
-        ? Response.json({ authenticated: true, email: 'luna@example.com' })
-        : Response.json({ ok: true })
-    })
+  test('does not expose email login or account-deletion actions in the anonymous demo client', () => {
+    const api = createMusicApi(async () => Response.json({}))
 
-    await expect(api.requestEmailCode(' Luna@Example.com ')).resolves.toEqual({ ok: true })
-    await expect(api.verifyEmailCode('Luna@example.com', '123456')).resolves.toEqual({
-      authenticated: true, email: 'luna@example.com',
-    })
-    expect(requests.map(({ path }) => path)).toEqual(['/api/auth/email/request', '/api/auth/email/verify'])
-    expect(requests.map(({ init }) => init?.credentials)).toEqual(['same-origin', 'same-origin'])
-    expect(requests.map(({ init }) => JSON.parse(String(init?.body)))).toEqual([
-      { email: ' Luna@Example.com ' }, { email: 'Luna@example.com', code: '123456' },
-    ])
-  })
-
-  test('requests a step-up code and confirms irreversible account deletion with DELETE', async () => {
-    const requests: Array<{ path: string; init?: RequestInit }> = []
-    const api = createMusicApi(async (input, init) => {
-      requests.push({ path: new URL(input.toString(), 'https://moodverse.test').pathname, init })
-      return Response.json({ ok: true })
-    })
-
-    await expect(api.requestAccountDeletionCode()).resolves.toEqual({ ok: true })
-    await expect(api.deleteAccount('123456', 'DELETE')).resolves.toEqual({ ok: true })
-    expect(requests.map(({ path }) => path)).toEqual(['/api/me/account/deletion-code', '/api/me/account'])
-    expect(requests.map(({ init }) => init?.method)).toEqual(['POST', 'DELETE'])
-    expect(requests[1]?.init?.body).toBe(JSON.stringify({ code: '123456', confirmation: 'DELETE' }))
-    expect(requests.every(({ init }) => init?.credentials === 'same-origin')).toBe(true)
+    expect('requestEmailCode' in api).toBe(false)
+    expect('verifyEmailCode' in api).toBe(false)
+    expect('logout' in api).toBe(false)
+    expect('requestAccountDeletionCode' in api).toBe(false)
+    expect('deleteAccount' in api).toBe(false)
   })
 
   test('creates a planet with three track IDs and preserves the queued composer task', async () => {
@@ -102,6 +77,32 @@ describe('music API client', () => {
       { path: '/api/me/social-settings', method: 'PATCH', body: { allowFriendRequests: false } },
       { path: '/api/me/music-planet', method: 'PATCH', body: { visibility: 'private' } },
       { path: '/api/me/music-planet/moments/moment%2Fa', method: 'PATCH', body: { visibility: 'private' } },
+    ])
+  })
+
+  test('loads the moderator report queue with an explicit filter and reviews a report same-origin', async () => {
+    const requests: Array<{ path: string; method?: string; body?: unknown }> = []
+    const report = {
+      id: 'report/a', target: { type: 'moment', id: 'moment-a' }, reason: 'privacy',
+      detail: '请检查这条公开内容。', status: 'open', createdAt: '2026-10-01T08:00:00.000Z',
+      lastReview: null,
+    }
+    const api = createMusicApi(async (input, init) => {
+      requests.push({
+        path: `${new URL(input.toString(), 'https://moodverse.test').pathname}${new URL(input.toString(), 'https://moodverse.test').search}`,
+        ...(init?.method ? { method: init.method } : {}),
+        ...(init?.body ? { body: JSON.parse(String(init.body)) } : {}),
+      })
+      return init?.method === 'PATCH'
+        ? Response.json({ report: { ...report, status: 'reviewing', lastReview: { fromStatus: 'open', toStatus: 'reviewing', reviewerUserId: 'reviewer-a', createdAt: '2026-10-01T08:05:00.000Z' } } })
+        : Response.json({ reports: [report], hasMore: false })
+    })
+
+    await expect(api.loadReportQueue('open', 20, 40)).resolves.toEqual({ reports: [report], hasMore: false })
+    await expect(api.reviewReport('report/a', 'reviewing')).resolves.toMatchObject({ report: { id: 'report/a', status: 'reviewing' } })
+    expect(requests).toEqual([
+      { path: '/api/admin/music-reports?status=open&limit=20&offset=40' },
+      { path: '/api/admin/music-reports/report%2Fa', method: 'PATCH', body: { status: 'reviewing' } },
     ])
   })
 

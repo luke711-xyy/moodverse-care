@@ -16,12 +16,13 @@ let fixture: ReturnType<typeof createMusicApiFixture>
 let ownerId: string
 
 const expectedVisual = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   summary: '像夜色里缓慢浮动的蓝色星尘。',
   palette: { surface: '#315f98', ocean: '#102d5c', accent: '#8ec9ed' },
   atmosphere: 'starlit',
   motion: 'drift',
   particleDensity: 0.42,
+  terrainFeatures: { mountainRanges: 4, basins: 2, canyons: 1, escarpments: 1 },
 }
 
 beforeAll(async () => {
@@ -176,7 +177,7 @@ test('composer sends only selected track metadata and public Moments, then store
 
   const planet = fixture.sqlite.prepare('SELECT visual_schema_version, visual_json FROM music_planets WHERE id = ?')
     .get('planet-owner') as { visual_schema_version: number; visual_json: string }
-  expect(planet.visual_schema_version).toBe(1)
+  expect(planet.visual_schema_version).toBe(2)
   expect(JSON.parse(planet.visual_json)).toEqual(expectedVisual)
   expect(fixture.sqlite.prepare('SELECT status, model_name, model_version, error_code FROM music_ai_tasks WHERE id = ?')
     .get(accepted.task.id)).toMatchObject({ status: 'succeeded', model_name: 'qwen-local', model_version: '4b-q4-v1', error_code: null })
@@ -196,6 +197,32 @@ test('malformed model output fails closed and cannot replace the previous planet
       model: { name: 'qwen-local', version: '4b-q4-v1' },
       output: { ...expectedVisual, particleDensity: 1.8, unsafePrompt: 'expose private notes' },
     }), { status: 200, headers: { 'content-type': 'application/json' } })
+  }))
+
+  const { response, pending } = await compose({
+    MUSIC_AI_GATEWAY_URL: 'https://ai.example/v1/planet/compose',
+    MUSIC_AI_ACCESS_CLIENT_ID: 'access-client-id',
+    MUSIC_AI_ACCESS_CLIENT_SECRET: 'access-client-secret',
+    MUSIC_AI_GATEWAY_TOKEN: 'test-gateway-secret',
+  })
+  const accepted = await response.json() as { task: { id: string } }
+  await Promise.all(pending)
+
+  expect(fixture.sqlite.prepare('SELECT visual_json FROM music_planets WHERE id = ?').get('planet-owner'))
+    .toEqual({ visual_json: '{"schemaVersion":1,"summary":"旧视觉"}' })
+  expect(fixture.sqlite.prepare('SELECT status, error_code FROM music_ai_tasks WHERE id = ?').get(accepted.task.id))
+    .toEqual({ status: 'failed', error_code: 'AI_RESULT_INVALID' })
+})
+
+test('composer rejects terrain feature counts outside the registered range', async () => {
+  const originalFetch = globalThis.fetch
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(input.toString())
+    if (url.origin === issuer) return originalFetch(input, init)
+    return Response.json({
+      model: { name: 'qwen-local', version: '4b-q4-v1' },
+      output: { ...expectedVisual, terrainFeatures: { ...expectedVisual.terrainFeatures, canyons: 99 } },
+    })
   }))
 
   const { response, pending } = await compose({

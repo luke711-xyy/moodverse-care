@@ -78,3 +78,25 @@ test('catalog omits HTTPS URLs containing embedded credentials', async () => {
   const result = await response.json() as { tracks: Array<{ officialUrl: string | null; coverUrl: string | null }> }
   expect(result.tracks[0]).toMatchObject({ officialUrl: null, coverUrl: null })
 })
+
+test('catalog marks fictional staging tracks and never exposes a fake playback URL', async () => {
+  insertCatalogTrack(fixture.sqlite, { id: 'demo:shoreline', title: '沿海线', artistName: '雾中航线' })
+  fixture.sqlite.prepare(`
+    UPDATE music_track_catalog
+    SET provider = 'moodverse-demo', provider_track_id = 'example-001', official_url = ''
+    WHERE id = 'demo:shoreline'
+  `).run()
+
+  const response = await getCatalog()
+  const result = await response.json() as { tracks: Array<Record<string, unknown>> }
+
+  expect(result.tracks).toEqual([expect.objectContaining({
+    id: 'demo:shoreline',
+    title: '沿海线',
+    artistName: '雾中航线',
+    isDemo: true,
+    officialUrl: null,
+  })])
+  expect(result.tracks[0]).not.toHaveProperty('provider')
+  expect(result.tracks[0]).not.toHaveProperty('providerTrackId')
+})

@@ -11,6 +11,7 @@ const socialMigrationSql = readFileSync(new URL('../migrations/0012_music_social
 const driftBottleMigrationSql = readFileSync(new URL('../migrations/0013_music_drift_bottles.sql', import.meta.url), 'utf8')
 const contentReportMigrationSql = readFileSync(new URL('../migrations/0014_music_content_reports.sql', import.meta.url), 'utf8')
 const accountDeletionMigrationSql = readFileSync(new URL('../migrations/0015_music_account_deletion.sql', import.meta.url), 'utf8')
+const reportTriageMigrationSql = readFileSync(new URL('../migrations/0017_music_report_triage.sql', import.meta.url), 'utf8')
 const schemaSql = readFileSync(new URL('../schema.sql', import.meta.url), 'utf8')
 
 function database() {
@@ -90,6 +91,7 @@ test('migration adds the music core without changing legacy user or planet recor
   db.exec(driftBottleMigrationSql)
   db.exec(contentReportMigrationSql)
   db.exec(accountDeletionMigrationSql)
+  db.exec(reportTriageMigrationSql)
 
   expect(tableNames(db)).toEqual(expect.arrayContaining([
     'users', 'planets', 'music_track_catalog', 'music_planets', 'music_planet_tracks', 'music_moments', 'music_ai_tasks',
@@ -100,6 +102,7 @@ test('migration adds the music core without changing legacy user or planet recor
     'music_social_preferences', 'music_friend_requests', 'music_user_blocks', 'music_direct_messages',
     'music_drift_preferences', 'music_drift_bottles', 'music_drift_deliveries', 'music_drift_comments', 'music_drift_comment_likes',
     'music_content_reports',
+    'music_report_reviews',
   ]))
   expect(db.prepare('SELECT alias, theme FROM planets WHERE user_id = ?').get('owner-1')).toEqual({
     alias: '旧星球',
@@ -170,6 +173,7 @@ test('schema.sql mirrors the migration and deleting a music planet cascades thro
   migratedDb.exec(driftBottleMigrationSql)
   migratedDb.exec(contentReportMigrationSql)
   migratedDb.exec(accountDeletionMigrationSql)
+  migratedDb.exec(reportTriageMigrationSql)
 
   const db = database()
   db.exec(schemaSql)
@@ -182,6 +186,7 @@ test('schema.sql mirrors the migration and deleting a music planet cascades thro
     'music_social_preferences', 'music_friend_requests', 'music_user_blocks', 'music_direct_messages',
     'music_drift_preferences', 'music_drift_bottles', 'music_drift_deliveries', 'music_drift_comments', 'music_drift_comment_likes',
     'music_content_reports', 'music_account_deletion_codes',
+    'music_report_reviews',
   ]))
 
   db.prepare(`

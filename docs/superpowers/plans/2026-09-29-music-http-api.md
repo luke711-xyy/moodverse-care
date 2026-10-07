@@ -146,3 +146,9 @@ This plan establishes Cloudflare Email Service OTP and real D1-backed data contr
 - [x] Implement accessible settings controls and send only changed track-selection fields, preserving the API's stable primary/selection semantics.
 - [x] Run focused app/API tests (`37/37`), full tests (`39 files / 237 tests`), typecheck, build, and `git diff --check`.
 - [x] Included in aggregate current-version commit `8803556`, pushed to `origin/codex/music-hackathon-mvp`.
+
+### Post-plan follow-up: Bound Cloudflare Email Service latency
+
+- [x] Add a regression test proving a stalled Email Sending request receives an abort signal, returns the existing safe delivery error, and invalidates the OTP challenge.
+- [x] Abort the provider fetch after 10 seconds and always clear the timeout when fetch or response parsing finishes.
+- [x] Verify against the official Cloudflare REST API that the endpoint, Bearer auth, request fields, and `delivered` / `queued` acceptance fields match the current documented contract.

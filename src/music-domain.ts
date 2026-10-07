@@ -19,6 +19,8 @@ export type MusicTrackSummary = {
   officialUrl: string | null
   coverUrl: string | null
   durationSeconds: number | null
+  /** True only for fictional, non-playable catalog rows used in isolated staging. */
+  isDemo?: boolean
 }
 
 export function validateTrackSelection(trackIds: unknown, operation: TrackSelectionOperation): TrackSelectionValidation {

@@ -10,6 +10,7 @@ const EMAIL_COOLDOWN_MS = 60 * 1000
 const EMAIL_SEND_LIMIT = 3
 const IP_SEND_LIMIT = 10
 const MAX_CODE_ATTEMPTS = 5
+const EMAIL_DELIVERY_TIMEOUT_MS = 10_000
 
 type MusicAuthRequest = { email?: unknown }
 type MusicAuthVerify = { email?: unknown; code?: unknown }
@@ -136,23 +137,30 @@ async function sendCode(
   const action = deleting ? '删除账号' : '登录'
   const text = `你的 Moodverse ${action}验证码是 ${code}，10 分钟内有效，且只能使用一次。若这不是你发起的操作，请忽略此邮件。`
   const html = `<p>你的 Moodverse ${action}验证码是：</p><p style="font-size:28px;letter-spacing:8px"><strong>${code}</strong></p><p>验证码 10 分钟内有效，且只能使用一次。若这不是你发起的操作，请忽略此邮件。</p>`
-  const sent = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      authorization: `Bearer ${account.token}`,
-      'content-type': 'application/json',
-      accept: 'application/json',
-    },
-    body: JSON.stringify({ to: targetEmail, from: account.sender, subject, text, html }),
-    redirect: 'error',
-  })
-  let payload: { success?: unknown; result?: { delivered?: unknown; queued?: unknown } } | null = null
-  try { payload = await sent.json() as typeof payload } catch { payload = null }
-  const acceptedRecipients = [
-    ...(Array.isArray(payload?.result?.delivered) ? payload.result.delivered : []),
-    ...(Array.isArray(payload?.result?.queued) ? payload.result.queued : []),
-  ]
-  return sent.ok && payload?.success === true && acceptedRecipients.some((address) => typeof address === 'string' && address.toLowerCase() === targetEmail)
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), EMAIL_DELIVERY_TIMEOUT_MS)
+  try {
+    const sent = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${account.token}`,
+        'content-type': 'application/json',
+        accept: 'application/json',
+      },
+      body: JSON.stringify({ to: targetEmail, from: account.sender, subject, text, html }),
+      redirect: 'error',
+      signal: controller.signal,
+    })
+    let payload: { success?: unknown; result?: { delivered?: unknown; queued?: unknown } } | null = null
+    try { payload = await sent.json() as typeof payload } catch { payload = null }
+    const acceptedRecipients = [
+      ...(Array.isArray(payload?.result?.delivered) ? payload.result.delivered : []),
+      ...(Array.isArray(payload?.result?.queued) ? payload.result.queued : []),
+    ]
+    return sent.ok && payload?.success === true && acceptedRecipients.some((address) => typeof address === 'string' && address.toLowerCase() === targetEmail)
+  } finally {
+    clearTimeout(timeout)
+  }
 }
 
 export async function requestMusicAccountDeletionCode(

@@ -14,6 +14,7 @@ let emailApiCalls: Array<{ url: string; init?: RequestInit }>
 
 function env() {
   return createMusicApiEnv(fixture.db, {
+    MUSIC_EMAIL_LOGIN_ENABLED: 'true',
     MUSIC_AUTH_SECRET: AUTH_SECRET,
     MUSIC_EMAIL_FROM: 'login@moodverse.example',
     MUSIC_EMAIL_ACCOUNT_ID: '0123456789abcdef0123456789abcdef',

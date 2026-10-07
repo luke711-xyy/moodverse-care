@@ -1,4 +1,4 @@
-import { moodById, type MoodId, type PlanetVisualPaletteOverride, type ThemeId } from './types'
+import { moodById, type MoodId, type PlanetTerrainFeatureCounts, type PlanetVisualPaletteOverride, type ThemeId } from './types'
 import type { PlanetClimateState } from './climate'
 
 export type PlanetPalette = {
@@ -11,6 +11,7 @@ export type PlanetPalette = {
 
 export type PlanetVisualProfile = {
   palette: PlanetPalette
+  terrainFeatureConfig?: TerrainFeatureConfig
   landRatio: number
   moisture: number
   vegetationDensity: number
@@ -121,6 +122,7 @@ export function planetVisualProfile(
       cloud: visualOverride.accent,
       atmosphere: visualOverride.accent,
     } : PALETTES[theme] ?? PALETTES.care,
+    terrainFeatureConfig: terrainFeatureConfigFromCounts(visualOverride?.terrainFeatures),
     landRatio: clamp01(climate.landRatio),
     moisture: amplify(climate.moisture),
     vegetationDensity: amplify(climate.vegetationDensity),
@@ -209,6 +211,28 @@ type TerrainFeatureRule = {
 }
 
 export type TerrainFeatureConfig = Partial<Record<TerrainFeatureKind, Partial<TerrainFeatureRule>>>
+
+const featureCountLimits: Record<keyof PlanetTerrainFeatureCounts, number> = {
+  mountainRanges: 6,
+  basins: 4,
+  canyons: 5,
+  escarpments: 4,
+}
+
+export function terrainFeatureConfigFromCounts(counts?: PlanetTerrainFeatureCounts): TerrainFeatureConfig | undefined {
+  if (!counts) return undefined
+  const bounded = (key: keyof PlanetTerrainFeatureCounts) => {
+    const value = counts[key]
+    return Number.isFinite(value) ? Math.min(featureCountLimits[key], Math.max(0, Math.round(value))) : 0
+  }
+  const exactCount = (count: number) => ({ count: [count, count] as [number, number] })
+  return {
+    mountain_range: exactCount(bounded('mountainRanges')),
+    basin: exactCount(bounded('basins')),
+    canyon: exactCount(bounded('canyons')),
+    escarpment: exactCount(bounded('escarpments')),
+  }
+}
 
 export const DEFAULT_TERRAIN_FEATURE_CONFIG: Record<TerrainFeatureKind, TerrainFeatureRule> = {
   mountain_range: { count: [2, 5], size: [.16, .38], width: [.045, .12], height: [.16, .28], ruggedness: [.55, 1] },
@@ -761,7 +785,7 @@ export function isPlanetLand(seed: number, longitude: number, latitude: number, 
 
 export type LandFocus = { longitude: number; latitude: number; clearance: number }
 
-export function largestLandFocus(seed: number, seaLevel = 0): LandFocus {
+export function largestLandFocus(seed: number, seaLevel = 0, featureConfig?: TerrainFeatureConfig): LandFocus {
   const width = 128
   const height = 64
   const total = width * height
@@ -772,7 +796,7 @@ export function largestLandFocus(seed: number, seaLevel = 0): LandFocus {
     for (let x = 0; x < width; x += 1) {
       const longitude = (x + .5) / width
       const latitude = (y + .5) / height
-      land[y * width + x] = samplePlanetElevation(normalizedSeed, longitude, latitude, seaLevel) >= shoreline ? 1 : 0
+      land[y * width + x] = samplePlanetElevation(normalizedSeed, longitude, latitude, seaLevel, featureConfig) >= shoreline ? 1 : 0
     }
   }
 

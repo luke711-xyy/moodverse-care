@@ -84,6 +84,14 @@ export type PlanetVisualPaletteOverride = {
   atmosphere?: 'clear' | 'mist' | 'nebula' | 'starlit'
   motion?: 'still' | 'drift' | 'flow' | 'pulse'
   particleDensity?: number
+  terrainFeatures?: PlanetTerrainFeatureCounts
+}
+
+export type PlanetTerrainFeatureCounts = {
+  mountainRanges: number
+  basins: number
+  canyons: number
+  escarpments: number
 }
 
 export type StarAppearance = {

@@ -5,11 +5,13 @@ export type Env = {
   CF_ACCESS_TEAM_DOMAIN?: string
   CF_ACCESS_AUD?: string
   MUSIC_ALLOW_LEGACY_ACCESS_AUTH?: string
+  MUSIC_EMAIL_LOGIN_ENABLED?: string
   MUSIC_AUTH_SECRET?: string
   MUSIC_EMAIL_ACCOUNT_ID?: string
   MUSIC_EMAIL_API_TOKEN?: string
   MUSIC_EMAIL_FROM?: string
   MUSIC_DEMO_EMAIL?: string
+  MUSIC_MODERATOR_EMAILS?: string
   MUSIC_AI_GATEWAY_URL?: string
   MUSIC_AI_SONG_PORTAL_URL?: string
   MUSIC_AI_EMBEDDING_URL?: string
@@ -134,47 +136,50 @@ async function verifiedAccessClaims(request: Request, env: Env): Promise<{ issue
   }
 }
 
-/** Resolve app-issued email sessions; legacy Access auth is disabled unless explicitly opted in. */
+/** Resolve an enabled email/Access identity, otherwise use the device's anonymous session. */
 export async function authenticatedMusicUser(request: Request, env: Env) {
-  const emailIdentity = await emailMusicSession(request, env)
-  if (emailIdentity) {
-    if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method.toUpperCase()) && !hasSameOrigin(request)) return null
-    return emailIdentity
+  if (env.MUSIC_EMAIL_LOGIN_ENABLED?.trim() === 'true') {
+    const emailIdentity = await emailMusicSession(request, env)
+    if (emailIdentity) {
+      if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method.toUpperCase()) && !hasSameOrigin(request)) return null
+      return { ...emailIdentity, setCookie: null as string | null }
+    }
   }
 
-  if (env.MUSIC_ALLOW_LEGACY_ACCESS_AUTH?.trim() !== 'true') return null
+  if (env.MUSIC_ALLOW_LEGACY_ACCESS_AUTH?.trim() === 'true') {
+    const identity = await verifiedAccessClaims(request, env)
+    if (!identity || typeof identity.claims.sub !== 'string' || typeof identity.claims.email !== 'string') return null
 
-  const identity = await verifiedAccessClaims(request, env)
-  if (!identity || typeof identity.claims.sub !== 'string' || typeof identity.claims.email !== 'string') return null
+    const subject = identity.claims.sub.trim()
+    const email = identity.claims.email.trim().toLowerCase()
+    const userId = `cf_${await sha256(`${identity.issuer}\u0000${subject}`)}`
+    const createdAt = now()
+    const unusedTokenHash = await sha256(`music-access-placeholder:${crypto.randomUUID()}`)
 
-  const subject = identity.claims.sub.trim()
-  const email = identity.claims.email.trim().toLowerCase()
-  const userId = `cf_${await sha256(`${identity.issuer}\u0000${subject}`)}`
-  const createdAt = now()
-  // `token_hash` belongs to the pre-Access anonymous session scheme. Store a
-  // random hash with no corresponding issued cookie so new identities do not
-  // accidentally become legacy sessions.
-  const unusedTokenHash = await sha256(`music-access-placeholder:${crypto.randomUUID()}`)
+    await env.DB.prepare(`
+      INSERT OR IGNORE INTO users (id, token_hash, created_at, updated_at)
+      VALUES (?1, ?2, ?3, ?3)
+    `).bind(userId, unusedTokenHash, createdAt).run()
 
-  await env.DB.prepare(`
-    INSERT OR IGNORE INTO users (id, token_hash, created_at, updated_at)
-    VALUES (?1, ?2, ?3, ?3)
-  `).bind(userId, unusedTokenHash, createdAt).run()
+    await env.DB.prepare(`
+      INSERT INTO music_access_identities
+        (user_id, access_issuer, access_subject, email, created_at, updated_at)
+      VALUES (?1, ?2, ?3, ?4, ?5, ?5)
+      ON CONFLICT(access_issuer, access_subject)
+      DO UPDATE SET email = excluded.email, updated_at = excluded.updated_at
+    `).bind(userId, identity.issuer, subject, email, createdAt).run()
 
-  await env.DB.prepare(`
-    INSERT INTO music_access_identities
-      (user_id, access_issuer, access_subject, email, created_at, updated_at)
-    VALUES (?1, ?2, ?3, ?4, ?5, ?5)
-    ON CONFLICT(access_issuer, access_subject)
-    DO UPDATE SET email = excluded.email, updated_at = excluded.updated_at
-  `).bind(userId, identity.issuer, subject, email, createdAt).run()
+    const mapped = await env.DB.prepare(`
+      SELECT user_id FROM music_access_identities
+      WHERE access_issuer = ?1 AND access_subject = ?2
+    `).bind(identity.issuer, subject).first<{ user_id: string }>()
+    if (!mapped?.user_id) return null
+    return { userId: mapped.user_id, email, setCookie: null as string | null }
+  }
 
-  const mapped = await env.DB.prepare(`
-    SELECT user_id FROM music_access_identities
-    WHERE access_issuer = ?1 AND access_subject = ?2
-  `).bind(identity.issuer, subject).first<{ user_id: string }>()
-  if (!mapped?.user_id) return null
-  return { userId: mapped.user_id, email }
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method.toUpperCase()) && !hasSameOrigin(request)) return null
+  const active = await session(request, env)
+  return { userId: active.userId, email: null as string | null, setCookie: active.setCookie }
 }
 
 function hasSameOrigin(request: Request) {

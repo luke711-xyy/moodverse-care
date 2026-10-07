@@ -79,6 +79,32 @@ test('music planet GET requires verified Access identity and returns an empty ow
   expect(fixture.sqlite.prepare('SELECT count(*) AS count FROM music_planets').get()).toEqual({ count: 0 })
 })
 
+test('default anonymous sessions persist in an HttpOnly device cookie', async () => {
+  const anonymousEnv = env({ MUSIC_ALLOW_LEGACY_ACCESS_AUTH: 'false', MUSIC_EMAIL_LOGIN_ENABLED: 'false' })
+  const first = await onRequestGet({
+    request: new Request('https://moodverse.test/api/me/music-planet'), env: anonymousEnv,
+  } as never)
+  expect(first.status).toBe(200)
+  const cookie = first.headers.get('set-cookie')
+  expect(cookie).toMatch(/^mv_session=.*; Path=\/; Max-Age=31536000; HttpOnly; Secure; SameSite=Lax$/)
+  const firstUser = fixture.sqlite.prepare('SELECT id FROM users').get() as { id: string }
+
+  const returningDevice = await onRequestGet({
+    request: new Request('https://moodverse.test/api/me/music-planet', { headers: { Cookie: cookie!.split(';')[0] } }),
+    env: anonymousEnv,
+  } as never)
+  expect(returningDevice.status).toBe(200)
+  expect(returningDevice.headers.get('set-cookie')).toBeNull()
+  expect(fixture.sqlite.prepare('SELECT count(*) AS count FROM users').get()).toEqual({ count: 1 })
+  expect(fixture.sqlite.prepare('SELECT id FROM users').get()).toEqual(firstUser)
+
+  const anotherDevice = await onRequestGet({
+    request: new Request('https://moodverse.test/api/me/music-planet'), env: anonymousEnv,
+  } as never)
+  expect(anotherDevice.headers.get('set-cookie')).toMatch(/^mv_session=/)
+  expect(fixture.sqlite.prepare('SELECT count(*) AS count FROM users').get()).toEqual({ count: 2 })
+})
+
 test('marks only the configured demo email without returning its email address', async () => {
   const demo = await call(onRequestGet, 'GET', undefined, 'hackathon-demo', {
     MUSIC_DEMO_EMAIL: '  HACKATHON-DEMO@example.com  ',
@@ -188,12 +214,13 @@ test('changing selected tracks automatically queues a planet composition refresh
     return new Response(JSON.stringify({
       model: { name: 'qwen-local', version: '4b-q4-v1' },
       output: {
-        schemaVersion: 1,
+        schemaVersion: 2,
         summary: '被新的曲目带向远方。',
         palette: { surface: '#315f98', ocean: '#102d5c', accent: '#8ec9ed' },
         atmosphere: 'starlit',
         motion: 'drift',
         particleDensity: 0.42,
+        terrainFeatures: { mountainRanges: 4, basins: 2, canyons: 1, escarpments: 1 },
       },
     }), { status: 200, headers: { 'content-type': 'application/json' } })
   }))

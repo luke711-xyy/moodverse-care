@@ -165,6 +165,22 @@
 - [x] Broadcast session transitions over both transports, deduplicate events, and reset/reload receiving tabs.
 - [x] Run focused tests, the full suite, typecheck, build, and `git diff --check`; assert local storage and BroadcastChannel publish the identical session-change payload; obtain final independent review.
 
+### Post-plan follow-up: Keep bottle retries independent from care-card generation
+
+- [x] Add a regression test where hourly care-card generation fails while an unread bottle is due; confirm the old scheduler skipped bottle expiry and re-routing.
+- [x] Run the drift-bottle API/scheduler tests and verify the bottle is expired and assigned to the next eligible recipient even though the care-card error still surfaces to the scheduled Worker.
+- [x] Run full TypeScript tests (42 files / 257 tests), typecheck, build, and `git diff --check`.
+
+### Post-plan follow-up: Add moderator-only report triage API
+
+- [x] Add SQLite-backed tests for a default-closed reviewer allowlist, bounded report queue, private target-content exclusion, same-origin transitions, and review audit metadata.
+- [x] Add an additive `music_report_reviews` migration and match it in `schema.sql` and API fixtures.
+- [x] Add moderator-email-gated list/status APIs; status changes are atomic, only permit forward transitions, and never automatically delete or expose target content.
+- [x] Document staging-only reviewer configuration and the current manual triage boundary.
+- [x] Run local whole-branch verification: `npm test -- --maxWorkers=1` (43 files / 269 tests), `npm run typecheck`, `npm run build`, and `git diff --check` all pass.
+- [x] Simulate unavailable WebGL2 in the local browser at desktop and 390×844 viewport sizes; the retryable scene fallback stays visible while song selection and My Orbit remain usable.
+- [ ] Complete real multi-account triage acceptance in isolated staging. Current `music:staging:preflight` is blocked because the D1 database ID is missing, invalid, or a placeholder; do not create or alter Cloudflare resources to bypass this.
+
 ## Completion Boundary
 
-This plan covers friend requests, accepted friendships, blocking, text DMs, user-facing privacy/receiving settings, and server-side reporting with user report affordances. Moderation triage, drift bottle delivery scheduling/retries, account deletion/data processing flows, deployment, and multi-account production acceptance remain separate required MVP work; completion of this plan is not completion of the overall product goal.
+This plan covers friend requests, accepted friendships, blocking, text DMs, user-facing privacy/receiving settings, server-side reporting, and the moderator-only report queue/status API. A dedicated reviewer console and Cloudflare staging reliability still need end-to-end acceptance. Drift-bottle expiry/re-routing has only local scheduler coverage; account deletion/data processing needs isolated multi-account acceptance. Completion of this plan is not completion of the overall product goal.

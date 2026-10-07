@@ -40,7 +40,7 @@
 
 - [x] Write failing `unittest` cases for strict Composer schema output, candidate-ID-preserving embedding ranking and reason codes, embedding ID/dimension validation, request bounds, and prompt-injection text remaining data.
 - [x] Run `python3 -m unittest discover -s services/moodverse-ai/tests -v` and confirm expected missing-module failures.
-- [x] Implement pure validation and service orchestration; Composer output is limited to the current enums, three hex colors, 120-character summary, and 0–1 particle density.
+- [x] Implement pure validation and service orchestration; Composer request schema remains v1 and visual output schema is v2, with bounded palette/atmosphere/motion/particle values plus counts for only the four registered terrain components.
 - [x] Run the focused service tests and require they pass.
 
 ### Task 2: Loopback HTTP server and gateway authentication
@@ -70,7 +70,7 @@
 - [x] Write failing tests for lazy one-time model loads, stable model/version metadata, tokenizer batch invocation, and backend-unavailable errors using injected fakes.
 - [x] Run the focused runtime tests and confirm expected failures.
 - [x] Implement the lazy runtime using the MLX APIs and fixed Moodverse instructions; text content is JSON-escaped as data and never treated as a system instruction.
-- [x] Run all Python tests with the preinstalled Python 3.11 runtime using `uv run --python 3.11 --no-project python -m unittest discover -s tests -v` in the service directory. Python 3.12 is not installed here; no interpreter, MLX packages, or model weights were downloaded.
+- [x] Run all Python tests under Python 3.11 using `uv run python -m unittest discover -s tests -v` in the service directory (26 tests pass). `uv sync --python 3.11` installed the MLX runtime packages; the real embedding weights were downloaded and smoke-tested separately. Python 3.12 is not installed here.
 
 ### Task 4: Secure Pages-to-gateway caller integration
 
@@ -102,7 +102,44 @@
 
 - [x] Document `uv sync`, model cache locations, loopback startup, Cloudflare Tunnel origin, Access service-token setup, Pages variables/secrets, privacy boundaries, warm-up, sleep/offline fallback, and shutdown.
 - [x] Run Python tests, full TypeScript tests, typecheck, build, and `git diff --check`.
-- [x] Mark real Composer, Embed, and Rank smoke checks pending: the current Mac has no MLX runtime packages or downloaded model weights, so no model downloads or live inference requests were made.
+- [x] Run the real Embed smoke test with two synthetic inputs over the loopback HTTP gateway: valid Bearer returned non-zero 1024-dimensional vectors with matching IDs and `Qwen3-Embedding-0.6B-8bit` metadata; missing Bearer returned `401 UNAUTHORIZED`.
+- [x] Run real Composer and Rank smoke tests over the loopback HTTP gateway with synthetic data. Composer cold-start returned a validated visual in 29.57s; Rank cold-start returned a validated exact-candidate ranking in 30.81s, and a warm call in 7.94s. A prompt-quality rerun produced differentiated 0.95 / 0.72 / 0.38 scores without changing candidate IDs or server-owned reason codes.
+- [ ] Configure staging Pages, Tunnel, Access Service Auth, and required secrets; verify the three model calls end to end. No Cloudflare resources were created during local verification.
+
+### Post-plan follow-up: Calibrate exact-song ranking and timeout
+
+- [x] Add a prompt-contract regression test and explicit contextual score bands. The model may rank only server-approved exact-song candidates; `matchSource` sets `reasonCode` but does not grant score bonuses or establish listening facts.
+- [x] Add a measured-duration regression test for cold inference and raise the Song Portal request timeout from 8 seconds to 45 seconds, matching Composer and covering the observed ~31-second cold call. Cloudflare documents no hard wall-time cap for an incoming HTTP request while the client remains connected; the application-level 45-second abort remains the finite safeguard.
+- [x] Re-run local whole-branch verification after the current changes: Python gateway 32 tests, TypeScript 43 files / 269 tests, typecheck, build, and `git diff --check` all pass.
+- [ ] Perform Cloudflare staging end-to-end checks after the staging D1 ID, Pages bindings/secrets, Tunnel, Access Service Auth policy, and email sender credentials are configured. Current `music:staging:preflight` stops at the missing/placeholder D1 ID; no Cloudflare resources or secrets were changed.
+
+### Post-plan follow-up: derive Song Portal reason codes server-side
+
+- [x] Re-run the current real local Rank model after prompt changes; observe `AI_RESULT_INVALID` when the model assigns `shared_selection_and_moment` to an `active_selection` candidate.
+- [x] Make the ranker return only candidate IDs and scores; derive `reasonCode` from the already-filtered `matchSource` in both the local gateway and Pages validation.
+- [x] Align Pages with the gateway's verified `{ model, ranking }` response envelope.
+- [x] Add regression coverage for deterministic server-derived reasons, rejection of model-supplied reason codes and invented candidates, and HTTP boundary serialization.
+- [x] Re-run the real synthetic Rank request over loopback; verify correct reason codes and differentiated scores without adding/removing candidate IDs.
+
+### Post-plan follow-up: tolerate singleton object-array model output
+
+- [x] Reproduce a real local Qwen Rank response wrapped in a one-item JSON array; normalize only that exact wrapper before the existing strict schema/candidate validation.
+- [x] Add regressions proving one-item object arrays are accepted while multi-item wrappers remain rejected; Python gateway suite now has 34 passing tests.
+- [x] Re-run a real synthetic Rank request over the loopback HTTP gateway after normalization; HTTP 200 returned two validated candidates with server-derived reason codes in 22.20s.
+
+### Task 6: Bounded reusable profile embeddings
+
+**Files:**
+- Modify: `services/moodverse-ai/moodverse_ai/service.py`
+- Modify: `services/moodverse-ai/tests/test_service.py`
+- Modify: `docs/music-ai-gateway-setup.md`
+
+**Interfaces:** Keep the existing `/v1/embed` contract. Cache only validated candidate vectors whose server-generated IDs use `planet:<id>` or `user:<id>`; always embed query inputs freshly. Store only a SHA-256 content key and validated vector in a bounded process-local LRU with expiry; never retain source text or write vectors to disk. Cache entries include returned model metadata; if a fresh query embedding reports a different model/version, evict and recompute stale candidate vectors before returning a mixed batch.
+
+- [x] Add regression tests proving repeated public candidate profiles reuse a vector while query text is always sent to inference, private/query text is not retained, invalid results are not cached, stale model metadata triggers recomputation, and the cache remains bounded.
+- [x] Run the focused Python suite and confirm the cache behaviors fail before implementation.
+- [x] Add the bounded, expiring in-memory cache and update the operator guide to clarify that cache lifetime is the gateway process lifetime and restart clears it.
+- [x] Run Python tests, full TypeScript suite, typecheck, build, and `git diff --check`.
 
 ## Completion Boundary
 

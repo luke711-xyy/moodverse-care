@@ -59,8 +59,19 @@ async function generateMissing(env: Env) {
 export async function scheduled(event: ScheduledEvent, env: Env) {
   // Bottle deliveries expire at the one-hour boundary; run the queue every
   // five minutes while keeping daily care-card generation on the hour.
-  if (new Date(event.scheduledTime).getUTCMinutes() === 0) await generateMissing(env)
+  let careCardError: unknown
+  if (new Date(event.scheduledTime).getUTCMinutes() === 0) {
+    try {
+      await generateMissing(env)
+    } catch (error) {
+      careCardError = error
+    }
+  }
+
+  // These are independent scheduled jobs: a care-card query/write failure
+  // must not keep the drift-bottle queue from expiring and re-routing bottles.
   await processDriftBottleQueue(env)
+  if (careCardError) throw careCardError
 }
 
 export default {

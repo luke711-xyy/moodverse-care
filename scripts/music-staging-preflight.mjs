@@ -74,7 +74,7 @@ function run() {
     if (!existsSync(resolve(root, 'migrations-music-staging/README.md'))) missing.push('The isolated staging migration directory is missing.')
 
     if (result.ok && !missing.length) {
-      process.stdout.write('Music MVP staging preflight passed. No Cloudflare resources or secrets were changed.\n')
+      process.stdout.write('Music MVP staging preflight passed (read-only; this check did not change Cloudflare resources or secrets).\n')
       return
     }
 

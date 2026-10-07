@@ -4,12 +4,20 @@ import { afterEach, expect, test, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import MusicApp from '../src/music/MusicApp'
 
+const sceneMockState = vi.hoisted(() => ({ shouldFail: false, renderCount: 0 }))
+
 vi.mock('../src/scene', () => ({
-  UniverseCanvas: () => createElement('div', { 'aria-label': '星球 3D 场景' }),
+  UniverseCanvas: () => {
+    sceneMockState.renderCount += 1
+    if (sceneMockState.shouldFail) throw new Error('WebGL context unavailable')
+    return createElement('div', { 'aria-label': '星球 3D 场景' })
+  },
 }))
 
 afterEach(() => {
   cleanup()
+  sceneMockState.shouldFail = false
+  sceneMockState.renderCount = 0
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
@@ -65,7 +73,70 @@ test('a new user can choose exactly three songs, create a public planet and see 
   expect(createdPayload).toEqual({ displayName: '夜航者', tagline: '慢慢靠岸', trackIds: ['song-a', 'song-b', 'song-c'], visibility: 'public' })
 })
 
-test('clearly labels a configured demo account after normal email-session loading', async () => {
+test('clearly identifies the fictional non-playable staging catalog', async () => {
+  const demoTracks = tracks.slice(0, 3).map((track) => ({ ...track, id: `demo:${track.id}`, isDemo: true, officialUrl: null }))
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+    const path = new URL(String(input), 'https://moodverse.test').pathname
+    if (path === '/api/music/catalog') return Response.json({ tracks: demoTracks })
+    if (path === '/api/me/music-planet') return Response.json({ planet: null })
+    throw new Error(`Unexpected request: ${path}`)
+  }))
+
+  render(<MusicApp />)
+
+  expect(await screen.findByRole('heading', { name: '为你的星球选三首歌' })).toBeTruthy()
+  expect(screen.getByRole('note').textContent).toContain('虚构示例')
+  expect(screen.getAllByText(/演示曲目（不可播放）/).length).toBeGreaterThan(0)
+  expect(screen.queryByRole('link', { name: /在官方平台打开/ })).toBeNull()
+})
+
+test('keeps song selection and social navigation usable when the 3D scene cannot initialize', async () => {
+  vi.stubGlobal('WebGL2RenderingContext', class WebGL2RenderingContext {})
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+    const path = new URL(String(input), 'https://moodverse.test').pathname
+    if (path === '/api/music/catalog') return Response.json({ tracks })
+    if (path === '/api/me/music-planet') return Response.json({ planet: null })
+    if (path === '/api/me/orbit') return Response.json({ date: '2026-10-01', groups: {
+      songEncounters: [], friends: [], visitedByMe: [], visitorsToMe: [], dailyRoam: [],
+    } })
+    if (path === '/api/me/friend-requests') return Response.json({ incoming: [], outgoing: [] })
+    throw new Error(`Unexpected request: ${path}`)
+  }))
+
+  render(<MusicApp />)
+
+  expect(await screen.findByRole('heading', { name: '为你的星球选三首歌' })).toBeTruthy()
+  expect(screen.getByRole('status').textContent).toContain('3D 星球暂不可用')
+  expect(sceneMockState.renderCount).toBe(0)
+  expect(screen.getByRole('button', { name: '夜航 · 星际旅人' }).disabled).toBe(false)
+  expect(screen.getByRole('button', { name: '重试 3D 画面' })).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'My Orbit' }))
+  expect(await screen.findByRole('heading', { name: 'My Orbit' })).toBeTruthy()
+})
+
+test('recovers to a visual fallback if the scene component throws during initialization', async () => {
+  sceneMockState.shouldFail = true
+  vi.spyOn(console, 'error').mockImplementation(() => undefined)
+  vi.stubGlobal('WebGL2RenderingContext', class WebGL2RenderingContext {})
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ getExtension: () => null } as unknown as WebGL2RenderingContext)
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+    const path = new URL(String(input), 'https://moodverse.test').pathname
+    if (path === '/api/music/catalog') return Response.json({ tracks })
+    if (path === '/api/me/music-planet') return Response.json({ planet: null })
+    throw new Error(`Unexpected request: ${path}`)
+  }))
+
+  render(<MusicApp />)
+
+  expect(await screen.findByRole('heading', { name: '为你的星球选三首歌' })).toBeTruthy()
+  const degradedScene = await screen.findByRole('status')
+  expect(degradedScene.textContent).toContain('3D 星球暂不可用')
+  expect(sceneMockState.renderCount).toBeGreaterThan(0)
+  expect(screen.getByRole('button', { name: '夜航 · 星际旅人' })).toBeTruthy()
+})
+
+test('clearly labels the automatically created anonymous account', async () => {
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
     const path = new URL(String(input), 'https://moodverse.test').pathname
     if (path === '/api/music/catalog') return Response.json({ tracks })
@@ -75,68 +146,43 @@ test('clearly labels a configured demo account after normal email-session loadin
 
   render(<MusicApp />)
   expect(await screen.findByRole('heading', { name: '为你的星球选三首歌' })).toBeTruthy()
-  expect(screen.getByText('演示账号')).toBeTruthy()
-  expect(screen.getByText('邮箱已验证')).toBeTruthy()
+  expect(screen.getByText('匿名体验账号')).toBeTruthy()
+  expect(screen.queryByRole('button', { name: '退出登录' })).toBeNull()
 })
 
-test('an API 401 presents email OTP login and completes login before loading the private planet', async () => {
-  let authenticated = false
-  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+test('an API 401 shows a retry state and never asks for email login', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
     const path = new URL(String(input), 'https://moodverse.test').pathname
     if (path === '/api/music/catalog') return Response.json({ tracks })
-    if (path === '/api/auth/email/request') return Response.json({ ok: true })
-    if (path === '/api/auth/email/verify') {
-      authenticated = true
-      return Response.json({ authenticated: true, email: 'luna@example.com' })
-    }
-    if (path === '/api/me/music-planet' && authenticated) return Response.json({ planet: null })
-    if (path === '/api/me/music-planet/moments' && authenticated) return Response.json({ moments: [] })
     return Response.json({ error: 'UNAUTHENTICATED' }, { status: 401 })
   }))
 
   render(<MusicApp />)
-  expect(await screen.findByRole('heading', { name: /邮箱验证码，进入 Moodverse/ })).toBeTruthy()
-  expect(screen.getByLabelText('邮箱地址')).toBeTruthy()
-  fireEvent.change(screen.getByLabelText('邮箱地址'), { target: { value: 'luna@example.com' } })
-  fireEvent.click(screen.getByRole('button', { name: '发送验证码' }))
-  expect(await screen.findByText(/如果邮箱有效，验证码已发送/)).toBeTruthy()
-  fireEvent.change(screen.getByLabelText('六位验证码'), { target: { value: '123456' } })
-  fireEvent.click(screen.getByRole('button', { name: '验证并进入 Moodverse' }))
-  expect(await screen.findByRole('heading', { name: '为你的星球选三首歌' })).toBeTruthy()
+  expect(await screen.findByRole('heading', { name: /暂时连接不上/ })).toBeTruthy()
+  expect(screen.queryByLabelText('邮箱地址')).toBeNull()
+  expect(screen.queryByRole('button', { name: '发送验证码' })).toBeNull()
+  expect(screen.getByRole('button', { name: '重新连接' })).toBeTruthy()
 })
 
-test('logout and a different email login clear the previous account private Orbit conversation', async () => {
-  let authenticated = true
-  let activeEmail = 'first@example.com'
+test('the anonymous account can use its private Orbit without login controls', async () => {
   const privatePlanet = {
     id: 'planet-first', displayName: '第一颗星球', tagline: '', visibility: 'public', visualSchemaVersion: 1,
     visual: {}, createdAt: '2026-09-29T00:00:00.000Z', updatedAt: '2026-09-29T00:00:00.000Z', tracks: [],
   }
-  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
     const url = new URL(String(input), 'https://moodverse.test')
     if (url.pathname === '/api/music/catalog') return Response.json({ tracks })
-    if (url.pathname === '/api/auth/email/request') return Response.json({ ok: true })
-    if (url.pathname === '/api/auth/email/verify') {
-      activeEmail = (JSON.parse(String(init?.body)) as { email: string }).email
-      authenticated = true
-      return Response.json({ authenticated: true, email: activeEmail })
-    }
-    if (url.pathname === '/api/auth/logout') {
-      authenticated = false
-      return Response.json({ ok: true })
-    }
-    if (!authenticated) return Response.json({ error: 'UNAUTHENTICATED' }, { status: 401 })
-    if (url.pathname === '/api/me/music-planet') return Response.json({ planet: activeEmail === 'first@example.com' ? privatePlanet : null })
+    if (url.pathname === '/api/me/music-planet') return Response.json({ planet: privatePlanet })
     if (url.pathname === '/api/me/music-planet/moments') return Response.json({ moments: [] })
     if (url.pathname === '/api/me/orbit') return Response.json({ date: '2026-09-30', groups: {
       songEncounters: [],
-      friends: activeEmail === 'first@example.com' ? [{ userId: 'friend-first', planetId: null, displayName: '第一位好友', tagline: '', occurredAt: '2026-09-30T09:00:00.000Z', canVisit: false }] : [],
+      friends: [{ userId: 'friend-first', planetId: null, displayName: '第一位好友', tagline: '', occurredAt: '2026-09-30T09:00:00.000Z', canVisit: false }],
       visitedByMe: [], visitorsToMe: [], dailyRoam: [],
     } })
     if (url.pathname === '/api/me/friend-requests') return Response.json({ incoming: [], outgoing: [] })
-    if (url.pathname === '/api/me/friends/friend-first/messages') return Response.json({ peerUserId: 'friend-first', messages: activeEmail === 'first@example.com'
-      ? [{ id: 'private-first', contentText: '只属于第一个账号的私信。', createdAt: '2026-09-30T09:30:00.000Z', readAt: null, isOwn: false }]
-      : [] })
+    if (url.pathname === '/api/me/friends/friend-first/messages') return Response.json({ peerUserId: 'friend-first', messages: [
+      { id: 'private-first', contentText: '只属于本机匿名账号的私信。', createdAt: '2026-09-30T09:30:00.000Z', readAt: null, isOwn: false },
+    ] })
     throw new Error(`Unexpected request: ${url.pathname}`)
   }))
 
@@ -144,22 +190,9 @@ test('logout and a different email login clear the previous account private Orbi
   await screen.findByRole('heading', { name: /第一颗星球/ })
   fireEvent.click(screen.getByRole('button', { name: 'My Orbit' }))
   fireEvent.click(await screen.findByRole('button', { name: /私信 第一位好友/ }))
-  expect(await screen.findByText('只属于第一个账号的私信。')).toBeTruthy()
-
-  fireEvent.click(screen.getByRole('button', { name: '退出登录' }))
-  await screen.findByRole('heading', { name: /邮箱验证码，进入 Moodverse/ })
-  fireEvent.change(screen.getByLabelText('邮箱地址'), { target: { value: 'second@example.com' } })
-  fireEvent.click(screen.getByRole('button', { name: '发送验证码' }))
-  await screen.findByText(/如果邮箱有效，验证码已发送/)
-  fireEvent.change(screen.getByLabelText('六位验证码'), { target: { value: '123456' } })
-  fireEvent.click(screen.getByRole('button', { name: '验证并进入 Moodverse' }))
-
-  await screen.findByRole('heading', { name: '为你的星球选三首歌' })
-  expect(screen.queryByText('只属于第一个账号的私信。')).toBeNull()
-  fireEvent.click(screen.getByRole('button', { name: 'My Orbit' }))
-  await screen.findByRole('heading', { name: 'My Orbit' })
-  expect(screen.queryByText('第一位好友')).toBeNull()
-  expect(screen.queryByLabelText('私信记录')).toBeNull()
+  expect(await screen.findByText('只属于本机匿名账号的私信。')).toBeTruthy()
+  expect(screen.getByText('匿名体验账号')).toBeTruthy()
+  expect(screen.queryByRole('button', { name: '退出登录' })).toBeNull()
 })
 
 test('an auth change from another tab clears this tab and reloads the shared session', async () => {
@@ -196,7 +229,7 @@ test('an auth change from another tab clears this tab and reloads the shared ses
 
   authenticated = false
   window.dispatchEvent(new StorageEvent('storage', { key: 'moodverse-music-auth-change', newValue: JSON.stringify({ type: 'session-changed', sourceId: 'other-tab', eventId: 'logout-event' }) }))
-  await screen.findByRole('heading', { name: /邮箱验证码，进入 Moodverse/ })
+  await screen.findByRole('heading', { name: /暂时连接不上/ })
   expect(screen.queryByText('另一个标签页里缓存的私信。')).toBeNull()
 
   activeEmail = 'second@example.com'
@@ -209,7 +242,7 @@ test('an auth change from another tab clears this tab and reloads the shared ses
   expect(screen.queryByLabelText('私信记录')).toBeNull()
 })
 
-test('BroadcastChannel and storage notifications deduplicate, publish, and ignore this tab own event', async () => {
+test('legacy cross-tab session notifications deduplicate without exposing another account\'s state', async () => {
   class FakeBroadcastChannel extends EventTarget {
     static openChannels = new Set<FakeBroadcastChannel>()
     static messages: unknown[] = []
@@ -274,7 +307,7 @@ test('BroadcastChannel and storage notifications deduplicate, publish, and ignor
   const logoutEvent = { type: 'session-changed', sourceId: 'remote-tab', eventId: 'remote-logout-1' }
   // Simulate a sender whose BroadcastChannel is unavailable while this tab's is active.
   window.dispatchEvent(new StorageEvent('storage', { key: 'moodverse-music-auth-change', newValue: JSON.stringify(logoutEvent) }))
-  await screen.findByRole('heading', { name: /邮箱验证码，进入 Moodverse/ })
+  await screen.findByRole('heading', { name: /暂时连接不上/ })
   await waitFor(() => expect(privatePlanetReads).toBe(2))
   expect(screen.queryByText('广播通道中的旧私信。')).toBeNull()
 
@@ -286,17 +319,7 @@ test('BroadcastChannel and storage notifications deduplicate, publish, and ignor
   await screen.findByRole('heading', { name: '为你的星球选三首歌' })
   await waitFor(() => expect(privatePlanetReads).toBe(3))
 
-  const storageSpy = vi.spyOn(Storage.prototype, 'setItem')
-  fireEvent.click(screen.getByRole('button', { name: '退出登录' }))
-  await screen.findByRole('heading', { name: /邮箱验证码，进入 Moodverse/ })
-  await waitFor(() => expect(privatePlanetReads).toBe(4))
-  const ownChannelEvent = [...FakeBroadcastChannel.messages].reverse().find((message): message is { type: string; sourceId: string; eventId: string } =>
-    typeof message === 'object' && message !== null && 'type' in message && message.type === 'session-changed' && 'sourceId' in message && message.sourceId !== 'remote-tab' && 'eventId' in message,
-  )
-  const ownStorageCall = [...storageSpy.mock.calls].reverse().find(([key]) => key === 'moodverse-music-auth-change')
-  expect(ownChannelEvent).toBeDefined()
-  expect(ownStorageCall).toBeDefined()
-  expect(JSON.parse(ownStorageCall?.[1] ?? '{}')).toEqual(ownChannelEvent)
+  expect(FakeBroadcastChannel.messages).toEqual([loginEvent])
   expect(screen.queryByText('广播通道中的旧私信。')).toBeNull()
 })
 
@@ -391,6 +414,62 @@ test('settings load server privacy preferences and only show confirmed planet an
   expect(planetVisibility.checked).toBe(false)
 })
 
+test('a moderator can review report metadata from settings without exposing target content', async () => {
+  let reportStatus: 'open' | 'reviewing' = 'open'
+  const requests: Array<{ path: string; method?: string; body?: unknown }> = []
+  const report = {
+    id: 'report-a', target: { type: 'moment', id: 'moment-a' }, reason: 'privacy', detail: '请检查公开范围。',
+    status: 'open' as const, createdAt: '2026-10-01T08:00:00.000Z', lastReview: null,
+  }
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(input), 'https://moodverse.test')
+    const path = url.pathname
+    requests.push({ path, ...(init?.method ? { method: init.method } : {}), ...(init?.body ? { body: JSON.parse(String(init.body)) } : {}) })
+    if (path === '/api/music/catalog') return Response.json({ tracks: [] })
+    if (path === '/api/me/music-planet') return Response.json({ planet: null })
+    if (path === '/api/me/social-settings') return Response.json({ allowFriendRequests: true, allowDriftBottles: true })
+    if (path === '/api/admin/music-reports/report-a' && init?.method === 'PATCH') {
+      reportStatus = (JSON.parse(String(init.body)) as { status: 'reviewing' }).status
+      return Response.json({ report: { ...report, status: reportStatus, lastReview: { fromStatus: 'open', toStatus: reportStatus, reviewerUserId: 'reviewer-a', createdAt: '2026-10-01T08:05:00.000Z' } } })
+    }
+    if (path === '/api/admin/music-reports') {
+      return Response.json({ reports: reportStatus === 'open' ? [report] : [], hasMore: false })
+    }
+    throw new Error(`Unexpected request: ${path}`)
+  }))
+
+  render(<MusicApp />)
+  await screen.findByRole('button', { name: '我的星球' })
+  fireEvent.click(screen.getByRole('button', { name: '设置' }))
+  await screen.findByRole('heading', { name: '账户与隐私设置' })
+  const openReviewEntry = await screen.findByRole('button', { name: '打开审核队列' })
+  fireEvent.click(openReviewEntry)
+  await screen.findByRole('heading', { name: '举报审核' })
+  expect(await screen.findByText('请检查公开范围。')).toBeTruthy()
+  expect(screen.queryByText(/目标正文|target-private-content/)).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: '开始处理 report-a' }))
+  await screen.findByText('当前筛选下没有待审核记录。')
+  expect(reportStatus).toBe('reviewing')
+  expect(requests).toContainEqual({ path: '/api/admin/music-reports/report-a', method: 'PATCH', body: { status: 'reviewing' } })
+})
+
+test('a non-moderator does not see an internal report-review entry in settings', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+    const path = new URL(String(input), 'https://moodverse.test').pathname
+    if (path === '/api/music/catalog') return Response.json({ tracks: [] })
+    if (path === '/api/me/music-planet') return Response.json({ planet: null })
+    if (path === '/api/me/social-settings') return Response.json({ allowFriendRequests: true, allowDriftBottles: true })
+    if (path === '/api/admin/music-reports') return Response.json({ error: 'NOT_FOUND' }, { status: 404 })
+    throw new Error(`Unexpected request: ${path}`)
+  }))
+
+  render(<MusicApp />)
+  await screen.findByRole('button', { name: '我的星球' })
+  fireEvent.click(screen.getByRole('button', { name: '设置' }))
+  await screen.findByRole('heading', { name: '账户与隐私设置' })
+  await waitFor(() => expect(screen.queryByRole('button', { name: '打开审核队列' })).toBeNull())
+})
+
 test('a planet owner can edit a Moment and only sees the saved version after the server confirms it', async () => {
   const ownerPlanet = {
     id: 'planet-owner', displayName: '夜航者', tagline: '慢慢靠岸', visibility: 'public' as const,
@@ -481,27 +560,18 @@ test('a planet owner can view all Moments and confirm deletion before a Moment i
   expect(screen.getByText('第 6 条 Moment 内容。')).toBeTruthy()
 })
 
-test('account deletion requires an emailed code and typed confirmation before resetting the authenticated app', async () => {
+test('settings explain the anonymous browser identity and omit email account controls', async () => {
   const ownerPlanet = {
     id: 'planet-owner', displayName: '夜航者', tagline: '慢慢靠岸', visibility: 'public' as const,
     visualSchemaVersion: 1, visual: {}, createdAt: '2026-09-29T00:00:00.000Z', updatedAt: '2026-09-29T00:00:00.000Z',
     tracks: tracks.slice(0, 3).map((track, position) => ({ ...track, position, isPrimary: position === 0, selectedAt: '2026-09-29T00:00:00.000Z' })),
   }
-  let authenticated = true
-  const requests: Array<{ path: string; method?: string; body?: unknown }> = []
-  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
     const path = new URL(String(input), 'https://moodverse.test').pathname
-    requests.push({ path, ...(init?.method ? { method: init.method } : {}), ...(init?.body ? { body: JSON.parse(String(init.body)) } : {}) })
     if (path === '/api/music/catalog') return Response.json({ tracks })
-    if (path === '/api/me/music-planet' && !authenticated) return Response.json({ error: 'UNAUTHENTICATED' }, { status: 401 })
     if (path === '/api/me/music-planet') return Response.json({ planet: ownerPlanet })
     if (path === '/api/me/music-planet/moments') return Response.json({ moments: [] })
     if (path === '/api/me/social-settings') return Response.json({ allowFriendRequests: true, allowDriftBottles: true })
-    if (path === '/api/me/account/deletion-code' && init?.method === 'POST') return Response.json({ ok: true })
-    if (path === '/api/me/account' && init?.method === 'DELETE') {
-      authenticated = false
-      return Response.json({ ok: true })
-    }
     throw new Error(`Unexpected request: ${path}`)
   }))
 
@@ -509,17 +579,10 @@ test('account deletion requires an emailed code and typed confirmation before re
   await screen.findByRole('button', { name: '我的星球' })
   fireEvent.click(screen.getByRole('button', { name: '设置' }))
   await screen.findByRole('heading', { name: '账户与隐私设置' })
-  expect(screen.getByText(/删除后将移除登录身份、星球、Moment、私信、Orbit/)).toBeTruthy()
-  fireEvent.click(screen.getByRole('button', { name: '发送账号删除验证码' }))
-  await screen.findByText(/删除验证码已发送/)
-  fireEvent.change(screen.getByLabelText('六位验证码'), { target: { value: '123456' } })
-  fireEvent.change(screen.getByLabelText('输入 DELETE 确认'), { target: { value: 'delete' } })
-  expect((screen.getByRole('button', { name: '永久删除账号与资料' }) as HTMLButtonElement).disabled).toBe(true)
-  fireEvent.change(screen.getByLabelText('输入 DELETE 确认'), { target: { value: 'DELETE' } })
-  fireEvent.click(screen.getByRole('button', { name: '永久删除账号与资料' }))
-  await screen.findByRole('heading', { name: /邮箱验证码，进入 Moodverse/ })
-  expect(requests).toContainEqual({ path: '/api/me/account/deletion-code', method: 'POST' })
-  expect(requests).toContainEqual({ path: '/api/me/account', method: 'DELETE', body: { code: '123456', confirmation: 'DELETE' } })
+  expect(screen.getByText(/账号已保存在这个浏览器中/)).toBeTruthy()
+  expect(screen.getByText(/换浏览器或清除本站点数据后，会生成新的随机账号/)).toBeTruthy()
+  expect(screen.queryByRole('button', { name: /发送账号删除验证码/ })).toBeNull()
+  expect(screen.queryByLabelText('邮箱地址')).toBeNull()
 })
 
 test('an owner can edit planet details, manage one to five selected songs, and choose a primary song', async () => {

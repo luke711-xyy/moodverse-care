@@ -39,13 +39,14 @@ type PlanetInput = {
 
 const own = (record: object, key: string) => Object.prototype.hasOwnProperty.call(record, key)
 
-const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
-  status,
-  headers: {
+const response = (body: unknown, status = 200, setCookie?: string | null) => {
+  const headers = new Headers({
     'content-type': 'application/json; charset=utf-8',
     'cache-control': 'no-store',
-  },
-})
+  })
+  if (setCookie) headers.set('set-cookie', setCookie)
+  return new Response(JSON.stringify(body), { status, headers })
+}
 
 const limitedText = (value: unknown, maxLength: number, allowEmpty: boolean) => {
   if (typeof value !== 'string') return null
@@ -136,7 +137,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   const planet = await readOwnerPlanet(env, identity.userId)
   const demoEmail = env.MUSIC_DEMO_EMAIL?.trim().toLocaleLowerCase() ?? ''
   const accountEmail = identity.email?.trim().toLocaleLowerCase() ?? ''
-  return response({ planet, isDemoAccount: Boolean(demoEmail && accountEmail && demoEmail === accountEmail) })
+  return response({ planet, isDemoAccount: Boolean(demoEmail && accountEmail && demoEmail === accountEmail) }, 200, identity.setCookie)
 }
 
 export const onRequestPost: PagesFunction<Env> = async (context) => {

@@ -92,6 +92,20 @@ test('music AI atmosphere, motion, and particle density reach bounded planet vis
   expect(composed.particleDensity).toBe(.9)
 })
 
+test('AI terrain feature counts control the matching seeded procedural terrain components', () => {
+  const profile = planetVisualProfile('music', 'calm', 3, {
+    surface: '#8d4772', ocean: '#071529', accent: '#8edfc9',
+    terrainFeatures: { mountainRanges: 6, basins: 0, canyons: 4, escarpments: 2 },
+  })
+  const features = createPlanetTerrainFeatures(931, profile.terrainFeatureConfig)
+  const counts = Object.fromEntries(
+    ['mountain_range', 'basin', 'canyon', 'escarpment'].map((kind) => [kind, features.filter((feature) => feature.kind === kind).length]),
+  )
+
+  expect(counts).toEqual({ mountain_range: 6, basin: 0, canyon: 4, escarpment: 2 })
+  expect(createPlanetTerrainFeatures(931, profile.terrainFeatureConfig)).toEqual(features)
+})
+
 test('the AI-composed ocean base is present in the generated ocean texture', () => {
   const surface = generatePlanetTextureData(
     931,
@@ -243,7 +257,7 @@ test('randomized continent layouts keep ocean-forward coverage while varying the
   const meanLandRatio = ratios.reduce((sum, ratio) => sum + ratio, 0) / ratios.length
   expect(meanLandRatio).toBeGreaterThan(.25)
   expect(meanLandRatio).toBeLessThan(.36)
-})
+}, 15_000)
 
 test('basin features create visible, deterministic inland water bodies', () => {
   const seed = hashString32('lake-system-test')

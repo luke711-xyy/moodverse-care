@@ -11,6 +11,8 @@
 ```
 
 - Pages/D1 负责登录、星球权限、隐私筛选、撞歌候选资格、任务状态和模型结果校验。模型只负责受限的星球视觉生成、候选排序与文本嵌入，不决定谁有权访问谁。
+- Composer 视觉结果采用 schema 2：在调色板、氛围、运动和粒子密度之外，只能从当前程序地形组件中选择山脉、盆地、峡谷、断崖的数量；Cloudflare 与客户端都校验整数范围，随机种子仍决定具体位置和形状，模型不能生成任意资产或几何。
+- Rank 模型只返回服务端给定的候选 `planetId` 与分数；网关依据候选的 `matchSource` 派生 `reasonCode`，Pages 再校验候选 ID、分数和原因码。网关 Rank 响应使用 `{ model, ranking }`，原因码不是模型输出字段。
 - 浏览器不直接调用本地 AI 服务，也不能读取任何 AI、Tunnel 或 Access 凭据。
 - Tunnel 的公开主机名必须由 Access Self-hosted 应用保护，并只给 Pages 使用的 Service Token 配置 `Service Auth` 策略。不要为网关添加面向访客的 Allow 或 Bypass 规则。
 - Access 凭据与源站 Bearer 是两种独立的凭据：`CF-Access-Client-Id` / `CF-Access-Client-Secret` 通过 Cloudflare Access；`Authorization: Bearer …` 由本地网关校验。Pages 只有在这三项都配置时才会调用模型。
@@ -94,6 +96,8 @@ Cloudflare 当前对多数使用场景推荐 remotely-managed Tunnel。以下配
 
 运行中的模型按需加载，视觉模型和嵌入模型是分别首次加载的。Hugging Face 默认缓存路径以及 `HF_HOME` / `HF_HUB_CACHE` 的覆盖方式见 [Hugging Face Hub 环境变量文档](https://huggingface.co/docs/huggingface_hub/main/package_reference/environment_variables)。保留缓存可以避免每次启动重复下载；缓存中模型文件较大，清理前先确认不再需要，权重升级前记录使用的模型 ID。
 
+嵌入服务另有一个仅驻留内存的复用缓存：只缓存 Pages 已筛选的 `planet:<id>` / `user:<id>` 候选向量，不缓存查询向量；键只包含文本 SHA-256、模型请求 ID 和 schema 版本，不保留 Moment 原文，也不写入磁盘。缓存最多 512 项，闲置 30 分钟后过期；每项同时记录实际模型名/版本，网关发现批内版本不一致时会重算整批。无效输出不会写入缓存，停止或重启网关会清空缓存。缓存用于减少重复候选文本的 MLX 推理，不替代 Pages 的公开状态、屏蔽关系或候选资格检查。
+
 可以用无隐私的合成文本预热嵌入模型：
 
 ```sh
@@ -105,7 +109,7 @@ curl --fail --silent http://127.0.0.1:8080/v1/embed \
 
 响应应含 `model` 及与输入 ID 对应、维度一致且非零的 embedding。要预热视觉模型，使用 staging 的专用测试账号和已选曲目调用 Composer；排序模型与 Composer 共用文本生成模型，也可以通过 staging 的精确歌曲匹配流程验证。不要把真实私密 Moment 或个人资料复制进手工 smoke 请求。
 
-一次完整验收应记录 Compose、Rank、Embed 是否返回有效模型名/版本、首次冷启动耗时、后续热请求耗时、Mac 内存峰值与结果任务状态。只用实际返回数据记录；mock 测试、`/healthz` 或“模型 ID 已配置”都不能代替真实模型 smoke test。
+一次完整验收应记录 Compose、Rank、Embed 是否返回有效模型名/版本、首次冷启动耗时、后续热请求耗时、Mac 内存峰值与结果任务状态。当前本机合成请求测得文本模型冷启动约 30 秒；Song Portal Rank 与 Composer 的 Pages 调用截止时间均设为 45 秒，以覆盖此冷启动并留出请求开销。Cloudflare Workers 官方说明：入站 HTTP 请求在客户端保持连接时没有硬性 wall-time 上限，单次 subrequest 也没有固定时限；应用仍使用 45 秒主动截止时间，避免无界等待。上线前需在隔离 staging 重新测量，不能把单次本机样例当作延迟 SLO。[Workers limits](https://developers.cloudflare.com/workers/platform/limits/)
 
 ## 6. 离线、睡眠与关闭
 
@@ -119,9 +123,13 @@ curl --fail --silent http://127.0.0.1:8080/v1/embed \
 - Composer 只接收选定歌曲的受限 metadata 和公开 Moment；私密 Moment、邮箱、认证凭据和音乐播放 URL 不进入 prompt。
 - 精确同歌候选先由 Pages/D1 筛选；模型只对已有候选排序，不得添加候选、推断访问权限或把推断当成听歌事实。
 - Discovery 与瓶子嵌入只接收后端筛选出的可用公开音乐信号。私人星球、私密 Moment、已屏蔽或不接收的人不能通过模型输出重新加入候选。
-- gateway 不把请求体写入 stdout；不要额外打开包含请求正文的代理访问日志。对外只返回受约束的模型输出，Pages 再做 schema/候选校验后才保存。
+- gateway 不把请求体写入 stdout；不要额外打开包含请求正文的代理访问日志。候选向量缓存只保留有期限的内存向量与内容摘要，查询和原始 Moment 文本不落盘。对外只返回受约束的模型输出，Pages 再做 schema/候选校验后才保存。
 - 发现 Bearer 泄露时，先在本机与 staging Pages 同步轮换 `MUSIC_AI_GATEWAY_TOKEN`，并检查 Access Service Token 是否也需要单独轮换；二者不是同一个凭据。
 
 ## 当前部署状态
 
-代码、mock 合约测试和本指南不代表运行时已经部署。以下均待有权限的管理员完成后再标记验收：staging Pages hostname / secrets、Tunnel 与 Access service policy、Mac MLX 依赖安装、真实模型权重下载、真实 Composer / Rank / Embed 请求与延迟记录。本轮没有创建 Cloudflare 资源，也没有下载模型权重。
+截至 2026-10-01，本机已通过 `uv sync --python 3.11` 安装 MLX 运行依赖，Python 网关测试 34 项通过。真实的 `Qwen3-Embedding-0.6B-8bit` 权重已下载；通过 loopback HTTP 网关 `POST /v1/embed` 发送两条合成文本，带正确 Bearer 时返回两个非零的 1024 维向量，输入 ID 与响应 ID 一致；不带 Bearer 的请求返回 `401 UNAUTHORIZED`。
+
+真实的 `Qwen3.5-4B-MLX-4bit`（约 3.03GB）权重已下载，并通过本机 loopback HTTP 网关完成合成 Composer 与 Rank 请求。Composer schema 2 的地形数量参数已连到地形网格、表面纹理、河流、湖泊、植被和涂鸦贴附采样；在相同星球种子下仍可复现。新 schema 的真实模型 HTTP smoke 返回了通过严格校验的中文摘要、`#RRGGBB` 调色板及有界地形组件数量。Rank 冷启动样例 30.81 秒、热调用样例 7.94 秒。一次实际 Rank smoke 发现模型会把候选原因码填错；现在模型只返回候选 ID 和分数，网关按 `matchSource` 派生原因码。真实模型偶尔会用单元素 JSON 数组包裹 Rank 对象；网关现在只规范化这一种外层形状，之后仍严格校验字段、候选 ID 和分数。修复后真实 Rank HTTP 响应返回正确分数及服务端原因码，最近一次 HTTP 验证耗时 22.20 秒；响应形状为顶层 `model` 与 `ranking`。以上只证明当前 Mac 上的真实模型与本地 HTTP 鉴权路径可运行；没有使用真实用户内容，尚未测出完整的统一内存峰值，也不是 Cloudflare Pages 或跨账号端到端验收。
+
+Cloudflare Tunnel、Access Service Auth policy、staging Pages hostname/secrets，以及 Email Service 发件域名与 API token 仍未配置或验证。本次没有创建 Cloudflare 资源、修改 DNS、部署 staging 或发送真实邮件。模型权重缓存位于仓库外的 Hugging Face 缓存目录，不会提交到 Git；候选向量缓存只存在于网关进程内，重启后清空。

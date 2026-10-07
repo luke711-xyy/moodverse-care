@@ -129,12 +129,13 @@ test('creating a public Moment automatically queues a planet composition refresh
     return new Response(JSON.stringify({
       model: { name: 'qwen-local', version: '4b-q4-v1' },
       output: {
-        schemaVersion: 1,
+        schemaVersion: 2,
         summary: '在夜色中慢慢流动。',
         palette: { surface: '#315f98', ocean: '#102d5c', accent: '#8ec9ed' },
         atmosphere: 'starlit',
         motion: 'drift',
         particleDensity: 0.42,
+        terrainFeatures: { mountainRanges: 4, basins: 2, canyons: 1, escarpments: 1 },
       },
     }), { status: 200, headers: { 'content-type': 'application/json' } })
   }))
