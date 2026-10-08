@@ -9,6 +9,13 @@ describe('2D dither assets', () => {
     const planet = { ...spec, overrides: { form: 'organic' as const, motif: 'flow' as const, pointer: 'off' as const } }
     expect(renderDitherImage(planet, 80, .6, 'planet')).not.toEqual(renderDitherImage(planet, 80, .6, 'nebula'))
   })
+  test('an unpulsed particle body changes its projected silhouette as the shape turns', () => {
+    const body = { ...spec, overrides: { form: 'particles' as const, pulse: 0, glow: 0 } }
+    const initial = renderDitherImage(body, 96, 0), quarterTurn = renderDitherImage(body, 96, Math.PI / 2)
+    let silhouetteChanges = 0
+    for (let i = 3; i < initial.length; i += 4) if (initial[i] !== quarterTurn[i]) silhouetteChanges++
+    expect(silhouetteChanges).toBeGreaterThan(100)
+  })
   test('a stellar sphere has a stable lit hemisphere and a dimmer opposite hemisphere', () => {
     const sphere = { ...spec, overrides: { form: 'particles' as const, blue: 1, violet: 0, pink: 0, exposure: 1, contrast: 1, gamma: 1 } }
     const brightness = (side: number) => {

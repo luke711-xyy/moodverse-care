@@ -83,7 +83,12 @@ Authority: user's OpenProcessing reference and supplied point-sphere example.
 Independently implement rotating surface coordinates, depth and view-space
 lighting on the existing quad, keeping purple/pink/blue dithering and song/manual
 parameters. No p5 dependency, model downloads, AI, new database fields or 3D scene.
-Planet/star/friend spheres gain volume; music discs and travel nebula remain flat.
+Planet/star/friend spheres gain volume; music-cover discs and travel nebula remain
+flat. Following the user's addition, music satellites are volumetric spheres.
+Project the rotating body's silhouette as well as its material. Use lifted
+elliptical orbit depth and painter order so rear satellites are occluded by the
+planet and cannot steal clicks; front satellites remain visible. Keep the orbit
+clock continuous so slower rates complete a full revolution without jumping.
 Preserve transparent silhouettes, pixel-cell picking, pointer response, pause,
 reduced motion and cached CPU fallback. The fallback remains a static sphere.
 Steps: sphere tests RED, shader/CPU implementation GREEN, all 28 combinations

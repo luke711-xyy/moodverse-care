@@ -5,9 +5,24 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { Stage } from '../src/music/dither/Stage'
 import type { DitherFrame } from '../src/music/dither/renderer'
 import { createDitherSpec } from '../src/music/dither/appearance'
+import { buildDitherStageFrame } from '../src/music/dither/stage-layout'
+import { hitTestDitherAssets } from '../src/music/dither/layout'
 const capture = vi.hoisted(() => ({ frame: null as DitherFrame | null }))
 vi.mock('../src/music/dither/DitherCanvas', () => ({ DitherCanvas: (props: { getFrame: (w: number, h: number, phase: number) => DitherFrame }) => { capture.frame = props.getFrame(1000, 700, 0); return <canvas /> } }))
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
+
+test('rear satellites are painted and picked behind the owner; front satellites stay visible', () => {
+  const frame = buildDitherStageFrame({ width: 1000, height: 700, phase: 0, owner: createDitherSpec({ planetId: 'owner', tracks: [], overrides: { form: 'particles', size: 1, pulse: 0, pointer: 'off' } }), systems: [], home: 1, journey: 0, rotation: 0, friends: [], music: [{ id: 'right' }, { id: 'front' }, { id: 'left' }, { id: 'rear' }] })
+  const ownerIndex = frame.assets.findIndex(a => a.id.startsWith('home:'))
+  const rearIndex = frame.assets.findIndex(a => a.id === 'music:rear')
+  const frontIndex = frame.assets.findIndex(a => a.id === 'music:front')
+  expect(rearIndex).toBeLessThan(ownerIndex)
+  expect(frontIndex).toBeGreaterThan(ownerIndex)
+  const rear = frame.assets[rearIndex], front = frame.assets[frontIndex]
+  expect(hitTestDitherAssets(frame.assets, rear.x, rear.y)?.id).toMatch(/^home:/)
+  expect(hitTestDitherAssets(frame.assets, front.x, front.y)?.id).toBe('music:front')
+  expect(front.radius).toBeGreaterThan(rear.radius)
+})
 
 test('foreground nebula travel shrinks the owner to a point and grows it back on the reciprocal route', () => {
   vi.spyOn(document, 'hidden', 'get').mockReturnValue(false)

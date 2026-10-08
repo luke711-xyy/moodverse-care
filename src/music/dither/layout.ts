@@ -8,6 +8,16 @@ export function orbitPoint(orbit: DitherOrbitGeometry, phase: number) {
   return { x: orbit.x + x * Math.cos(orbit.tilt) - y * Math.sin(orbit.tilt), y: orbit.y + x * Math.sin(orbit.tilt) + y * Math.cos(orbit.tilt) }
 }
 
+/** Lift the displayed ellipse into a circular orbit with view-space depth.
+ * Positive depth is in front; screen tilt must not determine occlusion.
+ */
+export function orbitDepth(orbit: DitherOrbitGeometry, phase: number): number {
+  return Math.sin(phase) * Math.sqrt(Math.max(0, orbit.rx * orbit.rx - orbit.ry * orbit.ry))
+}
+export function depthOrderedAssets(assets: DitherAsset[]): DitherAsset[] {
+  return [...assets].sort((a, b) => (a.depth ?? 0) - (b.depth ?? 0))
+}
+
 type HitSampling = { mode?: 'webgl2' | 'canvas2d'; pointer?: { x: number; y: number }; pixelRatio?: number }
 /** Match the actual renderer's pixel-cell centers, including cached fallback. */
 export function sampleDitherAssetAlpha(asset: DitherAsset, x: number, y: number, sampling: HitSampling = {}): number {
@@ -54,5 +64,7 @@ export function satelliteAsset(parent: DitherPlanetSpec, satellite: { id: string
     ...parent.overrides, size: 1, form: satellite.kind === 'friend' ? 'particles' : 'organic',
     motif: satellite.kind === 'friend' ? 'dust' : 'tide', density: .72, pixelSize: 2, glow: .35,
   } }
-  return { id: satellite.id, spec, kind: satellite.kind === 'music' ? 'music' : 'planet', ...orbitPoint(satellite.orbit, satellite.phase), radius: satellite.radius, rotation: satellite.phase }
+  const depth = orbitDepth(satellite.orbit, satellite.phase)
+  const perspective = 1 + depth / Math.max(1, satellite.orbit.rx) * .12
+  return { id: satellite.id, spec, kind: satellite.kind === 'music' ? 'music-satellite' : 'planet', ...orbitPoint(satellite.orbit, satellite.phase), depth, radius: satellite.radius * perspective, rotation: satellite.phase }
 }

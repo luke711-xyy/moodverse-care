@@ -1,6 +1,6 @@
 import type { MusicGalaxySceneSystem } from '../galaxy-scene'
 import { createDitherSpec, type DitherPlanetSpec } from './appearance'
-import { orbitPoint, satelliteAsset, type DitherOrbitGeometry } from './layout'
+import { depthOrderedAssets, orbitDepth, orbitPoint, satelliteAsset, type DitherOrbitGeometry } from './layout'
 import type { DitherAsset, DitherFrame } from './renderer'
 
 const clamp = (n: number) => Math.max(0, Math.min(1, n))
@@ -25,30 +25,31 @@ export function buildDitherStageFrame(input: StageLayoutInput): StageFrame {
     const scale = focusedGalaxy ? 1 : .68 / (1 + Math.abs(offset) * .45)
     const r = radius * scale, opacity = 1 - home.homeOpacity
     const star = createDitherSpec({ planetId: system.id, tracks: [], overrides: { form: 'pulse', motif: 'flow', size: 1, speed: .3, glow: .8 } })
-    assets.push({ id: 'system:' + system.id, spec: star, x: cx, y: cy, radius: r * .35, kind: 'star', opacity })
+    const center: DitherAsset = { id: 'system:' + system.id, spec: star, x: cx, y: cy, radius: r * .35, kind: 'star', opacity, depth: 0 }
     systemTargets.push({ id: system.id, x: cx, y: cy, radius: r * 1.8 })
     const orbit = { x: cx, y: cy, rx: r * 1.5, ry: r * .72, tilt: -.3 }
     orbits.push(orbit)
     const bodies = system.planets.map((planet, i) => {
       const angle = i * Math.PI * 2 / Math.max(1, system.planets.length) + rotation + phase * .18
-      return { id: 'planet:' + planet.id, spec: planet.spec, ...orbitPoint(orbit, angle), radius: r * (.21 + i % 3 * .018), opacity, rotation: angle * .1 }
+      return { id: 'planet:' + planet.id, spec: planet.spec, ...orbitPoint(orbit, angle), depth: orbitDepth(orbit, angle), radius: r * (.21 + i % 3 * .018), opacity, rotation: angle * .1 }
     })
-    assets.push(...bodies.sort((a,b)=>a.y-b.y))
+    assets.push(...depthOrderedAssets([center, ...bodies]))
   }
   if (input.home > 0 || visitor) {
     const spec = visitor ?? owner, k = visitor ? 1 : home.homeScale, opacity = visitor ? 1 : home.homeOpacity
-    assets.push({ id: visitor ? 'visitor:' + spec.seed : 'home:' + spec.seed, spec, x, y, radius: radius * k, opacity, rotation: rotation * .25 })
+    const bodies: DitherAsset[] = [{ id: visitor ? 'visitor:' + spec.seed : 'home:' + spec.seed, spec, x, y, radius: radius * k, opacity, rotation: rotation * .25, depth: 0 }]
     const orbit = { x, y, rx: radius * 1.32 * k, ry: radius * .63 * k, tilt: -.33 }
     orbits.push(orbit)
     for (const [i, track] of input.music.entries()) {
       const asset = satelliteAsset(spec, { id: 'music:' + track.id, kind: 'music', orbit, phase: i * Math.PI * 2 / Math.max(1, input.music.length) + phase * .2, radius: radius * .105 * k })
-      assets.push({ ...asset, opacity })
+      bodies.push({ ...asset, opacity })
     }
     if (!visitor) for (const [i, friend] of input.friends.entries()) {
-      const friendOrbit = { ...orbit, rx: orbit.rx * 1.26, ry: orbit.ry * 1.3 }
+      const friendOrbit = { ...orbit, rx: orbit.rx * 1.26, ry: orbit.ry * 1.1 }
       if (!i) orbits.push(friendOrbit)
-      assets.push({ ...satelliteAsset(spec, { id: 'friend:' + friend.id, kind: 'friend', orbit: friendOrbit, phase: i * Math.PI * 2 / Math.max(1, input.friends.length) + phase * .16 + .7, radius: radius * .1 * k }), opacity })
+      bodies.push({ ...satelliteAsset(spec, { id: 'friend:' + friend.id, kind: 'friend', orbit: friendOrbit, phase: i * Math.PI * 2 / Math.max(1, input.friends.length) + phase * .16 + .7, radius: radius * .1 * k }), opacity })
     }
+    assets.push(...depthOrderedAssets(bodies))
   }
   if (home.cloudOpacity > .01) {
     const cloud = createDitherSpec({ planetId: 'nebula', tracks: [], overrides: { form: 'organic', motif: 'flow', size: 1, speed: .6, density: .65, pixelSize: 4, disturbance: .9 } })

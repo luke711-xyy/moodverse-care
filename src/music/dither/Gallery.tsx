@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from 'react'
 import { createDitherSpec, DITHER_FORMS, DITHER_FORM_LABELS, DITHER_MOTIFS, DITHER_MOTIF_LABELS, type DitherOverrides } from './appearance'
 import { DitherCanvas, DitherThumbnail } from './DitherCanvas'
 import { DitherButton, DitherCard, DitherLoadingRing, DitherOrbit, DitherTitle } from './components'
-import { satelliteAsset } from './layout'
+import { depthOrderedAssets, satelliteAsset } from './layout'
 import type { DitherFrame } from './renderer'
 import './gallery.css'
 
@@ -10,10 +10,10 @@ export default function DitherGallery() {
   const [form, setForm] = useState<DitherOverrides['form']>('organic'), [motif, setMotif] = useState<DitherOverrides['motif']>('flow')
   const [fallback, setFallback] = useState(false), [paused, setPaused] = useState(false), [mode, setMode] = useState('')
   const spec = useMemo(() => createDitherSpec({ planetId: 'moodverse-art-system', tracks: [], overrides: { form, motif } }), [form, motif])
-  const getFrame = useCallback((width: number, height: number, phase: number): DitherFrame => ({ width, height, phase, assets: [
+  const getFrame = useCallback((width: number, height: number, phase: number): DitherFrame => ({ width, height, phase, assets: depthOrderedAssets([
     { id: 'planet', spec, x: width * .5, y: height * .5, radius: Math.min(width, height) * .45 },
     satelliteAsset(spec, { id: 'music-satellite', kind: 'music', orbit: { x: width * .5, y: height * .5, rx: Math.min(width, height) * .42, ry: Math.min(width, height) * .22, tilt: 0 }, phase, radius: 20 }),
-  ] }), [spec])
+  ]) }), [spec])
   return <main className="dither-gallery">
     <header><span>MOODVERSE</span><span>二维资产样板 · {mode}</span></header>
     <div className="dither-gallery-main">

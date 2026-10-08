@@ -2,12 +2,12 @@ import { DITHER_ALGORITHMS, DITHER_FORMS, DITHER_MOTIFS, effectiveDitherParamete
 import { DITHER_FRAGMENT, DITHER_VERTEX } from './shaders'
 import type { DitherAssetKind } from './sampler'
 
-export type DitherAsset = { id: string; spec: DitherPlanetSpec; x: number; y: number; radius: number; opacity?: number; rotation?: number; phase?: number; kind?: DitherAssetKind }
+export type DitherAsset = { id: string; spec: DitherPlanetSpec; x: number; y: number; radius: number; depth?: number; opacity?: number; rotation?: number; phase?: number; kind?: DitherAssetKind }
 export type DitherFrame = { width: number; height: number; phase: number; pointer?: { x: number; y: number }; assets: DitherAsset[] }
 
 /** One renderer/context per scene, many two-dimensional assets per frame. */
 export function createDitherRenderer(canvas: HTMLCanvasElement) {
-  const gl = canvas.getContext('webgl2', { alpha: true, antialias: false, premultipliedAlpha: false, preserveDrawingBuffer: false })
+  const gl = canvas.getContext('webgl2', { alpha: true, antialias: false, premultipliedAlpha: true, preserveDrawingBuffer: false })
   if (!gl) throw new Error('DITHER_WEBGL_UNAVAILABLE')
   const shaders: WebGLShader[] = []
   let program: WebGLProgram | null = null, buffer: WebGLBuffer | null = null, vao: WebGLVertexArrayObject | null = null
@@ -38,7 +38,10 @@ export function createDitherRenderer(canvas: HTMLCanvasElement) {
         const width = Math.max(1, Math.round(frame.width * dpr)), height = Math.max(1, Math.round(frame.height * dpr))
         if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height }
         gl.viewport(0, 0, width, height); gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT)
-        gl.useProgram(program); gl.bindVertexArray(vao); gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+        gl.useProgram(program); gl.bindVertexArray(vao); gl.enable(gl.BLEND)
+        // RGB becomes premultiplied in the framebuffer; alpha must not be
+        // squared. This matches browser composition, Canvas2D and CPU picking.
+        gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
         gl.uniform2f(uniforms.uViewport, frame.width, frame.height)
         for (const asset of frame.assets) {
           if (asset.radius <= 0 || (asset.opacity ?? 1) <= 0) continue
@@ -51,7 +54,7 @@ export function createDitherRenderer(canvas: HTMLCanvasElement) {
           gl.uniform2f(uniforms.uPointer, frame.pointer ? (frame.pointer.x - asset.x) / radius : 10, frame.pointer ? (frame.pointer.y - asset.y) / radius : 10)
           gl.uniform1f(uniforms.uPhase, asset.phase ?? frame.phase); gl.uniform1f(uniforms.uSeed, stableHash(asset.spec.seed) % 65536 + p.seedOffset)
           gl.uniform1f(uniforms.uRotation, asset.rotation ?? 0); gl.uniform1f(uniforms.uGrid, radius / p.pixelSize)
-          gl.uniform1f(uniforms.uOpacity, asset.opacity ?? 1); gl.uniform1i(uniforms.uKind, asset.kind === 'star' ? 1 : asset.kind === 'music' ? 2 : asset.kind === 'nebula' ? 3 : 0)
+          gl.uniform1f(uniforms.uOpacity, asset.opacity ?? 1); gl.uniform1i(uniforms.uKind, asset.kind === 'star' ? 1 : asset.kind === 'music' ? 2 : asset.kind === 'nebula' ? 3 : asset.kind === 'music-satellite' ? 4 : 0)
           gl.drawArrays(gl.TRIANGLES, 0, 6)
         }
       },

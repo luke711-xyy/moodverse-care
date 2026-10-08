@@ -19,15 +19,27 @@ test('hit testing follows visible shapes and painter order, not square bounds or
   expect(hitTestDitherAssets([star], 170, 170)).toBeNull()
   expect(hitTestDitherAssets([{ ...planet, opacity: 0 }], 150, 100)).toBeNull()
 })
+test('an exposed part of a rear satellite is clickable, but its covered part is not', () => {
+  const spherical = { ...spec, overrides: { form: 'particles' as const, size: 1, pixelSize: 2, pulse: 0, pointer: 'off' as const } }
+  const owner = { id: 'owner', spec: spherical, x: 100, y: 100, radius: 100 }
+  const rear = { id: 'rear', spec: spherical, x: 178, y: 100, radius: 20 }
+  expect(hitTestDitherAssets([rear, owner], 178, 100)?.id).toBe('owner')
+  expect(hitTestDitherAssets([rear, owner], 191, 100)?.id).toBe('rear')
+})
 test('friend and music satellites use reproducible individual seeds and shared palette', () => {
   const orbit = { x: 100, y: 100, rx: 80, ry: 35, tilt: 0 }
   const music = satelliteAsset(spec, { id: 'track:1', kind: 'music', orbit, phase: .4, radius: 15 })
   const friend = satelliteAsset(spec, { id: 'friend:1', kind: 'friend', orbit, phase: .4, radius: 15 })
   expect(satelliteAsset(spec, { id: 'track:1', kind: 'music', orbit, phase: .4, radius: 15 })).toEqual(music)
-  expect(music.kind).toBe('music')
+  expect(music.kind).toBe('music-satellite')
   expect(friend.spec.seed).not.toBe(music.spec.seed)
   expect(friend.spec.overrides.form).toBe('particles')
   expect(music.spec.generated.blue).toBe(spec.generated.blue)
+})
+test('music satellites use a volumetric kind, distinct from flat record artwork', () => {
+  const orbit = { x: 100, y: 100, rx: 80, ry: 35, tilt: 0 }
+  const music = satelliteAsset(spec, { id: 'song', kind: 'music', orbit, phase: .4, radius: 15 })
+  expect(music.kind).toBe('music-satellite')
 })
 
 test('rotated hit areas use the inverse of the painted shape rotation', () => {

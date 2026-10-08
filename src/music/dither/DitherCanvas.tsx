@@ -66,7 +66,10 @@ export function DitherCanvas({ getFrame, reducedMotion = false, forceFallback = 
       if (isRunning() && elapsed > .024 && elapsed < .2) lowFrames++; else lowFrames = Math.max(0, lowFrames - 1)
       if (lowFrames > 90) automaticLow = true
       last = now
-      phase = advanceDitherPhase(phase, elapsed, 1, isRunning())
+      // The scene clock must not wrap at 2π: slower orbital rates would jump
+      // back before ever reaching the far side. Each material clock below is
+      // independent and remains bounded/periodic for shader precision.
+      if (isRunning()) phase += Math.max(0, Math.min(.05, elapsed)) * .2
       const bounds = canvas.getBoundingClientRect(), width = Math.max(1, bounds.width), height = Math.max(1, bounds.height)
       const frame = latest.current.getFrame(width, height, phase)
       const visible = new Set(frame.assets.map((asset) => asset.id))

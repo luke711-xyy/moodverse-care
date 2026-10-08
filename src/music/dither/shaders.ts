@@ -31,6 +31,19 @@ float noiseAt(vec2 p,float seed){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
 float noise(vec2 p){return noiseAt(p,uSeed);}
 float fbm(vec2 p){float n=0.,a=.5;for(int i=0;i<4;i++){n+=noiseAt(p,uSeed+float(i)*17.)*a;p=p*2.02+vec2(3.4,4.1);a*=.5;}return n;}
 float line(vec2 p,vec2 a,vec2 b){vec2 d=b-a;return length(p-a-d*clamp(dot(p-a,d)/dot(d,d),0.,1.));}
+// Orthographic ellipsoid projection, with rim detail fixed in body coordinates.
+float bodyRadius(float form,float angle,float phase,float pulse){
+ float c=cos(phase),s=sin(phase),x=cos(angle),y=sin(angle);
+ float zAxis=form<.5?.78:form<1.5?.88:form<2.5?.83:.9;
+ float width=sqrt(c*c+zAxis*zAxis*s*s);
+ float radius=(.85+sin(phase)*pulse*.035)/length(vec2(x/width,y));
+ float rayA=s*s+c*c/(zAxis*zAxis),rayB=x*c*s*(1.-1./(zAxis*zAxis));
+ float tangentZ=-rayB/rayA;vec3 body=vec3(x*c+tangentZ*s,y,(-x*s+tangentZ*c)/zAxis);
+ float bodyAngle=atan(body.y,body.x),weight=length(body.xy)/length(body);
+ if(form<.5)radius+=(.055*sin(bodyAngle*3.)+.035*cos(bodyAngle*7.))*weight;
+ else if(form>1.5&&form<2.5)radius+=.04*cos(bodyAngle*8.)*weight;
+ return radius;
+}
 // Match sphere.ts: view-space light, rotating surface-space texture, no seam.
 vec4 sphereSurface(vec2 p,float radius,float phase){
  vec2 n=p/max(radius,length(p));float z=sqrt(max(0.,1.-dot(n,n)));
@@ -60,11 +73,12 @@ void main(){
  float radius=.85+sin(t)*uField.w*.035;
  if(uStyle.x<.5)radius+=.055*sin(screenAngle*3.+t)+.035*cos(screenAngle*7.-t*2.);
  else if(uStyle.x>1.5&&uStyle.x<2.5)radius+=.04*cos(screenAngle*8.-t);
+ bool spherical=uKind==0||uKind==1||uKind==4;
+ if(spherical)radius=bodyRadius(uStyle.x,screenAngle,t,uField.w);
  float alpha=1.-smoothstep(radius-.015,radius+.025,screenR);
  float halo=exp(-max(0.,screenR-radius)*22.)*uTone.w*.16;
  alpha=max(alpha,screenR<1.15?halo:0.);
  if(alpha<.008)discard;
- bool spherical=uKind==0||uKind==1;
  vec4 surface=spherical?sphereSurface(uv,radius,t):vec4(uv,1.,0.);
  vec2 textureUV=surface.xy;
  float r=length(textureUV),ang=atan(textureUV.y,textureUV.x);
@@ -93,6 +107,7 @@ void main(){
  if(uStyle.x>2.5)tone=screenR<.29?.025:tone*.5+.4*(1.-smoothstep(.015,.06,abs(length(uv*vec2(1,1.4))-.6)));
  if(uKind==1)tone=.85-.3*screenR+.15*noise(textureUV*30.);
  if(uKind==2){tone=.2+.45*(.5+.5*cos(screenR*110.))+ .18*sin(screenAngle*2.+t);if(screenR<.16)tone=.03;}
+ if(uKind==4){tone=.2+.45*(.5+.5*cos(r*70.))+ .18*sin(ang*2.+t);if(r<.16)tone=.03;}
  if(spherical)tone=(.22+.78*tone)*surface.z+surface.w;
  tone=clamp((pow(clamp(tone,0.,1.),uTone.z)-.5)*uTone.y+.5,0.,1.);
  tone=clamp(tone*uTone.x,0.,1.);

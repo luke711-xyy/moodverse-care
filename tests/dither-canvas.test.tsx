@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from 'react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
-import { cleanup, render } from '@testing-library/react'
+import { act, cleanup, render } from '@testing-library/react'
 import { DitherCanvas } from '../src/music/dither/DitherCanvas'
 import { createDitherSpec } from '../src/music/dither/appearance'
 import { createDitherRenderer, type DitherFrame } from '../src/music/dither/renderer'
@@ -16,7 +16,7 @@ beforeEach(() => {
   vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1)); vi.stubGlobal('cancelAnimationFrame', cancel)
   vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }))
 })
-afterEach(() => { cleanup(); vi.unstubAllGlobals() })
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 test('changing appearance and pause state redraws without recreating GPU resources', () => {
   const { rerender } = render(<DitherCanvas getFrame={frame} />)
@@ -35,4 +35,18 @@ test('initial static preview still paints, unmount releases resources and frame 
   unmount()
   expect(dispose).toHaveBeenCalledTimes(1)
   expect(cancel).toHaveBeenCalled()
+})
+
+test('the slower orbit clock does not wrap before completing its revolution', () => {
+  vi.spyOn(document, 'hidden', 'get').mockReturnValue(false)
+  vi.spyOn(performance, 'now').mockReturnValue(0)
+  let pending: FrameRequestCallback | undefined, now = 0
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { pending = callback; return 1 })
+  const scenePhases: number[] = []
+  const getFrame = (w: number, h: number, phase: number) => { scenePhases.push(phase); return frame(w, h, phase) }
+  render(<DitherCanvas getFrame={getFrame} />)
+  for (let i = 0; i < 800; i++) act(() => { now += 50; const callback = pending; pending = undefined; callback?.(now) })
+  expect(Math.max(...scenePhases)).toBeGreaterThan(Math.PI * 2)
+  // The shader's independent texture clocks still stay bounded and periodic.
+  expect(draw.mock.calls.at(-1)?.[0].assets[0].phase).toBeLessThan(Math.PI * 2)
 })
