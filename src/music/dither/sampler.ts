@@ -1,7 +1,8 @@
 import { DITHER_PALETTE, effectiveDitherParameters, stableHash, type DitherPlanetSpec } from './appearance'
+import { sphereSurface } from './sphere'
 
 const TAU = Math.PI * 2
-export type DitherAssetKind = 'planet' | 'star' | 'music'
+export type DitherAssetKind = 'planet' | 'star' | 'music' | 'nebula'
 const clamp = (x: number) => Math.min(1, Math.max(0, x))
 const fract = (x: number) => x - Math.floor(x)
 const smooth = (a: number, b: number, x: number) => { const t = clamp((x - a) / (b - a)); return t * t * (3 - 2 * t) }
@@ -42,21 +43,24 @@ export function advanceDitherPhase(previous: number, dt: number, speed: number, 
   return running ? (previous + Math.max(0, Math.min(.05, dt)) * Math.max(0, Math.min(1.5, speed)) * .2) % TAU : previous
 }
 
-/** Normalized asset coordinates, no perspective, terrain mesh, light or camera. */
-export function sampleDitherPixel(spec: DitherPlanetSpec, x: number, y: number, time = 0, gridX = Math.floor(x * 64), gridY = Math.floor(y * 64), kind: DitherAssetKind = 'planet'): [number, number, number, number] {
+/** Normalized quad coordinates; planets use analytic spherical projection. */
+export function sampleDitherPixel(spec: DitherPlanetSpec, x: number, y: number, time = 0, gridX = Math.floor(x * 64), gridY = Math.floor(y * 64), kind: DitherAssetKind = 'planet', viewRotation = 0): [number, number, number, number] {
   const p = effectiveDitherParameters(spec), seed = (stableHash(spec.seed) % 65536) + p.seedOffset, t = phaseOf(time)
-  const r = Math.hypot(x, y), a = Math.atan2(y, x)
+  const screenR = Math.hypot(x, y), screenAngle = Math.atan2(y, x)
   const breathing = Math.sin(t) * p.pulse * .035
   let radius = .85 + breathing
-  if (p.form === 'organic') radius += .055 * Math.sin(a * 3 + t) + .035 * Math.cos(a * 7 - t * 2)
-  if (p.form === 'pulse') radius += .04 * Math.cos(a * 8 - t)
-  let alpha = 1 - smooth(radius - .015, radius + .025, r)
-  const halo = Math.exp(-Math.max(0, r - radius) * 22) * p.glow * .16
-  alpha = Math.max(alpha, r < 1.15 ? halo : 0)
+  if (p.form === 'organic') radius += .055 * Math.sin(screenAngle * 3 + t) + .035 * Math.cos(screenAngle * 7 - t * 2)
+  if (p.form === 'pulse') radius += .04 * Math.cos(screenAngle * 8 - t)
+  let alpha = 1 - smooth(radius - .015, radius + .025, screenR)
+  const halo = Math.exp(-Math.max(0, screenR - radius) * 22) * p.glow * .16
+  alpha = Math.max(alpha, screenR < 1.15 ? halo : 0)
   if (alpha < .008) return [0, 0, 0, 0]
+  const surface = kind === 'planet' || kind === 'star' ? sphereSurface(x, y, radius, t, viewRotation) : null
+  const textureX = surface?.x ?? x, textureY = surface?.y ?? y
+  const r = Math.hypot(textureX, textureY), a = Math.atan2(textureY, textureX)
   const scale = 2 + p.textureScale * 6
-  const warp = fbm(x * 3 + Math.cos(t) * .4, y * 3 + Math.sin(t) * .4, seed) - .5
-  const wx = x + warp * p.disturbance * .35, wy = y + warp * p.disturbance * .25
+  const warp = fbm(textureX * 3 + Math.cos(t) * .4, textureY * 3 + Math.sin(t) * .4, seed) - .5
+  const wx = textureX + warp * p.disturbance * .35, wy = textureY + warp * p.disturbance * .25
   let tone = .2
   if (p.motif === 'flow') {
     const n = fbm(wx * scale + Math.cos(t), wy * scale + Math.sin(t), seed)
@@ -78,7 +82,7 @@ export function sampleDitherPixel(spec: DitherPlanetSpec, x: number, y: number, 
     let anthers = 0
     for (let i = 0; i < 11; i++) {
       const angle = i * TAU / 11, length = .79 - .025 * Math.sin(i)
-      anthers = Math.max(anthers, 1 - smooth(.009, .023, Math.hypot(x - Math.cos(angle) * length, y - Math.sin(angle) * length)))
+      anthers = Math.max(anthers, 1 - smooth(.009, .023, Math.hypot(textureX - Math.cos(angle) * length, textureY - Math.sin(angle) * length)))
     }
     tone = .13 + petals * .7 + filaments * .65 + .85 * anthers + .3 * (1 - smooth(0, .13, r))
   } else if (p.motif === 'score') {
@@ -92,11 +96,12 @@ export function sampleDitherPixel(spec: DitherPlanetSpec, x: number, y: number, 
     }
     tone = .15 + staff * .3 + notes * .7
   }
-  if (p.form === 'particles') tone *= .25 + .75 * Number(hash(Math.floor(x * 65), Math.floor(y * 65), seed) < p.density)
+  if (p.form === 'particles') tone *= .18 + .82 * Number(hash(Math.floor(textureX * 65), Math.floor(textureY * 65), seed) < p.density)
   if (p.form === 'pulse') tone += .2 * Math.pow(Math.max(0, Math.cos(a * 8 + t)), 12) * smooth(.25, .8, r)
-  if (p.form === 'annulus') tone = r < .29 ? .025 : tone * .5 + .4 * (1 - smooth(.015, .06, Math.abs(Math.hypot(x, y * 1.4) - .6)))
-  if (kind === 'star') tone = .85 - .3 * r + .15 * noise(x * 30, y * 30, seed)
-  if (kind === 'music') tone = r < .16 ? .03 : .2 + .45 * (.5 + .5 * Math.cos(r * 110)) + .18 * Math.sin(a * 2 + t)
+  if (p.form === 'annulus') tone = screenR < .29 ? .025 : tone * .5 + .4 * (1 - smooth(.015, .06, Math.abs(Math.hypot(x, y * 1.4) - .6)))
+  if (kind === 'star') tone = .85 - .3 * screenR + .15 * noise(textureX * 30, textureY * 30, seed)
+  if (kind === 'music') tone = screenR < .16 ? .03 : .2 + .45 * (.5 + .5 * Math.cos(screenR * 110)) + .18 * Math.sin(screenAngle * 2 + t)
+  if (surface) tone = (.22 + .78 * tone) * surface.light + surface.highlight
   tone = clamp((Math.pow(clamp(tone), p.gamma) - .5) * p.contrast + .5)
   tone = clamp(tone * p.exposure)
   const q = Math.floor(tone * 4 + ditherThreshold(p.algorithm, gridX, gridY, seed)) / 4

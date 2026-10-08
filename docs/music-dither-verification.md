@@ -10,6 +10,7 @@
 | --- | --- | --- |
 | 二维运行入口 | 音乐站只加载共享 2D shader、Canvas、SVG/CSS 资产。无 Three/R3F、3D 相机、模型加载器及模型网络请求 | 生产构建 36 模块；生产 JS 无 Three、GLTFLoader、GLB/GLTF 标记；实际浏览器资源检查 |
 | 外观组合 | 有机流体、粒子球、脉冲星、暗核环流 × 星空流线、琴谱、彼岸花、潮汐、数字织纹、星尘、棱镜环带；4 种抖动阈值；紫粉蓝 + 黑白 | 28 种组合图集已逐项查看；renderer/layout/component 测试 |
+| 球面体积（用户追加） | 在二维 quad 内计算球面深度、绕轴自转的材质坐标、明暗半球与边缘光；星球、恒星、好友卫星看起来有体积。星云与音乐唱片不套球面。无 p5/模型/Three 依赖 | 球面与平面区分、中心纹理位移、边缘压缩、周期/明暗测试；真实 GPU 两相位有 18,436 个不透明像素变化，明面/暗面亮度约 2.96 倍；28 组合与 CPU 降级图集 |
 | 音乐参数化 | 固定星球 ID 种子；主曲 50%，其余均分 50%；单曲 100%；节奏/硬度/能量影响速度、扰动、密度、亮度及粉蓝权重。未测量的 BPM 保持空值 | appearance 与 catalog/API 测试；双账号实时保存与公开读取 |
 | 外观编辑 | 4 个分类选择器、15 个数值参数；实时预览、取消、应用、重置、冲突后重读。手动参数在换歌后保留 | editor/app/API 测试；线上双账号验证越界 400、陈旧版本 409、换歌保留 |
 | 统一资产 | 星球/恒星/音乐卫星/好友卫星复用同一绘制管线；缩略图使用有上限的 Canvas 缓存；标题、按钮、图标、卡片使用统一抖动样式 | 浏览器与组件测试；无每卡片独立 WebGL 上下文 |
@@ -28,11 +29,13 @@ npm run build
 npm run music:staging:preflight
 node scripts/check-dither-lab.mjs <owned-cdp-target>
 node scripts/check-dither-rotation.mjs <owned-dev-gallery-target>
+node scripts/check-dither-sphere.mjs <owned-dev-gallery-target>
 node scripts/check-dither-product.mjs https://moodverse-music-staging.pages.dev --confirm-qa-accounts
 ```
 
-- 完整测试：54 文件，337 项通过。Node 的 SQLite experimental warning 是现有运行时提示，不是测试失败。
-- 构建包含音乐 JS 128.38 kB / gzip 36.81 kB、React 入口 192.00 kB / gzip 60.70 kB。未复制重资产。
+- 完整测试：54 文件，340 项通过。Node 的 SQLite experimental warning 是现有运行时提示，不是测试失败。
+- 球面追加后的构建为 37 模块，音乐 JS 130.04 kB / gzip 37.50 kB、React 入口 192.00 kB / gzip 60.70 kB。未复制重资产。
+- 球面体积是二维渲染内的解析投影，不是恢复旧 3D 场景。GPU 纹理自转、光源保持观众左上方；CPU 降级与缩略图保留静态球面体积，不运行点粒子物理。
 - 双账号脚本只创建标记明确的 QA 账号；结束时只删除 QA 创建的 Moment，将两个 QA 星球设为私密。不改已有用户的星球、选曲或记录。
 - 漂流瓶完整发布/评论/放流行为由回归测试覆盖；线上不向真实用户投递测试瓶。模型在线能力取决于原有匹配 AI 服务是否运行，本次没有宣称它已经永久在线。
 - 美术组合图集、浏览器截图与日志存放在本地临时验收目录，不将重图片或用户资料提交 Git。
@@ -63,5 +66,6 @@ node scripts/check-dither-product.mjs https://moodverse-music-staging.pages.dev 
 5. 删除装饰性副标题，保留版权、隐私、演示曲库与匹配 AI 降级说明；这些必要正文仍使用可读原生文字。
 6. 独立评审没有对线上发布、真实双账号、窄屏、上下文恢复或美术效果下结论；这些由执行者补足验收证据。美术喜好仍需用户实际确认。
 7. 按已授权选择推送新分支并发布隔离 staging，不合并旧 main、不创建未请求的 PR；保留现有受管理工作区及无关未跟踪资产。
+8. 用户追加 [OpenProcessing 球面参考](https://openprocessing.org/@noel/2812705) 后，以独立球面数学实现体积和旋转，保留全部音乐参数化规则。参考的许可为 CC BY-NC-SA 3.0，不复制其 p5 源码；本次没有实现其 8,000 个点的弹簧/速度状态，而是继续复用共享 shader 和已有鼠标扰动。
 
 唯一延期的 Minor：自定义 JSON 中 `pointer: ['strong']` 或特征 `source: ['curated']` 等数组会被枚举校验的字符串转换接纳。普通编辑器仅产生字符串，数字参数仍有界；这种畸形 JSON 的严格类型拒绝留待下一次加固，不影响正常外观编辑。

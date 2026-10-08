@@ -7,6 +7,8 @@ uncommitted friend satellite and journey fixes. Preserve unrelated heavy assets.
 ## Global constraints
 
 - Music app uses exclusively 2D visuals: no Three/R3F/models/cameras in its build.
+  The user's subsequent sphere reference allows mathematical 3D surface
+  projection and lighting inside the 2D shader, not restoring the archived engine.
 - Preserve Galaxy, exact-song portals, AI discovery/ranking, Orbit, friendships,
   DMs, Moments, bottles, anonymous identity, moderation and access permissions.
 - Five palette anchors: #08080D, #F2EFF8, #6C9DFF, #8E6BFF, #F279C5.
@@ -74,3 +76,18 @@ Determinism, malformed/unbounded visual specs, user override precedence,
 concurrent saves, old task late completion, private information, stable identity,
 GPU lifecycle/context loss, no stale RAF transition, screen-space hit testing,
 320px overflow, authentic motifs, all social functionality and no 3D bundle.
+
+## Task 6: Spherical volume within the dither renderer
+
+Authority: user's OpenProcessing reference and supplied point-sphere example.
+Independently implement rotating surface coordinates, depth and view-space
+lighting on the existing quad, keeping purple/pink/blue dithering and song/manual
+parameters. No p5 dependency, model downloads, AI, new database fields or 3D scene.
+Planet/star/friend spheres gain volume; music discs and travel nebula remain flat.
+Preserve transparent silhouettes, pixel-cell picking, pointer response, pause,
+reduced motion and cached CPU fallback. The fallback remains a static sphere.
+Steps: sphere tests RED, shader/CPU implementation GREEN, all 28 combinations
+visually inspected, real GPU rotation/light and click checks, full tests/build,
+publish the same music branch and isolated staging; verify new resources/live UI.
+Reference: https://openprocessing.org/@noel/2812705 (CC BY-NC-SA 3.0); use the
+mathematical principle, do not copy its p5 source into the product.

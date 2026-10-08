@@ -31,6 +31,7 @@ test('foreground nebula travel shrinks the owner to a point and grows it back on
   advance(21)
   expect(capture.frame!.assets.find(a => a.id.startsWith('home:'))!.radius).toBeCloseTo(initialRadius * .26875)
   expect(capture.frame!.assets.find(a => a.id === 'nebula')!.opacity).toBeCloseTo(.92)
+  expect(capture.frame!.assets.find(a => a.id === 'nebula')!.kind).toBe('nebula')
   advance(21)
   expect(capture.frame!.assets.some(a => a.id.startsWith('home:') || a.id === 'nebula')).toBe(false)
   expect(screen.getByRole('region').dataset.traveling).toBe('false')

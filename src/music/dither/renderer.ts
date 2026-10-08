@@ -51,7 +51,7 @@ export function createDitherRenderer(canvas: HTMLCanvasElement) {
           gl.uniform2f(uniforms.uPointer, frame.pointer ? (frame.pointer.x - asset.x) / radius : 10, frame.pointer ? (frame.pointer.y - asset.y) / radius : 10)
           gl.uniform1f(uniforms.uPhase, asset.phase ?? frame.phase); gl.uniform1f(uniforms.uSeed, stableHash(asset.spec.seed) % 65536 + p.seedOffset)
           gl.uniform1f(uniforms.uRotation, asset.rotation ?? 0); gl.uniform1f(uniforms.uGrid, radius / p.pixelSize)
-          gl.uniform1f(uniforms.uOpacity, asset.opacity ?? 1); gl.uniform1i(uniforms.uKind, asset.kind === 'star' ? 1 : asset.kind === 'music' ? 2 : 0)
+          gl.uniform1f(uniforms.uOpacity, asset.opacity ?? 1); gl.uniform1i(uniforms.uKind, asset.kind === 'star' ? 1 : asset.kind === 'music' ? 2 : asset.kind === 'nebula' ? 3 : 0)
           gl.drawArrays(gl.TRIANGLES, 0, 6)
         }
       },
