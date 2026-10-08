@@ -75,7 +75,7 @@ export function Stage(props: Props) {
     onPointerUp={event=> { const current=drag.current; drag.current=null; event.currentTarget.releasePointerCapture?.(event.pointerId); if(current && current.travel<6) activate(event.clientX,event.clientY) }}
     onPointerCancel={()=>{drag.current=null}} onLostPointerCapture={()=>{drag.current=null}}>
     <svg className="dither-stage-lines" viewBox={`0 0 ${bounds.width} ${bounds.height}`} aria-hidden="true">
-      {Array.from({length:80},(_,i)=><rect key={i} x={stableHash('star-x'+i)%1000/1000*bounds.width} y={stableHash('star-y'+i)%1000/1000*bounds.height} width={i%9===0 ? 2 : 1} height={i%9===0 ? 2 : 1} opacity={.15+i%4*.12} />)}
+      {home>0 && Array.from({length:80},(_,i)=><rect key={i} x={stableHash('star-x'+i)%1000/1000*bounds.width} y={stableHash('star-y'+i)%1000/1000*bounds.height} width={i%9===0 ? 2 : 1} height={i%9===0 ? 2 : 1} opacity={home*(.15+i%4*.12)} />)}
       {frame.orbits.map((orbit,i)=><DitherOrbit key={i} orbit={orbit} />)}
     </svg>
     <DitherCanvas getFrame={getFrame} reducedMotion={props.reducedMotion} onModeChange={setRenderMode} />

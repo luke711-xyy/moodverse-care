@@ -10,7 +10,7 @@ export default function DitherGallery() {
   const [form, setForm] = useState<DitherOverrides['form']>('organic'), [motif, setMotif] = useState<DitherOverrides['motif']>('flow')
   const [fallback, setFallback] = useState(false), [paused, setPaused] = useState(false), [mode, setMode] = useState('')
   const spec = useMemo(() => createDitherSpec({ planetId: 'moodverse-art-system', tracks: [], overrides: { form, motif } }), [form, motif])
-  const getFrame = useCallback((width: number, height: number, phase: number): DitherFrame => ({ width, height, phase, assets: depthOrderedAssets([
+  const getFrame = useCallback((width: number, height: number, phase: number): DitherFrame => ({ width, height, phase, ambience: 1, assets: depthOrderedAssets([
     { id: 'planet', spec, x: width * .5, y: height * .5, radius: Math.min(width, height) * .45 },
     satelliteAsset(spec, { id: 'music-satellite', kind: 'music', orbit: { x: width * .5, y: height * .5, rx: Math.min(width, height) * .42, ry: Math.min(width, height) * .22, tilt: 0 }, phase, radius: 20 }),
   ]) }), [spec])

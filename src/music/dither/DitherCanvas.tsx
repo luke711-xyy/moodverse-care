@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { effectiveDitherParameters, type DitherPlanetSpec } from './appearance'
 import { createDitherRenderer, type DitherFrame } from './renderer'
 import { advanceDitherPhase, renderDitherImage, type DitherAssetKind } from './sampler'
+import { createDitherMotion, DEFAULT_TIDE_BPM } from './motion'
 import './dither.css'
 
 const thumbnailCache = new Map<string, HTMLCanvasElement>()
@@ -47,7 +48,8 @@ export function DitherCanvas({ getFrame, reducedMotion = false, forceFallback = 
   useEffect(() => {
     const canvas = glRef.current!, fallback = fallbackRef.current!
     let renderer: ReturnType<typeof createDitherRenderer> | null = null, raf = 0, disposed = false
-    let last = 0, phase = 0, lowFrames = 0, automaticLow = false
+    let last = 0, phase = 0, seconds = 0, lowFrames = 0, automaticLow = false
+    const motion = createDitherMotion()
     const phases = phasesRef.current
     let pointer: { x: number; y: number } | undefined
     const media = window.matchMedia('(prefers-reduced-motion: reduce)')
@@ -69,7 +71,7 @@ export function DitherCanvas({ getFrame, reducedMotion = false, forceFallback = 
       // The scene clock must not wrap at 2π: slower orbital rates would jump
       // back before ever reaching the far side. Each material clock below is
       // independent and remains bounded/periodic for shader precision.
-      if (isRunning()) phase += Math.max(0, Math.min(.05, elapsed)) * .2
+      if (isRunning()) { const dt = Math.max(0, Math.min(.05, elapsed)); phase += dt * .2; seconds += dt }
       const bounds = canvas.getBoundingClientRect(), width = Math.max(1, bounds.width), height = Math.max(1, bounds.height)
       const frame = latest.current.getFrame(width, height, phase)
       const visible = new Set(frame.assets.map((asset) => asset.id))
@@ -80,6 +82,11 @@ export function DitherCanvas({ getFrame, reducedMotion = false, forceFallback = 
       })
       frame.pointer = reduced ? undefined : pointer
       const low = latest.current.quality === 'low' || latest.current.quality === 'auto' && automaticLow
+      motion.apply(frame, elapsed, seconds, isRunning() && Boolean(renderer), low)
+      canvas.dataset.ditherParticles = String(frame.assets.reduce((sum, asset) => sum + (asset.particles?.count ?? 0), 0))
+      canvas.dataset.ditherBpm = String(DEFAULT_TIDE_BPM)
+      canvas.dataset.ditherTime = String(seconds)
+      canvas.dataset.ditherQuality = low ? 'low' : 'normal'
       if (renderer) renderer.draw(frame, Math.min(window.devicePixelRatio || 1, low ? 1 : latest.current.quality === 'high' ? 2 : 1.5))
       else {
         const ctx = fallback.getContext('2d')
@@ -87,11 +94,18 @@ export function DitherCanvas({ getFrame, reducedMotion = false, forceFallback = 
           if (fallback.width !== Math.round(width) || fallback.height !== Math.round(height)) { fallback.width = Math.round(width); fallback.height = Math.round(height) }
           ctx.clearRect(0, 0, width, height)
           ctx.imageSmoothingEnabled = false
-          for (const asset of frame.assets) {
+          const drawStatic = (asset: DitherFrame['assets'][number]) => {
             const radius = asset.radius * effectiveDitherParameters(asset.spec).size
             ctx.save(); ctx.globalAlpha = asset.opacity ?? 1; ctx.translate(asset.x, asset.y); ctx.rotate(asset.rotation ?? 0)
             ctx.drawImage(cachedDitherCanvas(asset.spec, radius > 100 ? 256 : 128, asset.kind), -radius * 1.2, -radius * 1.2, radius * 2.4, radius * 2.4); ctx.restore()
           }
+          frame.background?.clouds.forEach(drawStatic)
+          if (frame.background) {
+            const { points, count } = frame.background.stars
+            for (let i = 0; i < count; i++) { const n = i * 6; ctx.globalAlpha = points[n + 5] * frame.background.opacity; ctx.fillStyle = '#c0b8d0'; ctx.fillRect(Math.floor(points[n]), Math.floor(points[n + 1]), Math.ceil(points[n + 4]), Math.ceil(points[n + 4])) }
+            ctx.globalAlpha = 1
+          }
+          frame.assets.forEach(drawStatic)
         }
       }
       if (isRunning() && renderer) raf = requestAnimationFrame(paint)

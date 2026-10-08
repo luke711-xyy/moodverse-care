@@ -5,9 +5,10 @@ in vec2 aPosition;
 uniform vec2 uViewport;
 uniform vec2 uCenter;
 uniform float uRadius;
+uniform float uDepth;
 out vec2 vAsset;
 void main(){vAsset=aPosition*1.2;vec2 px=uCenter+vAsset*uRadius;
- gl_Position=vec4(px.x/uViewport.x*2.-1.,1.-px.y/uViewport.y*2.,0.,1.);}`
+ gl_Position=vec4(px.x/uViewport.x*2.-1.,1.-px.y/uViewport.y*2.,uDepth,1.);}`
 
 export const DITHER_FRAGMENT = `#version 300 es
 precision highp float;
@@ -23,6 +24,8 @@ uniform float uSeed;
 uniform float uRotation;
 uniform float uGrid;
 uniform float uOpacity;
+uniform float uMaskOnly;
+uniform float uBackdrop;
 uniform int uKind;
 float hashAt(vec2 p,float seed){return fract(sin(dot(p,vec2(127.1,311.7))+seed*.013)*43758.5453);}
 float hash(vec2 p){return hashAt(p,uSeed);}
@@ -64,6 +67,40 @@ float threshold(vec2 p){
  return (float(rank)+.5)/(levels==2?16.:64.);
 }
 void main(){
+ if(uBackdrop>0.){
+  // Live domain-warped field. Time and a local pointer vortex affect the field
+  // BEFORE tone quantization; the pixel grid itself stays crisp and stable.
+  vec2 cells=floor((vAsset+1.2)*uGrid);
+  vec2 p=(cells+.5)/uGrid-1.2;
+  vec2 d=p-uPointer;
+  float influence=exp(-dot(d,d)*8.)*uStyle.w;
+  p+=(d+vec2(-d.y,d.x)*1.8)*influence*4.;
+  float t=uPhase*.055;
+  vec2 warp=vec2(fbm(p*1.3+vec2(t,-t*.7)),fbm(p*1.3+vec2(-t*.5,t*.8)+7.1))-.5;
+  vec2 flow=p+warp*.95;
+  float haze=fbm(flow*2.5+vec2(t*.4,-t*.6));
+  float ribbon=pow(.5+.5*sin(flow.x*7.+flow.y*4.+haze*5.-t),3.);
+  float tone=clamp(smoothstep(.3,.78,haze)*.57+ribbon*.22,0.,1.);
+  float q=floor(tone*4.+threshold(cells))/4.;
+  float hue=clamp(haze+.22*sin(flow.y*2.+t),0.,1.);
+  vec3 color=mix(vec3(.424,.616,1.),vec3(.557,.42,1.),smoothstep(.15,.7,hue));
+  color=mix(color,vec3(.949,.475,.773),smoothstep(.65,1.,hue)*.6);
+  fragColor=vec4(color,q*.22*uOpacity);return;
+ }
+#ifdef DITHER_POINTS
+ if(vPointOpacity<=0.)discard;
+ // Discrete little pixel clusters, not smooth circular sprites or glow blobs.
+ vec2 pointUV=gl_PointCoord-.5;
+ if(dot(pointUV,pointUV)>.25)discard;
+ if(uKind==5){
+  float hue=vAsset.x;
+  vec3 star=mix(vec3(.424,.616,1.),vec3(.949,.475,.773),hue);
+  star=mix(star,vec3(.949,.937,.973),.64);
+  float cell=mod(floor(gl_FragCoord.x)+floor(gl_FragCoord.y)*2.,4.);
+  if(vPointSize>3.&&cell>2.)discard;
+  fragColor=vec4(star,vPointOpacity*uOpacity);return;
+ }
+#endif
  vec2 coord=vAsset;
  if(uStyle.w>0.){vec2 delta=coord-uPointer;coord+=delta*exp(-dot(delta,delta)*6.)*uStyle.w;}
  float ct=cos(uRotation),st=sin(uRotation);coord=mat2(ct,-st,st,ct)*coord;
@@ -78,6 +115,9 @@ void main(){
  float alpha=1.-smoothstep(radius-.015,radius+.025,screenR);
  float halo=exp(-max(0.,screenR-radius)*22.)*uTone.w*.16;
  alpha=max(alpha,screenR<1.15?halo:0.);
+#ifndef DITHER_CELLS
+ if(uMaskOnly>0.){if(alpha<.36)discard;fragColor=vec4(0);return;}
+#endif
  if(alpha<.008)discard;
  vec4 surface=spherical?sphereSurface(uv,radius,t):vec4(uv,1.,0.);
  vec2 textureUV=surface.xy;
@@ -117,5 +157,53 @@ void main(){
  vec3 color=vec3(.424,.616,1.)*weights.x+vec3(.557,.42,1.)*weights.y+vec3(.949,.475,.773)*weights.z;
  color=mix(color,vec3(.949,.937,.973),max(0.,q-.9)*1.5);
  color=mix(vec3(.031,.031,.051),color,q);
+#ifdef DITHER_CELLS
+ alpha*=vPointOpacity;
+#endif
  fragColor=vec4(color,clamp(alpha*uOpacity,0.,1.));
 }`
+
+export const DITHER_POINT_VERTEX = `#version 300 es
+in vec2 aPosition;
+in vec2 aHome;
+in vec2 aLife;
+uniform vec2 uViewport;
+uniform vec2 uCenter;
+uniform float uRadius;
+uniform float uDepth;
+uniform float uPointScale;
+out vec2 vAsset;
+out float vPointOpacity;
+out float vPointSize;
+void main(){
+ vAsset=aHome;vPointOpacity=aLife.y;vPointSize=aLife.x;
+ vec2 px=uCenter+aPosition*uRadius;
+ gl_Position=vec4(px.x/uViewport.x*2.-1.,1.-px.y/uViewport.y*2.,uDepth,1.);
+ gl_PointSize=aLife.x*uPointScale;
+}`
+
+// Share the same seven motifs, five-color lighting and thresholds as the body.
+export const DITHER_POINT_FRAGMENT = DITHER_FRAGMENT.replace('in vec2 vAsset;', '#define DITHER_POINTS\nin float vPointOpacity;\nin float vPointSize;\nin vec2 vAsset;')
+
+// Each instance IS one original dither cell: a square, not a round point sprite.
+// Its material home samples the same shader; its displayed position may move.
+export const DITHER_CELL_VERTEX = `#version 300 es
+in vec2 aCorner;
+in vec2 aPosition;
+in vec2 aHome;
+in vec2 aLife;
+uniform vec2 uViewport;
+uniform vec2 uCenter;
+uniform float uRadius;
+uniform float uRotation;
+uniform float uDepth;
+out vec2 vAsset;
+out float vPointOpacity;
+void main(){
+ vAsset=aHome;vPointOpacity=aLife.y;
+ float c=cos(uRotation),s=sin(uRotation);
+ vec2 corner=mat2(c,s,-s,c)*aCorner*aLife.x;
+ vec2 px=uCenter+aPosition*uRadius+corner;
+ gl_Position=vec4(px.x/uViewport.x*2.-1.,1.-px.y/uViewport.y*2.,uDepth,1.);
+}`
+export const DITHER_CELL_FRAGMENT = DITHER_FRAGMENT.replace('in vec2 vAsset;', '#define DITHER_CELLS\nin float vPointOpacity;\nin vec2 vAsset;')

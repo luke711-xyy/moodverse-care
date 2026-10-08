@@ -65,3 +65,44 @@ test('coarse visible WebGL edge cells remain clickable after rotation', () => {
   // mathematical point is outside the silhouette, but the painted cell is not.
   expect(hitTestDitherAssets([asset], 150 - 78, 150 - 43)?.id).toBe('coarse')
 })
+
+test('a scattered point outside the sphere is clickable, while fallback ignores GPU-only points', () => {
+  const asset = { id: 'scattered', spec: { ...spec, overrides: { size: 1, pointer: 'off' as const } }, x: 100, y: 100, radius: 100, particles: { count: 1, points: new Float32Array([1.3, .01, 0, 0, 6, 1]) } }
+  expect(hitTestDitherAssets([asset], 230, 101)?.id).toBe('scattered')
+  expect(hitTestDitherAssets([asset], 230, 108)).toBeNull()
+  expect(hitTestDitherAssets([asset], 230, 101, { mode: 'canvas2d' })).toBeNull()
+})
+
+test('a vacated particle region is empty, not the hit area of a fixed underlying sphere', () => {
+  const asset = { id: 'cloud', spec: { ...spec, overrides: { size: 1, pointer: 'off' as const } }, x: 100, y: 100, radius: 100, particles: { count: 1, points: new Float32Array([1.3, .01, 0, 0, 6, 1]) } }
+  expect(hitTestDitherAssets([asset], 100, 100)).toBeNull()
+})
+
+test('movable dither cells retain square corners and their original material alpha', () => {
+  const asset = { id: 'cell', spec: { ...spec, overrides: { size: 1, pointer: 'off' as const } }, x: 100, y: 100, radius: 100, particles: { count: 1, points: new Float32Array([1.3, .01, 0, 0, 6, 1]) } }
+  expect(hitTestDitherAssets([asset], 232, 103)?.id).toBe('cell')
+  const emptyHome = { ...asset, particles: { count: 1, points: new Float32Array([1.3, .01, 1.5, 1.5, 6, 1]) } }
+  expect(hitTestDitherAssets([emptyHome], 230, 101)).toBeNull()
+})
+
+test('the invisible depth volume blocks rear satellite clicks without painting a solid planet', () => {
+  const spherical = { ...spec, overrides: { form: 'particles' as const, size: 1, pixelSize: 2, pulse: 0, pointer: 'off' as const } }
+  const owner = { id: 'owner', spec: spherical, x: 100, y: 100, radius: 100, particles: { count: 0, points: new Float32Array() } }
+  const rear = { id: 'rear', spec: spherical, x: 178, y: 100, radius: 20 }
+  expect(hitTestDitherAssets([rear, owner], 178, 100)).toBeNull()
+  expect(hitTestDitherAssets([rear, owner], 191, 100)?.id).toBe('rear')
+})
+
+test('invisible occlusion uses the capped quality grid, not the requested fine grid', () => {
+  const spherical = { ...spec, overrides: { form: 'organic' as const, size: 1, pixelSize: 3, pulse: 0, pointer: 'off' as const } }
+  const owner = { id: 'owner', spec: spherical, x: 180, y: 180, radius: 180, particles: { count: 0, grid: 50.833333333333336, points: new Float32Array() } }
+  const rear = { id: 'rear', spec: spherical, x: 145, y: 14, radius: 5 }
+  expect(hitTestDitherAssets([rear, owner], 145, 14)).toBeNull()
+})
+
+test('a fading material body keeps the same depth occlusion as the GPU prepass', () => {
+  const spherical = { ...spec, overrides: { form: 'particles' as const, size: 1, pixelSize: 2, pulse: 0, pointer: 'off' as const } }
+  const owner = { id: 'owner', spec: spherical, x: 100, y: 100, radius: 100, opacity: .25, particles: { count: 0, points: new Float32Array() } }
+  const rear = { id: 'rear', spec: spherical, x: 100, y: 100, radius: 20 }
+  expect(hitTestDitherAssets([rear, owner], 100, 100)).toBeNull()
+})

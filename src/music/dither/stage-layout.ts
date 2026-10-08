@@ -55,5 +55,5 @@ export function buildDitherStageFrame(input: StageLayoutInput): StageFrame {
     const cloud = createDitherSpec({ planetId: 'nebula', tracks: [], overrides: { form: 'organic', motif: 'flow', size: 1, speed: .6, density: .65, pixelSize: 4, disturbance: .9 } })
     assets.push({ id: 'nebula', kind: 'nebula', spec: cloud, x: width * .5, y: height * .5, radius: Math.max(width, height) * .72, opacity: home.cloudOpacity * .92 })
   }
-  return { width, height, phase, assets, orbits, systemTargets }
+  return { width, height, phase, assets, orbits, systemTargets, ambience: visitor ? .4 : 1 - home.homeOpacity }
 }
