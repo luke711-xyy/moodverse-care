@@ -1,0 +1,105 @@
+/* A shared visual language; native body copy stays crisp above the dot field. */
+.music-app { --music-panel: #100d17ed; --music-panel-soft: #211a31d9; --music-line: #f2eff829; --music-line-strong: #8e6bff66; background: var(--dither-black); min-height: 560px; }
+.music-app::before,.music-app::after { display: none; }
+.dither-stage { position: absolute; inset: 0; z-index: 0; touch-action: none; transition: filter 320ms; overflow: hidden; }
+.dither-stage.is-regrouping { filter: blur(7px); }
+.dither-stage-lines { position: absolute; inset: 0; width: 100%; height: 100%; fill: var(--dither-white); pointer-events: none; }
+.dither-travel-caption { position: absolute; top: 78%; width: 100%; text-align: center; color: var(--dither-pink); letter-spacing: .15em; font: 14px var(--pixel); pointer-events: none; }
+.music-app:has(.dither-stage[data-traveling=true]) .music-layout,.music-app:has(.dither-stage[data-traveling=true]) .music-galaxy-axis,.music-app:has(.dither-stage[data-traveling=true]) .music-galaxy-footer { opacity: 0; pointer-events: none; }
+.music-layout { transition: opacity 220ms; grid-template-columns: minmax(250px,1fr) minmax(300px,380px); gap: 20px; padding-left: clamp(24px,6vw,88px); padding-right: clamp(20px,3vw,44px); }
+.music-copy { max-width: 320px; }
+.music-copy h1 { margin: 0 0 18px; max-width: 12ch; font-size: clamp(30px,3.2vw,48px); line-height: 1.15; }
+.music-copy > p { max-width: 30ch; font-size: 14px; }
+.music-panel { width: 100%; max-height: calc(100svh - 142px); overscroll-behavior: contain; border-radius: 6px; background: #100d17ed; box-shadow: none; }
+.music-panel-head { gap: 10px; }
+.music-panel-head .music-kicker { display: none; }
+.music-panel-head h2 { margin: 0 0 12px; font-size: 20px; }
+.music-panel-note,.music-privacy-note { font-size: 12px; line-height: 1.6; }
+.music-main-nav { border-radius: 6px; background: var(--dither-black); border-color: var(--music-line); gap: 3px; }
+.music-main-nav button { border-radius: 3px; font-size: 12px; min-height: 36px; }
+.music-main-nav button[aria-pressed=true] { background-image: var(--dither-pattern); color: var(--dither-white); box-shadow: none; }
+.music-access-status { font-size: 10px; }
+.music-topbar .brand-orb { border-radius: 2px; background: var(--dither-pattern),linear-gradient(135deg,var(--dither-blue),var(--dither-violet),var(--dither-pink)); box-shadow: none; }
+.music-topbar .brand-orb::after { border-style: dotted; border-color: var(--dither-white); }
+.music-topbar .brand-orb i { background: var(--dither-white); box-shadow: none; }
+.music-primary-button,.music-secondary-button,.music-track-portal-button { color: var(--dither-white); border-radius: 4px; border-color: var(--dither-violet); background-color: var(--dither-black); background-image: var(--dither-pattern); font-size: 12px; box-shadow: none; }
+.music-primary-button { background-color: #32234e; }
+.music-text-button { min-height: 32px; padding: 4px 6px; border: 0; background: transparent; font-size: 12px; }
+.music-track-choice { border-radius: 4px; background-color: #100d17; }
+.music-track-choice.is-selected { background-image: var(--dither-pattern); color: var(--dither-white); }
+.music-track-label strong { font-size: 14px; }
+.music-track-label small { font-size: 11px; }
+.music-fields input,.music-search,.music-panel textarea,.music-panel select { background: var(--dither-black); border-radius: 4px; font-size: 14px; }
+.music-track-list,.music-settings-tracks { overscroll-behavior: contain; }
+.music-moment-item,.music-orbit-entry,.music-bottle-comment { background-color: #100d17; background-image: none; border-radius: 4px; }
+.music-cover-fallback { border-radius: 3px; background-image: var(--dither-pattern); color: var(--dither-pink); }
+.music-friend-satellite-icon { background: var(--dither-pattern); border-style: dotted; border-color: var(--dither-blue); }
+.music-friend-satellite-icon::after { border-color: var(--dither-violet); }
+.music-friend-satellite-icon i { background: var(--dither-pink); box-shadow: none; }
+.music-appearance-open { margin-top: 18px; pointer-events: auto; }
+.dither-title { background-image: var(--dither-pattern),linear-gradient(120deg,var(--dither-white) 15%,var(--dither-blue) 44%,var(--dither-violet) 72%,var(--dither-pink)); background-blend-mode: difference; background-clip: text; -webkit-background-clip: text; color: transparent !important; }
+.dither-title::after { height: 2px; }
+h3.dither-title::after { display: none; }
+.dither-stage-accessible { position: absolute; left: 8px; top: 80px; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.dither-stage-accessible:focus-within { z-index: 20; width: min(300px,calc(100% - 16px)); height: auto; clip-path: none; padding: 12px; background: var(--dither-black); display: grid; gap: 6px; border: 1px solid var(--dither-violet); }
+.dither-stage-accessible button { text-align: left; min-height: 36px; background: var(--dither-black); }
+.dither-song-wall { width: 280px; max-width: 100%; margin-top: 32px; pointer-events: auto; }
+.dither-record-fan { position: relative; height: 128px; }
+.dither-record-fan button { position: absolute; top: 0; left: calc(50% - 48px); width: 96px; height: 118px; padding: 6px; background: #100d17; border: 1px solid #8e6bff66; border-radius: 3px; transform: translateX(var(--record-offset)) rotate(var(--record-angle)); transform-origin: 50% 150%; transition: transform 180ms,border-color 180ms; }
+.dither-record-fan button .dither-thumb { height: 84px; }
+.dither-record-fan button span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 10px; }
+.dither-record-fan button[aria-pressed=true] { z-index: 1; border-color: var(--dither-pink); transform: translateX(var(--record-offset)) rotate(var(--record-angle)) translateY(-10px); }
+.dither-record-fan button:hover { border-color: var(--dither-blue); }
+.dither-focused-record { display: grid; grid-template-columns: 96px minmax(0,1fr); gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px dotted var(--dither-violet); }
+.dither-focused-record .dither-thumb { width: 96px; height: 96px; }
+.dither-focused-record > div { display: grid; gap: 5px; }
+.dither-focused-record strong { font-size: 15px; }
+.dither-focused-record small { color: var(--dither-muted); font-size: 11px; }
+.dither-focused-record a { color: var(--dither-blue); font-size: 12px; }
+.dither-planet-mark { float: left; display: block; width: 48px; height: 48px; margin-right: 10px; }
+.music-discovery-match-copy:has(.dither-planet-mark) { display: block; }
+.music-discovery-match-copy strong { display: block; }
+.music-track-portal-button { flex: none; max-width: 100px; }
+.music-galaxy-axis { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); width: min(640px,calc(100% - 48px)); z-index: 10; }
+.music-galaxy-axis-label { text-align: center; font-size: 16px; color: var(--axis-color); text-shadow: 0 0 12px var(--axis-color); }
+.music-galaxy-axis-track::before { background: repeating-linear-gradient(90deg,#8e6bff88 0 2px,transparent 2px 4px); }
+.music-galaxy-axis-track button span { border-radius: 0; }
+.music-galaxy-footer { z-index: 10; color: var(--axis-color); font-size: 18px; }
+.music-galaxy-footer button { min-height: 36px; font-size: 12px; background-image: var(--dither-pattern); }
+.dither-editor-backdrop { position: absolute; inset: 0; z-index: 30; pointer-events: auto; }
+.dither-editor { position: absolute; right: 24px; top: 96px; bottom: 24px; width: min(390px,calc(100% - 48px)); display: flex; flex-direction: column; padding: 18px; border: 1px solid var(--dither-violet); border-radius: 6px; background: #100d17; pointer-events: auto; }
+.dither-editor header { display: flex; justify-content: space-between; align-items: start; gap: 12px; }
+.dither-editor header h2 { margin: 0; font-size: 24px; }
+.dither-editor header button { width: 34px; min-height: 34px; padding: 2px; }
+.dither-editor p { font-size: 12px; color: var(--dither-muted); }
+.dither-editor [role=alert] { color: var(--dither-pink); }
+.dither-editor-fields { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-right: 8px; display: grid; gap: 13px; }
+.dither-editor-fields label { display: grid; gap: 7px; font-size: 13px; }
+.dither-editor-fields label > span { display: flex; justify-content: space-between; }
+.dither-editor output { color: var(--dither-blue); font: 11px var(--pixel); }
+.dither-editor select { width: 100%; padding: 7px; border: 1px solid #8e6bff66; background: var(--dither-black); color: var(--dither-white); }
+.dither-editor input { width: 100%; accent-color: var(--dither-violet); }
+.dither-editor footer { display: flex; justify-content: end; flex-wrap: wrap; gap: 6px; padding-top: 16px; }
+.dither-editor footer button { padding: 6px 9px; min-height: 36px; font-size: 12px; }
+@media(max-width:1000px) { .music-topbar { flex-wrap: wrap; gap: 12px; } .music-main-nav { order: 2; } .music-copy { max-width: 250px; } .music-layout { inset-block-start: 110px; } }
+@media(max-width:760px) {
+  .music-app { min-height: 100svh; overflow-y: auto; }
+  .dither-stage { position: fixed; height: 100svh; opacity: 1; }
+  .music-topbar { padding: 16px; gap: 12px; }
+  .music-topbar-actions { margin-left: auto; }
+  .music-main-nav { width: 100%; overflow-x: auto; flex-wrap: nowrap; }
+  .music-main-nav button { flex: none; font-size: 11px; padding-inline: 9px; }
+  .music-layout { position: relative; inset: auto; display: flex; flex-direction: column; gap: 16px; padding: 124px 16px 100px; min-height: 100svh; }
+  .music-copy { max-width: 100%; }
+  .music-copy h1 { font-size: 28px; margin-bottom: 8px; }
+  .music-copy > p { font-size: 12px; }
+  .dither-song-wall { margin-top: 230px; margin-inline: auto; }
+  .music-appearance-open { display: flex; margin-inline: auto; }
+  .music-panel { max-height: 65svh; padding: 16px; }
+  .music-app:has(.music-galaxy-panel) .music-copy { min-height: 260px; }
+  .music-galaxy-axis,.music-galaxy-footer { position: fixed; bottom: 12px; background: #08080ded; padding: 6px; }
+  .music-galaxy-axis-label { font-size: 13px; }
+  .dither-editor { top: 110px; right: 12px; bottom: 12px; width: calc(100% - 24px); }
+  .music-layout:has(.music-orbit-panel),.music-layout:has(.music-settings-panel),.music-layout:has(.music-bottles-panel) { padding-bottom: 32px; }
+}
+@media(prefers-reduced-motion:reduce) { .dither-stage,.music-layout,.dither-record-fan button { transition: none; } }

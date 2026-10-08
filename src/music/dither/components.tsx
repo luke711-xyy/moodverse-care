@@ -1,4 +1,7 @@
-import { useId, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from 'react'
+import { useId, useMemo, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from 'react'
+import type { MusicTrackSummary } from '../../music-domain'
+import { createDitherSpec, resolveDitherSpec } from './appearance'
+import { DitherThumbnail } from './DitherCanvas'
 import './dither.css'
 import { orbitPoint, type DitherOrbitGeometry } from './layout'
 
@@ -11,6 +14,15 @@ export function DitherTitle({ children, level = 1, className = '', ...props }: H
 }
 export function DitherCard({ className = '', ...props }: HTMLAttributes<HTMLElement>) {
   return <section {...props} className={`dither-card ${className}`} />
+}
+export function DitherTrackMark({ track }: { track: MusicTrackSummary }) {
+  const spec = useMemo(()=>createDitherSpec({ planetId:'record:'+track.id, tracks:[track] }),[track])
+  return <span className="music-cover-fallback" aria-hidden="true"><DitherThumbnail spec={spec} size={64} kind="music" /></span>
+}
+export function DitherPlanetMark({ planetId, visual }: { planetId: string | null; visual?: unknown }) {
+  const spec = useMemo(()=>planetId ? resolveDitherSpec(planetId,[],visual) : null,[planetId,visual])
+  if (!spec || !visual) return null
+  return <span className="dither-planet-mark" aria-hidden="true"><DitherThumbnail spec={spec} size={96} /></span>
 }
 export function DitherOrbit({ orbit, className = '', dots = 160 }: { orbit: DitherOrbitGeometry; className?: string; dots?: number }) {
   const count = Math.max(16, Math.min(360, Math.round(dots)))

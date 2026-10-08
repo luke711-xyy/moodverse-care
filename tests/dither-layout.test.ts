@@ -1,6 +1,7 @@
 import { expect, test } from 'vitest'
 import { createDitherSpec } from '../src/music/dither/appearance'
 import { hitTestDitherAssets, orbitPoint, satelliteAsset } from '../src/music/dither/layout'
+import { sampleDitherPixel } from '../src/music/dither/sampler'
 
 const spec = createDitherSpec({ planetId: 'layout', tracks: [] })
 test('a tilted 2D orbit is periodic, stable and remains within its ellipse bounds', () => {
@@ -27,4 +28,21 @@ test('friend and music satellites use reproducible individual seeds and shared p
   expect(friend.spec.seed).not.toBe(music.spec.seed)
   expect(friend.spec.overrides.form).toBe('particles')
   expect(music.spec.generated.blue).toBe(spec.generated.blue)
+})
+
+test('rotated hit areas use the inverse of the painted shape rotation', () => {
+  const rotation = .7
+  const rotatedSpec = { ...spec, overrides: { form: 'organic' as const, size: 1 } }
+  let point: { x: number; y: number } | undefined
+  for (let x = -.95; x < .95 && !point; x += .05) {
+    for (let y = -.95; y < .95 && !point; y += .05) {
+      const wrongX = x * Math.cos(2 * rotation) - y * Math.sin(2 * rotation)
+      const wrongY = x * Math.sin(2 * rotation) + y * Math.cos(2 * rotation)
+      if (sampleDitherPixel(rotatedSpec, x, y)[3] > 90 && sampleDitherPixel(rotatedSpec, wrongX, wrongY)[3] <= 90) point = { x, y }
+    }
+  }
+  expect(point).toBeDefined()
+  const screenX = 100 + 60 * (point!.x * Math.cos(rotation) - point!.y * Math.sin(rotation))
+  const screenY = 100 + 60 * (point!.x * Math.sin(rotation) + point!.y * Math.cos(rotation))
+  expect(hitTestDitherAssets([{ id: 'rotated', spec: rotatedSpec, x: 100, y: 100, radius: 60, rotation }], screenX, screenY)?.id).toBe('rotated')
 })

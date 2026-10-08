@@ -14,7 +14,7 @@ export function hitTestDitherAssets(assets: DitherAsset[], x: number, y: number)
     const asset = assets[i], radius = asset.radius * effectiveDitherParameters(asset.spec).size
     if (radius <= 0 || (asset.opacity ?? 1) < .25) continue
     const u = (x - asset.x) / radius, v = (y - asset.y) / radius, rotation = asset.rotation ?? 0
-    const xx = u * Math.cos(rotation) - v * Math.sin(rotation), yy = u * Math.sin(rotation) + v * Math.cos(rotation)
+    const xx = u * Math.cos(rotation) + v * Math.sin(rotation), yy = -u * Math.sin(rotation) + v * Math.cos(rotation)
     if (sampleDitherPixel(asset.spec, xx, yy, asset.phase ?? 0, undefined, undefined, asset.kind)[3] > 90) return asset
   }
   return null

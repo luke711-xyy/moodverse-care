@@ -11,7 +11,7 @@ import { weatherAccent } from './weather'
 import { generateLightningPath } from './lightning'
 import { DEFAULT_FOCUSED_THEMES, moodById, themeById, THEME_IDS, type Billboard, type DoodleStroke, type MoodId, type Planet, type StarAppearance, type ThemeId } from './types'
 import type { MusicFriendSatellite } from './music-api'
-import type { MusicGalaxySceneSystem } from './music/galaxy-scene'
+import type { MusicGalaxySceneSystem } from './legacy-music-scene'
 import {
   advanceJourney,
   buildGalaxyAnchors,

@@ -1,23 +1,17 @@
 // @vitest-environment jsdom
-import React, { createElement } from 'react'
-import { afterEach, expect, test, vi } from 'vitest'
+import React from 'react'
+import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import MusicApp from '../src/music/MusicApp'
+import { createDitherSpec } from '../src/music/dither/appearance'
 
-const sceneMockState = vi.hoisted(() => ({ shouldFail: false, renderCount: 0 }))
-
-vi.mock('../src/scene', () => ({
-  UniverseCanvas: () => {
-    sceneMockState.renderCount += 1
-    if (sceneMockState.shouldFail) throw new Error('WebGL context unavailable')
-    return createElement('div', { 'aria-label': '星球 3D 场景' })
-  },
-}))
+beforeEach(() => {
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
+  vi.stubGlobal('matchMedia', () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }))
+})
 
 afterEach(() => {
   cleanup()
-  sceneMockState.shouldFail = false
-  sceneMockState.renderCount = 0
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
@@ -30,7 +24,31 @@ const tracks = [
   { id: 'song-e', title: '月面信号', artistId: 'artist-e', artistName: '月面', versionLabel: '', genres: ['electronic'], moodTags: ['curious'], officialUrl: 'https://music.example/e', coverUrl: null, durationSeconds: 190 },
 ]
 
-test('a new user can choose exactly three songs, create a public planet and see the AI-composed world', async () => {
+test('appearance preview cancels locally; apply saves overrides with the confirmed revision', async () => {
+  const spec = createDitherSpec({ planetId: 'editor-owner', tracks })
+  let owner = { id: 'editor-owner', displayName: '参数星球', tagline: '', visibility: 'public', visualSchemaVersion: 3, appearanceRevision: 4, visual: spec, tracks: tracks.slice(0,3), createdAt: '', updatedAt: '' }
+  const updates: Record<string,unknown>[] = []
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit)=> {
+    const path = new URL(String(input),'https://moodverse.test').pathname
+    if (path === '/api/music/catalog') return Response.json({ tracks })
+    if (path === '/api/me/music-planet/moments') return Response.json({ moments: [] })
+    if (path === '/api/me/music-planet' && init?.method === 'PATCH') { const patch=JSON.parse(String(init.body)); updates.push(patch); owner={...owner,appearanceRevision:5,visual:{...spec,overrides:patch.appearanceOverrides}}; return Response.json({ planet:owner }) }
+    if (path === '/api/me/music-planet') return Response.json({ planet:owner })
+    throw Error(path)
+  }))
+  render(<MusicApp />)
+  fireEvent.click(await screen.findByRole('button',{name:'编辑星球外观'}))
+  fireEvent.change(screen.getByLabelText('纹理'),{target:{value:'flower'}})
+  fireEvent.click(screen.getByRole('button',{name:'取消'}))
+  expect(updates).toHaveLength(0)
+  fireEvent.click(screen.getByRole('button',{name:'编辑星球外观'}))
+  fireEvent.change(screen.getByLabelText('纹理'),{target:{value:'score'}})
+  fireEvent.click(screen.getByRole('button',{name:'应用外观'}))
+  await waitFor(()=>expect(screen.queryByRole('dialog',{name:'星球外观'})).toBeNull())
+  expect(updates).toEqual([{appearanceOverrides:{motif:'score'},appearanceRevision:4}])
+})
+
+test('a new user can choose exactly three songs, create a public planet and see deterministic 2D visuals without AI polling', async () => {
   let createdPayload: Record<string, unknown> | undefined
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const path = new URL(String(input), 'https://moodverse.test').pathname
@@ -68,7 +86,8 @@ test('a new user can choose exactly three songs, create a public planet and see 
   fireEvent.click(screen.getByRole('button', { name: '生成我的星球' }))
 
   expect(await screen.findByRole('heading', { name: /夜航者/ })).toBeTruthy()
-  expect(await screen.findByText('被三首歌照亮的星球。')).toBeTruthy()
+  expect(screen.getByRole('button', { name: '编辑星球外观' })).toBeTruthy()
+  expect(vi.mocked(fetch).mock.calls.some(([url])=>String(url).includes('ai-tasks') || String(url).endsWith('/compose'))).toBe(false)
   expect(screen.getByRole('link', { name: '夜航 · 星际旅人 · 在官方平台打开' }).getAttribute('href')).toBe('https://music.example/a')
   expect(createdPayload).toEqual({ displayName: '夜航者', tagline: '慢慢靠岸', trackIds: ['song-a', 'song-b', 'song-c'], visibility: 'public' })
 })
@@ -90,7 +109,7 @@ test('clearly identifies the fictional non-playable staging catalog', async () =
   expect(screen.queryByRole('link', { name: /在官方平台打开/ })).toBeNull()
 })
 
-test('keeps song selection and social navigation usable when the 3D scene cannot initialize', async () => {
+test('keeps song selection and social navigation usable with the Canvas2D visual fallback', async () => {
   vi.stubGlobal('WebGL2RenderingContext', class WebGL2RenderingContext {})
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
@@ -107,33 +126,11 @@ test('keeps song selection and social navigation usable when the 3D scene cannot
   render(<MusicApp />)
 
   expect(await screen.findByRole('heading', { name: '为你的星球选三首歌' })).toBeTruthy()
-  expect(screen.getByRole('status').textContent).toContain('3D 星球暂不可用')
-  expect(sceneMockState.renderCount).toBe(0)
+  await waitFor(()=>expect(document.querySelector('[data-dither-renderer="canvas2d"]')).toBeTruthy())
   expect(screen.getByRole('button', { name: '夜航 · 星际旅人' }).disabled).toBe(false)
-  expect(screen.getByRole('button', { name: '重试 3D 画面' })).toBeTruthy()
+  expect(screen.queryByText(/3D 星球/)).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'My Orbit' }))
   expect(await screen.findByRole('heading', { name: 'My Orbit' })).toBeTruthy()
-})
-
-test('recovers to a visual fallback if the scene component throws during initialization', async () => {
-  sceneMockState.shouldFail = true
-  vi.spyOn(console, 'error').mockImplementation(() => undefined)
-  vi.stubGlobal('WebGL2RenderingContext', class WebGL2RenderingContext {})
-  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ getExtension: () => null } as unknown as WebGL2RenderingContext)
-  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
-    const path = new URL(String(input), 'https://moodverse.test').pathname
-    if (path === '/api/music/catalog') return Response.json({ tracks })
-    if (path === '/api/me/music-planet') return Response.json({ planet: null })
-    throw new Error(`Unexpected request: ${path}`)
-  }))
-
-  render(<MusicApp />)
-
-  expect(await screen.findByRole('heading', { name: '为你的星球选三首歌' })).toBeTruthy()
-  const degradedScene = await screen.findByRole('status')
-  expect(degradedScene.textContent).toContain('3D 星球暂不可用')
-  expect(sceneMockState.renderCount).toBeGreaterThan(0)
-  expect(screen.getByRole('button', { name: '夜航 · 星际旅人' })).toBeTruthy()
 })
 
 test('clearly labels the automatically created anonymous account', async () => {
@@ -626,7 +623,7 @@ test('an owner can edit planet details, manage one to five selected songs, and c
   fireEvent.click(screen.getByRole('radio', { name: '星球主旋律：远岸 · 远岸' }))
   fireEvent.click(screen.getByRole('button', { name: '保存星球资料' }))
 
-  expect(await screen.findByText('星球资料已保存。')).toBeTruthy()
+  expect(await screen.findByText('星球资料与外观已保存。')).toBeTruthy()
   expect(state.patch).toEqual({
     displayName: '新的名字', tagline: '新的简介',
     trackIds: ['song-a', 'song-b', 'song-c', 'song-d', 'song-e'], primaryTrackId: 'song-d',
@@ -806,7 +803,7 @@ test('a visitor can browse public Galaxy planets by genre and open one without a
   expect(await screen.findByRole('dialog')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: '继续访问' }))
   expect(await screen.findByRole('heading', { name: '潮汐边' })).toBeTruthy()
-  expect(screen.getByText('公开星球 · 正在访问')).toBeTruthy()
+  expect(screen.getByRole('heading', { name: '访问 · 潮汐边' })).toBeTruthy()
   expect(requested).toContain('/api/music/galaxy?by=genre')
   expect(requested).toContain('/api/music/planets/planet-galaxy/visit')
   expect(visitBodies).toEqual([{ isIncognito: false, source: 'galaxy' }])

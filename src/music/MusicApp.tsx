@@ -1,19 +1,22 @@
-import { Component, lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react'
-import type { GalaxyGroupBy, MusicAdminReport, MusicApi, MusicDirectMessage, MusicDiscoveryResponse, MusicDriftBottleDetail, MusicDriftBottlesResponse, MusicFriendRequestsResponse, MusicFriendSatellite, MusicGalaxyResponse, MusicMoment, MusicOrbitResponse, MusicPlanet, MusicPlanetVisitSource, MusicPlanetVisual, MusicReportQueueFilter, MusicReportReason, MusicReportStatus, MusicReportTarget, MusicSocialSettings, PublicMusicPlanet, SongPortalMatch, SongPortalResponse } from '../music-api'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from 'react'
+import type { GalaxyGroupBy, MusicAdminReport, MusicApi, MusicDirectMessage, MusicDiscoveryResponse, MusicDriftBottleDetail, MusicDriftBottlesResponse, MusicFriendRequestsResponse, MusicFriendSatellite, MusicGalaxyResponse, MusicMoment, MusicOrbitResponse, MusicPlanet, MusicPlanetVisitSource, MusicReportQueueFilter, MusicReportReason, MusicReportStatus, MusicReportTarget, MusicSocialSettings, PublicMusicPlanet, SongPortalMatch, SongPortalResponse } from '../music-api'
 import { createMusicApi, MusicApiError } from '../music-api'
 import { togglePlanetTrack, validatePlanetDraft } from '../music-app-domain'
 import type { MusicTrackSummary } from '../music-domain'
 import { buildMusicGalaxySceneSystems } from './galaxy-scene'
-import { advanceJourney, getSelfArrivalJourneyDuration, getSelfArrivalJourneyProgress, getSelfReturnJourneyProgress, getTourAnchorProgress, normalizeWheelDelta, reachesTourHomeEndpoint, SELF_RETURN_CLOUD_DURATION_MS, SELF_RETURN_TOUR_DURATION_MS, TOUR_END } from '../universe'
-import type { Planet } from '../types'
+import { getTourAnchorProgress, normalizeWheelDelta, reachesTourHomeEndpoint, TOUR_END } from '../universe'
+import { Stage } from './dither/Stage'
+import { AppearanceEditor } from './dither/AppearanceEditor'
+import { SongWall } from './dither/SongWall'
+import { DitherButton, DitherTitle, DitherLoadingRing, DitherTrackMark, DitherPlanetMark } from './dither/components'
+import { resolveDitherSpec, type DitherPlanetSpec, type DitherOverrides } from './dither/appearance'
 import './music-app.css'
+import './dither/product.css'
 
 type HomeState =
   | { status: 'loading' }
   | { status: 'error' }
   | { status: 'ready'; tracks: MusicTrackSummary[]; planet: MusicPlanet | null; moments: MusicMoment[]; friendSatellites: MusicFriendSatellite[] }
-
-type ComposerStatus = 'idle' | 'pending' | 'ready' | 'unavailable' | 'failed' | 'delayed'
 
 type SongPortalState =
   | { status: 'idle' }
@@ -52,78 +55,8 @@ type MomentManagementState =
   | { status: 'editing'; momentId: string; contentText: string; visibility: MusicMoment['visibility']; busy: boolean; error: string }
   | { status: 'confirm-delete'; momentId: string; busy: boolean; error: string }
 
-const PLANET_PREVIEW: MusicPlanetVisual = {
-  schemaVersion: 2,
-  summary: '等待三首歌为它点亮第一层色彩。',
-  palette: { surface: '#3b6f80', ocean: '#071d31', accent: '#72dac0' },
-  atmosphere: 'starlit',
-  motion: 'drift',
-  particleDensity: .34,
-  terrainFeatures: { mountainRanges: 3, basins: 1, canyons: 2, escarpments: 1 },
-}
-
 const MUSIC_AUTH_CHANNEL = 'moodverse-music-auth'
 const MUSIC_AUTH_STORAGE_KEY = 'moodverse-music-auth-change'
-
-function validVisual(value: unknown): value is MusicPlanetVisual {
-  if (typeof value !== 'object' || value === null) return false
-  const visual = value as Partial<MusicPlanetVisual>
-  const isHexColor = (color: unknown) => typeof color === 'string' && /^#[0-9a-f]{6}$/i.test(color)
-  const validLegacySchema = visual.schemaVersion === 1
-  const validCurrentTerrain = visual.schemaVersion === 2
-    && typeof visual.terrainFeatures === 'object'
-    && visual.terrainFeatures !== null
-    && Number.isInteger(visual.terrainFeatures.mountainRanges)
-    && visual.terrainFeatures.mountainRanges >= 0 && visual.terrainFeatures.mountainRanges <= 6
-    && Number.isInteger(visual.terrainFeatures.basins)
-    && visual.terrainFeatures.basins >= 0 && visual.terrainFeatures.basins <= 4
-    && Number.isInteger(visual.terrainFeatures.canyons)
-    && visual.terrainFeatures.canyons >= 0 && visual.terrainFeatures.canyons <= 5
-    && Number.isInteger(visual.terrainFeatures.escarpments)
-    && visual.terrainFeatures.escarpments >= 0 && visual.terrainFeatures.escarpments <= 4
-  return (validLegacySchema || validCurrentTerrain)
-    && typeof visual.summary === 'string'
-    && visual.summary.length <= 280
-    && isHexColor(visual.palette?.surface)
-    && isHexColor(visual.palette?.ocean)
-    && isHexColor(visual.palette?.accent)
-    && ['clear', 'mist', 'nebula', 'starlit'].includes(String(visual.atmosphere))
-    && ['still', 'drift', 'flow', 'pulse'].includes(String(visual.motion))
-    && typeof visual.particleDensity === 'number'
-    && Number.isFinite(visual.particleDensity)
-    && visual.particleDensity >= 0
-    && visual.particleDensity <= 1
-}
-
-function visualFor(planet: MusicPlanet | null): MusicPlanetVisual {
-  return planet && validVisual(planet.visual) ? planet.visual : PLANET_PREVIEW
-}
-
-function toScenePlanet(planet: MusicPlanet | null, previewSeed: string): Planet {
-  const visual = visualFor(planet)
-  return {
-    id: planet?.id ?? `music-preview-${previewSeed || 'empty'}`,
-    alias: planet?.displayName ?? '正在等待歌声的星球',
-    tagline: planet?.tagline ?? '',
-    visualSeed: planet?.id ?? (previewSeed || 'moodverse-music-preview'),
-    theme: 'music',
-    mood: 'calm',
-    intensity: 3,
-    message: planet?.tagline ?? '',
-    position: [0, 0, 0],
-    orbit: .4,
-    owner: true,
-    visualOverride: {
-      surface: visual.palette.surface,
-      ocean: visual.palette.ocean,
-      accent: visual.palette.accent,
-      atmosphere: visual.atmosphere,
-      motion: visual.motion,
-      particleDensity: visual.particleDensity,
-      terrainFeatures: visual.terrainFeatures,
-    },
-  }
-}
 
 function BrandMark() {
   return <span className="brand-lockup"><span className="brand-orb" aria-hidden="true"><i /></span><strong>MOODVERSE</strong></span>
@@ -133,15 +66,14 @@ function BrandHeader({ connected, view, onChangeView }: { connected: boolean; vi
   return <header className="music-topbar">
     <BrandMark />
     {connected && onChangeView && <nav className="music-main-nav" aria-label="主导航">
-      <button type="button" aria-pressed={view === 'planet'} onClick={() => onChangeView('planet')}>我的星球</button>
-      <button type="button" aria-pressed={view === 'galaxy'} onClick={() => onChangeView('galaxy')}>Galaxy</button>
-      <button type="button" aria-pressed={view === 'roam'} onClick={() => onChangeView('roam')}>随机漫游</button>
-      <button type="button" aria-pressed={view === 'bottles'} onClick={() => onChangeView('bottles')}>漂流瓶</button>
-      <button type="button" aria-pressed={view === 'orbit'} onClick={() => onChangeView('orbit')}>My Orbit</button>
-      <button type="button" aria-pressed={view === 'settings'} onClick={() => onChangeView('settings')}>设置</button>
+      <DitherButton type="button" aria-pressed={view === 'planet'} onClick={() => onChangeView('planet')}>我的星球</DitherButton>
+      <DitherButton type="button" aria-pressed={view === 'galaxy'} onClick={() => onChangeView('galaxy')}>Galaxy</DitherButton>
+      <DitherButton type="button" aria-pressed={view === 'roam'} onClick={() => onChangeView('roam')}>随机漫游</DitherButton>
+      <DitherButton type="button" aria-pressed={view === 'bottles'} onClick={() => onChangeView('bottles')}>漂流瓶</DitherButton>
+      <DitherButton type="button" aria-pressed={view === 'orbit'} onClick={() => onChangeView('orbit')}>My Orbit</DitherButton>
+      <DitherButton type="button" aria-pressed={view === 'settings'} onClick={() => onChangeView('settings')}>设置</DitherButton>
     </nav>}
     <div className="music-topbar-actions">
-      <a className="music-legacy-link" href="/?legacy=1">经典星球版</a>
       <span className={`music-access-status${connected ? ' is-connected' : ''}`}><i />{connected ? '匿名体验账号' : '匿名体验'}</span>
     </div>
   </header>
@@ -198,7 +130,7 @@ function ReportControl({ api, target, ariaLabel }: { api: MusicApi; target: Musi
   }
 
   return <div className="music-report-control">
-    {!open && !feedback && <button className="music-text-button music-report-trigger" type="button" aria-label={ariaLabel} onClick={() => { setOpen(true); setError('') }}>举报</button>}
+    {!open && !feedback && <DitherButton className="music-text-button music-report-trigger" type="button" aria-label={ariaLabel} onClick={() => { setOpen(true); setError('') }}>举报</DitherButton>}
     {open && <form className="music-report-form" onSubmit={(event) => { void submit(event) }}>
       <label>举报原因
         <select aria-label="举报原因" value={reason} onChange={(event) => setReason(event.target.value as MusicReportReason)}>
@@ -210,59 +142,11 @@ function ReportControl({ api, target, ariaLabel }: { api: MusicApi; target: Musi
       </label>
       {error && <p className="music-form-error" role="alert">{error}</p>}
       <div className="music-report-actions">
-        <button className="music-text-button" type="button" disabled={busy} onClick={() => setOpen(false)}>取消</button>
-        <button className="music-secondary-button" type="submit" disabled={busy}>{busy ? '正在提交…' : '提交举报'}</button>
+        <DitherButton className="music-text-button" type="button" disabled={busy} onClick={() => setOpen(false)}>取消</DitherButton>
+        <DitherButton className="music-secondary-button" type="submit" disabled={busy}>{busy ? '正在提交…' : '提交举报'}</DitherButton>
       </div>
     </form>}
     {feedback && <p className="music-report-feedback" role="status">{feedback}</p>}
-  </div>
-}
-
-class SceneErrorBoundary extends Component<{ children: ReactNode; onRetry: () => void }, { failed: boolean }> {
-  state = { failed: false }
-
-  static getDerivedStateFromError() {
-    return { failed: true }
-  }
-
-  render() {
-    if (this.state.failed) return <div className="music-scene-degraded" role="status">
-      <span>3D 星球暂不可用，仍可继续选歌、浏览内容和使用社交功能。</span>
-      <button className="music-text-button" type="button" onClick={this.props.onRetry}>重试 3D 画面</button>
-    </div>
-    return this.props.children
-  }
-}
-
-function supportsWebGL2() {
-  if (typeof document === 'undefined' || typeof WebGL2RenderingContext === 'undefined') return false
-  try {
-    const canvas = document.createElement('canvas')
-    const context = canvas.getContext('webgl2', { alpha: false, antialias: true, powerPreference: 'high-performance' })
-    if (!context) return false
-    context.getExtension('WEBGL_lose_context')?.loseContext()
-    return true
-  } catch {
-    return false
-  }
-}
-
-type MusicSceneMode = 'self' | 'home-galaxy' | 'universe' | 'galaxy' | 'planet'
-type MusicCameraTransition = 'galaxy-to-tour' | 'home-to-planet'
-
-const GALAXY_TO_TOUR_CAMERA_DURATION_MS = 720
-const HOME_PLANET_APPROACH_CAMERA_DURATION_MS = 980
-
-function MusicPortalOverlay({ portal, returning }: { portal: number; returning: boolean }) {
-  const opacity = Math.sin(Math.max(0, Math.min(1, portal)) * Math.PI)
-  if (opacity < 0.015) return null
-  const caption = returning
-    ? '正在回到宇宙'
-    : portal < .38
-      ? '星系巡游完成 · 前方进入星云'
-      : '正在抵达 · 你的星球'
-  return <div className="portal-layer" aria-hidden="true" style={{ '--portal': opacity } as CSSProperties}>
-    <div className="portal-caption">{caption}</div>
   </div>
 }
 
@@ -281,14 +165,14 @@ function MusicGalaxyAxis({ systems, journey, onSelect, onHome }: {
     <div className="music-galaxy-axis-scroll" role="group" aria-label="Galaxy 星系导航">
       <div className="music-galaxy-axis-track" style={{ '--axis-track-width': `${Math.max(100, systems.length * 31 + 44)}px` } as CSSProperties}>
         <i style={{ transform: `scaleX(${progress})` }} />
-        {systems.map((system, index) => <button
+        {systems.map((system, index) => <DitherButton
           type="button" key={system.id} title={`星系 · ${system.label}`}
           aria-label={`前往星系 ${system.label}`} aria-current={index === currentIndex ? 'step' : undefined}
           className={index === currentIndex ? 'is-current' : index < currentIndex ? 'is-passed' : ''}
           style={{ '--node-color': system.color } as CSSProperties}
           onClick={() => onSelect(index)}
-        ><span /></button>)}
-        <button type="button" className="music-galaxy-axis-home" aria-label="穿过星云回到我的星球" title="我的星球" onClick={onHome}><span>✦</span></button>
+        ><span /></DitherButton>)}
+        <DitherButton type="button" className="music-galaxy-axis-home" aria-label="穿过星云回到我的星球" title="我的星球" onClick={onHome}><span>✦</span></DitherButton>
       </div>
     </div>
   </div>
@@ -297,227 +181,8 @@ function MusicGalaxyAxis({ systems, journey, onSelect, onHome }: {
 function MusicGalaxyFooter({ label, color, onBack }: { label: string; color: string; onBack: () => void }) {
   return <div className="music-galaxy-footer" style={{ '--axis-color': color } as CSSProperties}>
     <div>星系 · {label}</div>
-    <button type="button" onClick={onBack}>← 回到宇宙</button>
+    <DitherButton type="button" onClick={onBack}>← 回到宇宙</DitherButton>
   </div>
-}
-
-function Stage({ planet, friendSatellites, visitedPlanet, previewSeed, reducedMotion, productView, focusedGalaxy, galaxySystems, galaxyRotation, routeJourney, regrouping, onSelectGalaxy, onOpenPlanet, onRotate }: {
-  planet: MusicPlanet | null
-  friendSatellites: MusicFriendSatellite[]
-  visitedPlanet: PublicMusicPlanet | null
-  previewSeed: string
-  reducedMotion: boolean
-  productView: ProductView
-  focusedGalaxy?: string
-  galaxySystems: ReturnType<typeof buildMusicGalaxySceneSystems>
-  galaxyRotation: number
-  routeJourney: number
-  regrouping: boolean
-  onSelectGalaxy: (id: string) => void
-  onOpenPlanet: (planet: Planet, galaxyId: string) => void
-  onRotate: (delta: number) => void
-}) {
-  const ownerScenePlanet = useMemo(() => toScenePlanet(planet, previewSeed), [planet, previewSeed])
-  const visitorScenePlanet = useMemo(() => visitedPlanet ? toScenePlanet(visitedPlanet, visitedPlanet.id) : undefined, [visitedPlanet])
-  const visual = visualFor(visitedPlanet ?? planet)
-  const [sceneAttempt, setSceneAttempt] = useState(0)
-  const [sceneMode, setSceneMode] = useState<MusicSceneMode>('self')
-  const [journey, setJourney] = useState(0)
-  const [traveling, setTraveling] = useState(false)
-  const [selfReturning, setSelfReturning] = useState(false)
-  const [cameraTransition, setCameraTransition] = useState<MusicCameraTransition | null>(null)
-  const [cameraTransitionProgress, setCameraTransitionProgress] = useState(0)
-  const journeyRef = useRef(0)
-  const lastFocusedGalaxy = useRef<string | undefined>(undefined)
-  const lastVisitorScenePlanet = useRef<Planet | undefined>(undefined)
-  const desiredMode: MusicSceneMode = productView === 'galaxy'
-    ? visitedPlanet ? 'planet' : focusedGalaxy ? 'galaxy' : 'universe'
-    : 'self'
-  const previousMode = useRef<MusicSceneMode>('self')
-  const transitionToken = useRef(0)
-  const dragX = useRef<number | null>(null)
-  useEffect(() => {
-    if (focusedGalaxy) lastFocusedGalaxy.current = focusedGalaxy
-  }, [focusedGalaxy])
-  useEffect(() => {
-    if (visitorScenePlanet) lastVisitorScenePlanet.current = visitorScenePlanet
-  }, [visitorScenePlanet])
-  const setJourneyProgress = useCallback((next: number) => {
-    journeyRef.current = next
-    setJourney(next)
-  }, [])
-  useLayoutEffect(() => {
-    const from = previousMode.current
-    previousMode.current = desiredMode
-    const token = ++transitionToken.current
-    let frame = 0
-    let cancelled = false
-    const animate = (start: number, end: number, durationMs: number) => new Promise<void>((resolve) => {
-      if (durationMs <= 0 || reducedMotion || typeof window.requestAnimationFrame !== 'function') {
-        setJourneyProgress(end)
-        resolve()
-        return
-      }
-      const startedAt = performance.now()
-      const tick = (now: number) => {
-        if (cancelled || token !== transitionToken.current) { resolve(); return }
-        const progress = Math.min(1, (now - startedAt) / durationMs)
-        const eased = progress * progress * (3 - 2 * progress)
-        setJourneyProgress(start + (end - start) * eased)
-        if (progress >= 1) resolve()
-        else frame = window.requestAnimationFrame(tick)
-      }
-      frame = window.requestAnimationFrame(tick)
-    })
-    const animateJourney = (durationMs: number, sample: (elapsedMs: number) => number) => new Promise<void>((resolve) => {
-      if (durationMs <= 0 || reducedMotion || typeof window.requestAnimationFrame !== 'function') {
-        setJourneyProgress(sample(durationMs))
-        resolve()
-        return
-      }
-      const startedAt = performance.now()
-      const tick = (now: number) => {
-        if (cancelled || token !== transitionToken.current) { resolve(); return }
-        const elapsed = Math.min(durationMs, Math.max(0, now - startedAt))
-        setJourneyProgress(sample(elapsed))
-        if (elapsed >= durationMs) resolve()
-        else frame = window.requestAnimationFrame(tick)
-      }
-      frame = window.requestAnimationFrame(tick)
-    })
-    const animateCameraTransition = (kind: MusicCameraTransition, durationMs: number) => new Promise<void>((resolve) => {
-      setCameraTransition(kind)
-      setCameraTransitionProgress(0)
-      if (durationMs <= 0 || reducedMotion || typeof window.requestAnimationFrame !== 'function') {
-        setCameraTransitionProgress(1)
-        resolve()
-        return
-      }
-      const startedAt = performance.now()
-      const tick = (now: number) => {
-        if (cancelled || token !== transitionToken.current) { resolve(); return }
-        const progress = Math.min(1, (now - startedAt) / durationMs)
-        setCameraTransitionProgress(progress * progress * (3 - 2 * progress))
-        if (progress >= 1) resolve()
-        else frame = window.requestAnimationFrame(tick)
-      }
-      frame = window.requestAnimationFrame(tick)
-    })
-    const run = async () => {
-      if (desiredMode === 'universe' && from === 'self' && planet) {
-        setTraveling(true)
-        setSelfReturning(true)
-        setSceneMode('home-galaxy')
-        setJourneyProgress(1)
-        const duration = reducedMotion ? 0 : SELF_RETURN_CLOUD_DURATION_MS + SELF_RETURN_TOUR_DURATION_MS
-        await animateJourney(duration, (elapsed) => getSelfReturnJourneyProgress(1, elapsed))
-        if (cancelled) return
-        setSceneMode('universe')
-        setJourneyProgress(0)
-        setSelfReturning(false)
-        setTraveling(false)
-        return
-      }
-      if (desiredMode === 'self' && from !== 'self' && planet) {
-        setTraveling(true)
-        setSelfReturning(false)
-        const departureGalaxyId = focusedGalaxy ?? lastFocusedGalaxy.current
-        const departureGalaxyIndex = departureGalaxyId
-          ? galaxySystems.findIndex((system) => system.id === departureGalaxyId)
-          : -1
-        const startingJourney = departureGalaxyIndex >= 0
-          ? getTourAnchorProgress(departureGalaxyIndex, galaxySystems.length) * TOUR_END
-          : routeJourney
-        if ((from === 'galaxy' || from === 'planet') && departureGalaxyId) {
-          setJourneyProgress(startingJourney)
-          await animateCameraTransition('galaxy-to-tour', reducedMotion ? 0 : GALAXY_TO_TOUR_CAMERA_DURATION_MS)
-          if (cancelled) return
-        }
-        setCameraTransition(null)
-        setSceneMode('universe')
-        const start = Math.max(0, Math.min(1, startingJourney))
-        setJourneyProgress(start)
-        const duration = getSelfArrivalJourneyDuration(start, reducedMotion)
-        await animateJourney(duration, (elapsed) => getSelfArrivalJourneyProgress(start, elapsed, reducedMotion))
-        if (cancelled) return
-        setSceneMode('home-galaxy')
-        await animate(1, 1, reducedMotion ? 0 : 220)
-        if (cancelled) return
-        setSceneMode('self')
-        await animateCameraTransition('home-to-planet', reducedMotion ? 0 : HOME_PLANET_APPROACH_CAMERA_DURATION_MS)
-        if (cancelled) return
-        setCameraTransition(null)
-        setTraveling(false)
-        return
-      }
-      setSelfReturning(false)
-      setCameraTransition(null)
-      setSceneMode(desiredMode)
-      if (desiredMode === 'universe' && !planet) setJourneyProgress(0)
-    }
-    void run()
-    return () => {
-      cancelled = true
-      if (typeof window.cancelAnimationFrame === 'function') window.cancelAnimationFrame(frame)
-    }
-  }, [desiredMode, planet, reducedMotion, routeJourney, setJourneyProgress])
-
-  useEffect(() => {
-    if (!traveling && productView === 'galaxy' && sceneMode === 'universe') setJourneyProgress(Math.min(TOUR_END, routeJourney))
-  }, [productView, routeJourney, sceneMode, traveling, setJourneyProgress])
-
-  const canRenderScene = useMemo(() => supportsWebGL2(), [sceneAttempt])
-  const SceneCanvas = useMemo(() => lazy(() => import('../scene').then(({ UniverseCanvas }) => ({ default: UniverseCanvas }))), [sceneAttempt])
-  const journeyState = advanceJourney(journey, 0)
-  const portalVeil = Math.sin(journeyState.portalProgress * Math.PI)
-  return <>
-    <div className="music-scene-wrap" aria-hidden="true">
-      {sceneMode !== 'universe' && <div className="music-fallback-planet" style={{ '--surface-color': visual.palette.surface, '--ocean-color': visual.palette.ocean, '--accent-color': visual.palette.accent } as CSSProperties} />}
-    </div>
-    {canRenderScene ? <SceneErrorBoundary key={sceneAttempt} onRetry={() => setSceneAttempt((attempt) => attempt + 1)}>
-      <div className={`music-scene-canvas${regrouping ? ' is-regrouping' : ''}`} style={{ filter: `blur(${portalVeil * 3.5 + (regrouping ? 7 : 0)}px) saturate(${regrouping ? .72 : 1})` }} aria-hidden="true"
-        onPointerDown={(event) => { if (sceneMode === 'galaxy' && event.button === 0) dragX.current = event.clientX }}
-        onPointerMove={(event) => { if (dragX.current !== null) { const delta = event.clientX - dragX.current; dragX.current = event.clientX; onRotate(delta * .006) } }}
-        onPointerUp={() => { dragX.current = null }} onPointerCancel={() => { dragX.current = null }} onLostPointerCapture={() => { dragX.current = null }}>
-        <Suspense fallback={null}>
-          <SceneCanvas
-            view={sceneMode}
-            focusedThemes={[]}
-            musicGalaxySystems={galaxySystems}
-            focusedMusicGalaxyId={cameraTransition === 'galaxy-to-tour' ? focusedGalaxy ?? lastFocusedGalaxy.current : focusedGalaxy}
-            onMusicGalaxyClick={onSelectGalaxy}
-            onMusicPlanetClick={onOpenPlanet}
-            ownPlanet={ownerScenePlanet}
-            ownPlanets={planet ? [ownerScenePlanet] : []}
-            friendSatellites={friendSatellites}
-            starAppearance={{ color: visual.palette.accent }}
-            selectedPlanet={sceneMode === 'planet'
-              ? visitorScenePlanet ?? (cameraTransition === 'galaxy-to-tour' ? lastVisitorScenePlanet.current : undefined)
-              : sceneMode === 'self' ? ownerScenePlanet : undefined}
-            galaxyRotation={sceneMode === 'universe' ? 0 : galaxyRotation}
-            selfReturning={selfReturning}
-            scriptedJourney={traveling}
-            cinematicTransition={cameraTransition}
-            cinematicTransitionProgress={cameraTransitionProgress}
-            journey={sceneMode === 'universe' && productView === 'galaxy' ? Math.min(TOUR_END, journey) : journey}
-            reducedMotion={reducedMotion}
-            onBillboardClick={() => undefined}
-            onPublicBillboardClick={() => undefined}
-            onArriveSelf={() => undefined}
-            onThemeClick={() => undefined}
-            onPlanetClick={() => undefined}
-            onOwnPlanetClick={() => undefined}
-            onOwnEmbryoClick={() => undefined}
-            onStarClick={() => undefined}
-          />
-        </Suspense>
-      </div>
-    </SceneErrorBoundary> : <div className="music-scene-degraded" role="status">
-      <span>3D 星球暂不可用，仍可继续选歌、浏览内容和使用社交功能。</span>
-      <button className="music-text-button" type="button" onClick={() => setSceneAttempt((attempt) => attempt + 1)}>重试 3D 画面</button>
-    </div>}
-    <MusicPortalOverlay portal={journeyState.portalProgress} returning={selfReturning} />
-  </>
 }
 
 function errorMessage(error: unknown) {
@@ -712,13 +377,13 @@ function DriftBottlePanel({ api, tracks, moments, onVisitPlanet }: {
   const momentOptions = moments.filter((moment) => moment.visibility === 'public' && Boolean(moment.publishedAt))
 
   return <aside className="music-panel music-drift-panel" aria-label="漂流瓶">
-    <div className="music-panel-head"><div><span className="music-kicker">每天最多一只 · 接收随机发生</span><h2>漂流瓶</h2></div></div>
+    <div className="music-panel-head"><div><span className="music-kicker">每天最多一只 · 接收随机发生</span><DitherTitle level={2}>漂流瓶</DitherTitle></div></div>
     <p className="music-panel-note">选择歌曲、资讯或已公开的 Moment。瓶子会随机交给一位合适的星主；收件人读后可以评论、点赞，再决定是否继续放流。</p>
     {error && <p className="music-form-error" role="alert">{error}</p>}
     {feedback && <p className="music-feedback" role="status">{feedback}</p>}
 
     <form className="music-bottle-form" onSubmit={(event) => { void createBottle(event) }}>
-      <div className="music-section-heading"><h3>放出一只瓶</h3><span>{snapshot?.date ?? '…'} · 每日 1 只</span></div>
+      <div className="music-section-heading"><DitherTitle level={3}>放出一只瓶</DitherTitle><span>{snapshot?.date ?? '…'} · 每日 1 只</span></div>
       <label htmlFor="music-bottle-topic">漂流主题</label>
       <select id="music-bottle-topic" value={topicType} onChange={(event) => setTopicType(event.target.value as typeof topicType)}>
         <option value="song">一首歌曲</option><option value="info">一则资讯</option><option value="moment">一篇 Moment</option>
@@ -744,9 +409,9 @@ function DriftBottlePanel({ api, tracks, moments, onVisitPlanet }: {
       </>}
       <label htmlFor="music-bottle-message">附上一句话 <span>{messageText.length}/500</span></label>
       <textarea id="music-bottle-message" value={messageText} onChange={(event) => setMessageText(event.target.value)} maxLength={500} placeholder="留一小段给下一个遇见的人……" />
-      <button className="music-primary-button" type="submit" disabled={sending || !snapshot || snapshot.sentToday || (topicType === 'song' && !trackId) || (topicType === 'moment' && !momentId)}>
+      <DitherButton className="music-primary-button" type="submit" disabled={sending || !snapshot || snapshot.sentToday || (topicType === 'song' && !trackId) || (topicType === 'moment' && !momentId)}>
         {sending ? '正在放流…' : snapshot?.sentToday ? '今日已放流' : '放出漂流瓶 ↗'}
-      </button>
+      </DitherButton>
       {snapshot?.sentToday && <small className="music-bottle-limit-note">每天最多新发一只；收件数量不保证，也不会每日强制分配。</small>}
     </form>
 
@@ -756,8 +421,8 @@ function DriftBottlePanel({ api, tracks, moments, onVisitPlanet }: {
     </label>
 
     {detail ? <section className="music-bottle-detail" aria-label="漂流瓶内容">
-      <div className="music-section-heading"><div><span className="music-kicker">瓶中来信 · 已打开</span><h3>{detail.bottle.topic.type === 'song' ? '一首歌曲' : detail.bottle.topic.type === 'info' ? '一则资讯' : '一篇 Moment'}</h3></div>
-        <button className="music-close-inline" type="button" aria-label="关闭漂流瓶详情" onClick={() => setDetail(null)}>×</button></div>
+      <div className="music-section-heading"><div><span className="music-kicker">瓶中来信 · 已打开</span><DitherTitle level={3}>{detail.bottle.topic.type === 'song' ? '一首歌曲' : detail.bottle.topic.type === 'info' ? '一则资讯' : '一篇 Moment'}</DitherTitle></div>
+        <DitherButton className="music-close-inline" type="button" aria-label="关闭漂流瓶详情" onClick={() => setDetail(null)}>×</DitherButton></div>
       {detail.bottle.topic.type === 'song' && <div className="music-bottle-topic-card">
         <strong>{detail.bottle.topic.track?.title ?? '歌曲资料暂不可用'}</strong>
         <span>{detail.bottle.topic.track?.artistName}{detail.bottle.topic.track?.versionLabel ? ` · ${detail.bottle.topic.track.versionLabel}` : ''}</span>
@@ -766,7 +431,7 @@ function DriftBottlePanel({ api, tracks, moments, onVisitPlanet }: {
       {detail.bottle.topic.type === 'info' && <div className="music-bottle-topic-card"><strong>{detail.bottle.topic.title}</strong><p>{detail.bottle.topic.summary}</p><a href={detail.bottle.topic.url} target="_blank" rel="noreferrer">查看来源 ↗</a></div>}
       {detail.bottle.topic.type === 'moment' && <div className="music-bottle-topic-card"><strong>{detail.bottle.topic.track?.title ?? 'Moment'}</strong><span>{detail.bottle.topic.track?.artistName}</span><p>{detail.bottle.topic.contentText}</p></div>}
       {detail.bottle.messageText && <blockquote>{detail.bottle.messageText}</blockquote>}
-      {detail.bottle.sender && <button className="music-text-button" type="button" onClick={() => onVisitPlanet(detail.bottle.sender!.planetId, detail.bottle.sender!.displayName)}>访问瓶主星球 · {detail.bottle.sender.displayName} ↗</button>}
+      {detail.bottle.sender && <DitherButton className="music-text-button" type="button" onClick={() => onVisitPlanet(detail.bottle.sender!.planetId, detail.bottle.sender!.displayName)}>访问瓶主星球 · {detail.bottle.sender.displayName} ↗</DitherButton>}
       <ReportControl api={api} target={{ type: 'drift_bottle', id: detail.bottle.id }} ariaLabel="举报这只漂流瓶" />
       <section className="music-bottle-comments" aria-label="漂流瓶评论">
         <div className="music-section-heading"><h4>接力留言</h4><span>{detail.comments.length}</span></div>
@@ -774,34 +439,34 @@ function DriftBottlePanel({ api, tracks, moments, onVisitPlanet }: {
           <div><strong>{comment.authorName}</strong><time dateTime={comment.createdAt}>{new Date(comment.createdAt).toLocaleString('zh-CN')}</time></div>
           <p>{comment.contentText}</p>
           <div className="music-bottle-comment-actions">
-            <button className="music-text-button" type="button" disabled={busy} aria-pressed={comment.likedByMe} onClick={() => { void toggleLike(comment.id, comment.likedByMe) }}>{comment.likedByMe ? '已赞' : '点赞'} · {comment.likeCount}</button>
-            {comment.isOwn && <button className="music-text-button" type="button" disabled={busy} onClick={() => { void deleteComment(comment.id) }}>删除</button>}
+            <DitherButton className="music-text-button" type="button" disabled={busy} aria-pressed={comment.likedByMe} onClick={() => { void toggleLike(comment.id, comment.likedByMe) }}>{comment.likedByMe ? '已赞' : '点赞'} · {comment.likeCount}</DitherButton>
+            {comment.isOwn && <DitherButton className="music-text-button" type="button" disabled={busy} onClick={() => { void deleteComment(comment.id) }}>删除</DitherButton>}
           </div>
           {!comment.isOwn && <ReportControl api={api} target={{ type: 'drift_comment', id: comment.id }} ariaLabel="举报这条漂流瓶评论" />}
         </article>)}
         <form className="music-bottle-comment-form" onSubmit={(event) => { void submitComment(event) }}>
           <label htmlFor="music-bottle-comment">添加评论</label>
           <textarea id="music-bottle-comment" value={commentText} onChange={(event) => setCommentText(event.target.value)} maxLength={500} placeholder="你想把什么留给下一个人？" />
-          <button className="music-secondary-button" type="submit" disabled={busy || !commentText.trim()}>留下评论</button>
+          <DitherButton className="music-secondary-button" type="submit" disabled={busy || !commentText.trim()}>留下评论</DitherButton>
         </form>
       </section>
-      <button className="music-primary-button music-release-button" type="button" disabled={busy} onClick={() => { void releaseBottle() }}>{busy ? '正在处理…' : '继续放流 ↗'}</button>
+      <DitherButton className="music-primary-button music-release-button" type="button" disabled={busy} onClick={() => { void releaseBottle() }}>{busy ? '正在处理…' : '继续放流 ↗'}</DitherButton>
       <p className="music-panel-note">如果不继续放流，瓶子会停留在这里，不会自动无限传播。</p>
     </section> : <>
-      {loading && <p className="music-moments-empty" role="status">正在寻找传来的漂流瓶…</p>}
+      {loading && <DitherLoadingRing label="正在寻找传来的漂流瓶…" />}
       {!loading && snapshot?.inbox.length === 0 && <p className="music-moments-empty">今天还没有漂流瓶来到这里；收瓶由系统随机决定。</p>}
       {snapshot?.inbox.map((bottle) => <article className="music-bottle-inbox-card" key={bottle.id}>
         <div><span className="music-kicker">{bottle.status === 'unread' ? '新抵达' : '已打开'}</span><strong>{bottle.topicLabel}</strong><small>{new Date(bottle.deliveredAt).toLocaleString('zh-CN')}</small></div>
-        <button className="music-secondary-button" type="button" disabled={busy} onClick={() => { void openBottle(bottle.id) }}>{bottle.status === 'read' ? '继续阅读' : '打开漂流瓶'}</button>
+        <DitherButton className="music-secondary-button" type="button" disabled={busy} onClick={() => { void openBottle(bottle.id) }}>{bottle.status === 'read' ? '继续阅读' : '打开漂流瓶'}</DitherButton>
       </article>)}
       <section className="music-bottle-sent">
-        <div className="music-section-heading"><h3>我放出的瓶</h3><span>{snapshot?.sent.length ?? 0}</span></div>
+        <div className="music-section-heading"><DitherTitle level={3}>我放出的瓶</DitherTitle><span>{snapshot?.sent.length ?? 0}</span></div>
         {snapshot?.sent.length === 0 ? <p className="music-moments-empty">你放出的瓶及接力状态会显示在这里。</p> : snapshot?.sent.map((bottle) => <article className="music-bottle-sent-item" key={bottle.id}>
           <div><strong>{bottle.topicLabel}</strong><small>{new Date(bottle.createdAt).toLocaleString('zh-CN')} · 已接力 {bottle.deliveryCount} 次</small></div><span>{driftBottleStatus(bottle.status)}</span>
         </article>)}
       </section>
     </>}
-    {!snapshot && !loading && <button className="music-text-button" type="button" onClick={() => { void reload() }}>重新加载</button>}
+    {!snapshot && !loading && <DitherButton className="music-text-button" type="button" onClick={() => { void reload() }}>重新加载</DitherButton>}
   </aside>
 }
 
@@ -815,8 +480,11 @@ function MusicApp() {
   const [selectedTrackIds, setSelectedTrackIds] = useState<string[]>([])
   const [draftError, setDraftError] = useState('')
   const [creatingPlanet, setCreatingPlanet] = useState(false)
-  const [composerStatus, setComposerStatus] = useState<ComposerStatus>('idle')
-  const [composerTaskId, setComposerTaskId] = useState<string>()
+  const [appearanceOpen, setAppearanceOpen] = useState(false)
+  const [appearancePreview, setAppearancePreview] = useState<DitherPlanetSpec | null>(null)
+  const [appearanceBusy, setAppearanceBusy] = useState(false)
+  const [appearanceError, setAppearanceError] = useState('')
+  const [focusedTrackId, setFocusedTrackId] = useState<string>()
   const [momentTrackId, setMomentTrackId] = useState('')
   const [momentText, setMomentText] = useState('')
   const [momentPrivate, setMomentPrivate] = useState(false)
@@ -887,8 +555,10 @@ function MusicApp() {
     setSelectedTrackIds([])
     setDraftError('')
     setCreatingPlanet(false)
-    setComposerStatus('idle')
-    setComposerTaskId(undefined)
+    setAppearanceOpen(false)
+    setAppearancePreview(null)
+    setAppearanceError('')
+    setAppearanceBusy(false)
     setMomentTrackId('')
     setMomentText('')
     setMomentPrivate(false)
@@ -960,7 +630,6 @@ function MusicApp() {
       setHome({ status: 'ready', tracks, planet, moments, friendSatellites })
       if (planet) {
         setMomentTrackId(planet.tracks.find((track) => track.isPrimary)?.id ?? planet.tracks[0]?.id ?? '')
-        setComposerStatus(validVisual(planet.visual) ? 'ready' : 'idle')
       }
     } catch (error) {
       if (epoch !== accountEpoch.current) return
@@ -1040,46 +709,6 @@ function MusicApp() {
     return () => preference.removeEventListener?.('change', update)
   }, [])
 
-  useEffect(() => {
-    if (!composerTaskId) return
-    let cancelled = false
-    let attempts = 0
-    const poll = async () => {
-      while (!cancelled && attempts < 36) {
-        try {
-          const { task } = await api.getComposerTask(composerTaskId)
-          if (cancelled) return
-          if (task.status === 'succeeded' && validVisual(task.result)) {
-            setHome((current) => current.status === 'ready' && current.planet
-              ? { ...current, planet: { ...current.planet, visual: task.result! } }
-              : current)
-            setComposerStatus('ready')
-            setComposerTaskId(undefined)
-            return
-          }
-          if (task.status === 'failed') {
-            setComposerStatus('failed')
-            setComposerTaskId(undefined)
-            return
-          }
-        } catch {
-          if (cancelled) return
-          setComposerStatus('failed')
-          setComposerTaskId(undefined)
-          return
-        }
-        attempts += 1
-        await new Promise((resolve) => window.setTimeout(resolve, 1200))
-      }
-      if (!cancelled) {
-        setComposerStatus('delayed')
-        setComposerTaskId(undefined)
-      }
-    }
-    void poll()
-    return () => { cancelled = true }
-  }, [api, composerTaskId])
-
   const tracks = home.status === 'ready' ? home.tracks : []
   const planet = home.status === 'ready' ? home.planet : null
   const moments = home.status === 'ready' ? home.moments : []
@@ -1096,7 +725,7 @@ function MusicApp() {
       || [track.title, track.artistName, ...track.genres].join(' ').toLocaleLowerCase().includes(needle))
   }, [planetEditQuery, planet, tracks])
   const previewSeed = selectedTrackIds.join('-')
-  const activeVisual = visualFor(planet)
+  const activeVisual = useMemo(() => planet ? resolveDitherSpec(planet.id, planet.tracks, planet.visual) : null, [planet])
   const galaxySceneResponse = galaxy.status === 'ready' ? galaxy.response : galaxy.status === 'loading' ? galaxy.previous : undefined
   const galaxySceneSystems = useMemo(
     () => galaxySceneResponse ? buildMusicGalaxySceneSystems(galaxySceneResponse.by, galaxySceneResponse.groups) : [],
@@ -1500,8 +1129,7 @@ function MusicApp() {
       const confirmedTrackIds = result.planet.tracks.map((track) => track.id)
       setPlanetEditTrackIds(confirmedTrackIds)
       setPlanetEditPrimaryTrackId(result.planet.tracks.find((track) => track.isPrimary)?.id ?? confirmedTrackIds[0] ?? '')
-      setPlanetEditFeedback(result.compositionTask ? '星球资料已保存，视觉正在重新生成。' : '星球资料已保存。')
-      if (result.compositionTask) await beginComposition({ id: result.compositionTask.id })
+      setPlanetEditFeedback('星球资料与外观已保存。')
     } catch (error) {
       if (epoch !== accountEpoch.current) return
       setPlanetEditError(errorMessage(error))
@@ -1554,7 +1182,6 @@ function MusicApp() {
         ? { ...current, moments: current.moments.map((moment) => moment.id === currentEdit.momentId ? result.moment! : moment) }
         : current)
       setMomentManagement({ status: 'idle' })
-      if (result.compositionTask) await beginComposition({ id: result.compositionTask.id })
     } catch (error) {
       if (epoch !== accountEpoch.current) return
       setMomentManagement((current) => current.status === 'editing' && current.momentId === currentEdit.momentId
@@ -1576,7 +1203,6 @@ function MusicApp() {
         ? { ...current, moments: current.moments.filter((moment) => moment.id !== currentDelete.momentId) }
         : current)
       setMomentManagement({ status: 'idle' })
-      if (result.compositionTask) await beginComposition({ id: result.compositionTask.id })
     } catch (error) {
       if (epoch !== accountEpoch.current) return
       setMomentManagement((current) => current.status === 'confirm-delete' && current.momentId === currentDelete.momentId
@@ -1723,19 +1349,6 @@ function MusicApp() {
   const canOpenSongPortal = (trackId: string) => Boolean(planet?.tracks.some((track) => track.id === trackId)
     || moments.some((moment) => moment.trackId === trackId && moment.visibility === 'public'))
 
-  const beginComposition = async (existingTask?: { id: string }) => {
-    const epoch = accountEpoch.current
-    setComposerStatus('pending')
-    try {
-      const task = existingTask ? { task: { id: existingTask.id } } : await api.composePlanet()
-      if (epoch !== accountEpoch.current) return
-      setComposerTaskId(task.task.id)
-    } catch (error) {
-      if (epoch !== accountEpoch.current) return
-      setComposerStatus(error instanceof MusicApiError && error.status === 503 && error.code === 'AI_GATEWAY_NOT_CONFIGURED' ? 'unavailable' : 'failed')
-    }
-  }
-
   const createPlanet = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const validation = validatePlanetDraft(displayName, selectedTrackIds)
@@ -1760,7 +1373,6 @@ function MusicApp() {
         ? { ...current, planet: result.planet, moments: [] }
         : current)
       setMomentTrackId(result.planet.tracks.find((track) => track.isPrimary)?.id ?? result.planet.tracks[0]?.id ?? '')
-      await beginComposition(result.compositionTask ? { id: result.compositionTask.id } : undefined)
     } catch (error) {
       if (epoch !== accountEpoch.current) return
       setDraftError(errorMessage(error))
@@ -1794,9 +1406,7 @@ function MusicApp() {
         ? { ...current, moments: [result.moment!, ...current.moments] }
         : current)
       setMomentText('')
-      setMomentFeedback(momentPrivate ? '已保存为仅自己可见。' : 'Moment 已公开，星球开始吸收新的声音。')
-      if (result.compositionTask) await beginComposition({ id: result.compositionTask.id })
-      else await beginComposition()
+      setMomentFeedback(momentPrivate ? '已保存为仅自己可见。' : 'Moment 已公开。')
     } catch (error) {
       if (epoch !== accountEpoch.current) return
       setMomentFeedback(errorMessage(error))
@@ -1805,9 +1415,36 @@ function MusicApp() {
     }
   }
 
-  const retryComposition = () => { void beginComposition() }
+  const closeAppearance = () => { if (appearanceBusy) return; setAppearanceOpen(false); setAppearancePreview(null); setAppearanceError('') }
+  const reloadAppearance = async () => {
+    if (appearanceBusy) return
+    const epoch = accountEpoch.current
+    setAppearanceBusy(true)
+    try {
+      const result = await api.loadHome()
+      if (epoch !== accountEpoch.current) return
+      if (!result.planet) throw new Error('Planet not available')
+      setHome(current => current.status === 'ready' ? { ...current, planet: result.planet } : current)
+      setAppearanceError('已读取最新版本。你的手动调整仍保留，确认预览后可再次应用。')
+    } catch { if (epoch === accountEpoch.current) setAppearanceError('重新读取失败，当前预览仍保留。') }
+    finally { if (epoch === accountEpoch.current) setAppearanceBusy(false) }
+  }
+  const applyAppearance = async (appearanceOverrides: DitherOverrides) => {
+    if (!planet || appearanceBusy) return
+    const epoch = accountEpoch.current
+    setAppearanceBusy(true); setAppearanceError('')
+    try {
+      const result = await api.updateMusicPlanet({ appearanceOverrides, appearanceRevision: planet.appearanceRevision ?? 0 })
+      if (epoch !== accountEpoch.current) return
+      setHome(current => current.status === 'ready' ? { ...current, planet: result.planet } : current)
+      setAppearanceOpen(false); setAppearancePreview(null)
+    } catch (cause) {
+      if (epoch !== accountEpoch.current) return
+      setAppearanceError(cause instanceof MusicApiError && cause.code === 'APPEARANCE_CONFLICT' ? '外观已在其他窗口更新。当前预览已保留，请重新读取已保存版本后再应用。' : '外观未保存，预览与填写仍保留。请重试。')
+    } finally { if (epoch === accountEpoch.current) setAppearanceBusy(false) }
+  }
 
-  if (home.status === 'loading') return <main className="music-app music-loading"><BrandHeader connected={false} /><div className="music-loading-mark" role="status"><span /><p>正在校准你的星际档案…</p></div></main>
+  if (home.status === 'loading') return <main className="music-app music-loading"><BrandHeader connected={false} /><DitherLoadingRing label="正在读取星球" /></main>
 
   if (home.status === 'error') return <main className="music-app music-gate">
     <BrandHeader connected={false} />
@@ -1815,7 +1452,7 @@ function MusicApp() {
       <span className="music-kicker">匿名体验 · 自动为本机创建身份</span>
       <h1>暂时连接不上，<br />星际档案仍在原处</h1>
       <p>没有任何资料被覆盖。请检查网络或稍后重新连接。</p>
-      <button className="music-primary-button" type="button" onClick={() => { void reloadHome() }}>重新连接 <span aria-hidden="true">↗</span></button>
+      <DitherButton className="music-primary-button" type="button" onClick={() => { void reloadHome() }}>重新连接 <span aria-hidden="true">↗</span></DitherButton>
     </section>
   </main>
 
@@ -1829,8 +1466,14 @@ function MusicApp() {
       galaxyRotation={galaxyRotation} routeJourney={galaxyJourney} regrouping={galaxyRegrouping}
       onSelectGalaxy={focusGalaxyById}
       onOpenPlanet={(scenePlanet, _galaxyId) => requestPublicPlanetVisit(scenePlanet.id, scenePlanet.alias, 'galaxy')}
+      previewTracks={tracks.filter(track => selectedTrackIds.includes(track.id))}
+      appearancePreview={appearancePreview}
+      onMusicSelect={setFocusedTrackId}
+      onTourMove={(delta)=>setGalaxyJourney(value=>Math.max(0,Math.min(TOUR_END,value+delta)))}
+      onFriendSelect={(id) => { const friend = home.friendSatellites.find(f => f.id === id); changeView('orbit'); if (friend) setSocialFeedback(friend.displayName) }}
       onRotate={(delta) => setGalaxyRotation((rotation) => rotation + delta)}
     />
+    {appearanceOpen && activeVisual && <AppearanceEditor spec={activeVisual} busy={appearanceBusy} error={appearanceError} onPreview={setAppearancePreview} onApply={(overrides)=>{void applyAppearance(overrides)}} onClose={closeAppearance} onReload={()=>{void reloadAppearance()}} />}
     <BrandHeader connected={connected} view={view} onChangeView={changeView} />
     {view === 'galaxy' && !visitedPlanet && galaxy.status === 'ready' && !galaxy.selectedGroupKey && <MusicGalaxyAxis
       systems={galaxySceneSystems} journey={galaxyJourney}
@@ -1844,41 +1487,19 @@ function MusicApp() {
 
     <div className="music-layout">
       <section className="music-copy">
-        <span className="music-kicker">{visitedPlanet ? '公开星球 · 正在访问' : view === 'galaxy' ? 'Galaxy · 动态发现' : view === 'roam' ? '首页 · 随机漫游' : view === 'orbit' ? '相遇与来往 · 私人星图' : view === 'bottles' ? '漂流瓶 · 随机接力' : view === 'moderation' ? '内容安全 · 内部审核' : view === 'settings' ? '个人边界 · 由你决定' : planet ? '你的星球 · 正在播放自己的宇宙' : '从三首歌开始 · 让星球有形状'}</span>
-        <h1>{visitedPlanet
-          ? <>{visitedPlanet.displayName}<em>{view === 'roam' ? '在漫游中相遇。' : '在 Galaxy 相遇。'}</em></>
-          : view === 'galaxy' ? <>沿着歌声，<em>继续漫游。</em></>
-          : view === 'roam' ? <>下一站，<em>交给歌声。</em></>
-          : view === 'orbit' ? <>每一次相遇，<em>都有迹可循。</em></>
-          : view === 'bottles' ? <>让一首歌，<em>漂向下一个人。</em></>
-          : view === 'moderation' ? <>让安全，<em>有迹可循。</em></>
-          : view === 'settings' ? <>让边界，<em>由你决定。</em></>
-          : planet ? <>{planet.displayName}<em>在歌声里生长。</em></> : <>把喜欢的歌<br /><em>安放成一颗星球。</em></>}</h1>
-        <p>{visitedPlanet
-          ? visitedPlanet.tagline || '沿着歌曲、艺人或曲风，在公开星球之间继续探索。'
-          : view === 'galaxy' ? '按歌曲、艺人或曲风浏览可公开访问的星球。同歌标签只代表曲目 ID 一致，不代表真实播放记录。'
-          : view === 'roam' ? '沿着相近的曲风与公开 Moment，随机遇见一颗真实的公开星球。这里只是发现，不会把相似说成撞歌。'
-          : view === 'orbit' ? '这里收纳撞歌相遇、好友、访问足迹与今日路过的星球。推荐不会自动变成访问记录。'
-          : view === 'bottles' ? '每天最多放出一只，收瓶完全随机；读后可以回应，也可以决定是否让它继续漂流。'
-          : view === 'moderation' ? '审核队列只展示举报元数据，不读取被举报正文。状态变更会写入审核记录，不会自动删除内容。'
-          : view === 'settings' ? '控制你的星球是否可被访问、是否接收好友请求和漂流瓶，也可以逐条调整 Moment 的公开范围。'
-          : planet
-            ? planet.tagline || '选中的歌曲会成为它的轨道；你留下的 Moment，会让它继续变化。'
-          : '挑三首此刻愿意留在身边的歌。星球由歌曲和你公开分享的 Moment 慢慢长出自己的颜色。'}</p>
-        {planet && !visitedPlanet && view === 'planet' && <div className="music-world-readout" aria-live="polite">
-          <span className={`music-ai-indicator is-${composerStatus}`}><i />{composerStatus === 'pending' ? '本地 AI 正在生成星球' : composerStatus === 'ready' ? '星球视觉已生成' : composerStatus === 'unavailable' ? '本地 AI 通道尚未连接' : composerStatus === 'failed' ? '星球视觉暂时未更新' : composerStatus === 'delayed' ? '生成时间较长，星球已保存' : '星球等待第一次视觉生成'}</span>
-          <p>{activeVisual.summary}</p>
-          {(composerStatus === 'unavailable' || composerStatus === 'failed' || composerStatus === 'delayed' || composerStatus === 'idle') && <button type="button" className="music-text-button" onClick={retryComposition}>重试星球生成</button>}
-        </div>}
+        <DitherTitle>{visitedPlanet ? `访问 · ${visitedPlanet.displayName}` : view === 'planet' ? planet?.displayName ?? '把歌留在星球' : view === 'galaxy' ? '声音之间' : view === 'roam' ? '下一站' : view === 'orbit' ? '轨道' : view === 'bottles' ? '继续漂流' : view === 'settings' ? '设置' : '审核'}</DitherTitle>
+        {(visitedPlanet?.tagline || view === 'planet' && planet?.tagline) && <p>{visitedPlanet?.tagline ?? planet?.tagline}</p>}
+        {(view === 'planet' || visitedPlanet) && <SongWall tracks={(visitedPlanet ?? planet)?.tracks ?? tracks.filter(t=>selectedTrackIds.includes(t.id))} selectedId={focusedTrackId} onSelect={setFocusedTrackId} />}
+        {planet && !visitedPlanet && view === 'planet' && <DitherButton className="music-appearance-open" aria-label="编辑星球外观" onClick={()=>{setAppearanceError('');setAppearanceOpen(true)}}>调整外观 ↗</DitherButton>}
       </section>
 
       {canCreate && view === 'planet' ? <aside className="music-panel music-create-panel" aria-label="创建音乐星球">
         {!tracks.length ? <div className="music-empty-catalog" role="status">
           <span className="music-kicker">曲库 · 暂未开放</span>
-          <h2>曲库还没有可选歌曲</h2>
+          <DitherTitle level={2}>曲库还没有可选歌曲</DitherTitle>
           <p>添加曲目后，你就可以开始创建星球。我们只展示可控曲库中的歌曲，并跳转到官方平台播放。</p>
         </div> : <form onSubmit={createPlanet}>
-          <div className="music-panel-head"><div><span className="music-kicker">第一步 · 选择声音</span><h2>为你的星球选三首歌</h2></div><span className="music-count" aria-live="polite">{selectedTrackIds.length}<i>/3</i></span></div>
+          <div className="music-panel-head"><div><span className="music-kicker">第一步 · 选择声音</span><DitherTitle level={2}>为你的星球选三首歌</DitherTitle></div><span className="music-count" aria-live="polite">{selectedTrackIds.length}<i>/3</i></span></div>
           <p className="music-panel-note">你的星球默认公开，可随时改为仅自己可见。完整音频不会嵌入 Moodverse。</p>
           {tracks.some(isDemoTrack) && <p className="music-demo-catalog-note" role="note">演示曲库：曲名、艺人与曲风均为虚构示例，不提供播放或官方链接，也不代表已获版权授权。</p>}
           <label className="music-search-label" htmlFor="music-track-search">搜索曲名或艺人</label>
@@ -1887,11 +1508,11 @@ function MusicApp() {
             {visibleTracks.map((track) => {
               const selected = selectedTrackIds.includes(track.id)
               const disabled = !selected && selectedTrackIds.length >= 3
-              return <button className={`music-track-choice${selected ? ' is-selected' : ''}`} type="button" key={track.id} aria-label={`${track.title} · ${track.artistName}`} aria-pressed={selected} disabled={disabled} onClick={() => toggleTrack(track.id)}>
-                {track.coverUrl ? <img src={track.coverUrl} alt="" loading="lazy" /> : <span className="music-cover-fallback" aria-hidden="true">♫</span>}
+              return <DitherButton className={`music-track-choice${selected ? ' is-selected' : ''}`} type="button" key={track.id} aria-label={`${track.title} · ${track.artistName}`} aria-pressed={selected} disabled={disabled} onClick={() => toggleTrack(track.id)}>
+                <DitherTrackMark track={track} />
                 <span className="music-track-label"><strong>{track.title}</strong><small>{track.artistName}{track.versionLabel ? ` · ${track.versionLabel}` : ''}{isDemoTrack(track) ? ' · 演示曲目（不可播放）' : ''}</small></span>
                 <span className="music-track-check" aria-hidden="true">{selected ? '✓' : '+'}</span>
-              </button>
+              </DitherButton>
             })}
             {!visibleTracks.length && <p className="music-no-matches">没有找到匹配曲目。</p>}
           </div>
@@ -1903,29 +1524,29 @@ function MusicApp() {
           </div>
           <label className="music-visibility-toggle"><input type="checkbox" checked={!planetPrivate} onChange={(event) => setPlanetPrivate(!event.target.checked)} /> <span><strong>允许在 Galaxy 中访问</strong><small>默认公开；之后可在设置中关闭。</small></span></label>
           {draftError && <p className="music-form-error" role="alert">{draftError}</p>}
-          <button className="music-primary-button music-submit" type="submit" disabled={creatingPlanet || tracks.length < 3 || selectedTrackIds.length !== 3 || !displayName.trim()}>
+          <DitherButton className="music-primary-button music-submit" type="submit" disabled={creatingPlanet || tracks.length < 3 || selectedTrackIds.length !== 3 || !displayName.trim()}>
             {creatingPlanet ? '正在保存星球…' : '生成我的星球'} <span aria-hidden="true">↗</span>
-          </button>
-          <p className="music-privacy-note">公开给访客的 Moment 单独标记；未公开内容不会参与星球视觉生成。</p>
+          </DitherButton>
+          <p className="music-privacy-note">公开给访客的 Moment 单独标记；星球外观只使用选歌参数，不读取 Moment 内容。</p>
         </form>}
       </aside> : null}
 
       {view === 'settings' && !visitedPlanet && <aside className="music-panel music-settings-panel" aria-label="账户与隐私设置">
-        <div className="music-panel-head"><div><span className="music-kicker">Moodverse · 账户偏好</span><h2>账户与隐私设置</h2></div></div>
+        <div className="music-panel-head"><div><span className="music-kicker">Moodverse · 账户偏好</span><DitherTitle level={2}>账户与隐私设置</DitherTitle></div></div>
         <p className="music-panel-note">星球访问权限与接收偏好彼此独立。公开星球会出现在 Galaxy；每条 Moment 也可以单独设为仅自己可见。</p>
-        {settingsStatus === 'loading' && <p className="music-moments-empty" role="status">正在读取已保存的设置…</p>}
+        {settingsStatus === 'loading' && <DitherLoadingRing label="正在读取已保存的设置…" />}
         {settingsError && <p className="music-form-error" role="alert">{settingsError}</p>}
-        {settingsStatus === 'error' && <button className="music-text-button" type="button" onClick={() => { void loadSettings() }}>重新读取设置</button>}
+        {settingsStatus === 'error' && <DitherButton className="music-text-button" type="button" onClick={() => { void loadSettings() }}>重新读取设置</DitherButton>}
         {planet && <form className="music-settings-planet-form" aria-label="编辑星球资料" onSubmit={savePlanetSettings}>
           <section className="music-settings-section" aria-label="星球资料与歌曲">
-            <div className="music-section-heading"><h3>星球资料与歌曲</h3><span>可随时调整</span></div>
+            <div className="music-section-heading"><DitherTitle level={3}>星球资料与歌曲</DitherTitle><span>可随时调整</span></div>
             <div className="music-fields">
               <label htmlFor="music-settings-planet-name">星球名称</label>
               <input id="music-settings-planet-name" aria-label="星球名称" value={planetEditName} maxLength={40} disabled={Boolean(settingsSaving)} onChange={(event) => { setPlanetEditName(event.target.value); setPlanetEditError(''); setPlanetEditFeedback('') }} />
               <label htmlFor="music-settings-planet-tagline">星球简介</label>
               <input id="music-settings-planet-tagline" aria-label="星球简介" value={planetEditTagline} maxLength={120} disabled={Boolean(settingsSaving)} onChange={(event) => { setPlanetEditTagline(event.target.value); setPlanetEditError(''); setPlanetEditFeedback('') }} />
             </div>
-            <div className="music-section-heading music-settings-song-heading"><h3>星球歌曲</h3><span>{planetEditTrackIds.length}<i> / 5 首</i></span></div>
+            <div className="music-section-heading music-settings-song-heading"><DitherTitle level={3}>星球歌曲</DitherTitle><span>{planetEditTrackIds.length}<i> / 5 首</i></span></div>
             <p className="music-panel-note">创建时的三首只是起点；现在可以保留 1–5 首。主旋律会作为这颗星球的代表歌曲。</p>
             <label className="music-search-label" htmlFor="music-settings-track-search">搜索曲名或艺人</label>
             <input id="music-settings-track-search" className="music-search" type="search" value={planetEditQuery} disabled={Boolean(settingsSaving)} onChange={(event) => setPlanetEditQuery(event.target.value)} placeholder="曲名、艺人、曲风" />
@@ -1936,7 +1557,7 @@ function MusicApp() {
                 return <div className="music-settings-track-row" key={track.id}>
                   <label className={`music-track-choice music-settings-track${selected ? ' is-selected' : ''}`}>
                     <input type="checkbox" aria-label={`星球歌曲：${track.title} · ${track.artistName}`} checked={selected} disabled={Boolean(settingsSaving) || !canToggle} onChange={() => togglePlanetEditTrack(track.id)} />
-                    {track.coverUrl ? <img src={track.coverUrl} alt="" loading="lazy" /> : <span className="music-cover-fallback" aria-hidden="true">♫</span>}
+                    <DitherTrackMark track={track} />
                     <span className="music-track-label"><strong>{track.title}</strong><small>{track.artistName}{track.versionLabel ? ` · ${track.versionLabel}` : ''}{isDemoTrack(track) ? ' · 演示曲目（不可播放）' : ''}</small></span>
                   </label>
                   <label className="music-primary-track-choice">
@@ -1949,12 +1570,12 @@ function MusicApp() {
             </div>
             {planetEditError && <p className="music-form-error" role="alert">{planetEditError}</p>}
             {planetEditFeedback && <p className="music-feedback" role="status">{planetEditFeedback}</p>}
-            <button className="music-secondary-button" type="submit" disabled={Boolean(settingsSaving)}>{settingsSaving === 'planet-profile' ? '正在保存…' : '保存星球资料'}</button>
+            <DitherButton className="music-secondary-button" type="submit" disabled={Boolean(settingsSaving)}>{settingsSaving === 'planet-profile' ? '正在保存…' : '保存星球资料'}</DitherButton>
           </section>
         </form>}
         {settingsStatus === 'ready' && socialSettings && <div className="music-settings-content">
           <section className="music-settings-section" aria-label="访问与接收偏好">
-            <div className="music-section-heading"><h3>访问与接收</h3><span>随时可更改</span></div>
+            <div className="music-section-heading"><DitherTitle level={3}>访问与接收</DitherTitle><span>随时可更改</span></div>
             {planet
               ? <label className="music-visibility-toggle music-settings-toggle">
                   <input aria-label="允许在 Galaxy 中访问" type="checkbox" checked={planet.visibility === 'public'} disabled={Boolean(settingsSaving)} onChange={(event) => { void updatePlanetVisibility(event.target.checked ? 'public' : 'private') }} />
@@ -1971,22 +1592,22 @@ function MusicApp() {
             </label>
           </section>
           <section className="music-settings-section" aria-label="好友卫星管理">
-            <div className="music-section-heading"><h3>好友卫星</h3><span>{home.status === 'ready' ? `${home.friendSatellites.length} 颗` : '读取中'}</span></div>
+            <div className="music-section-heading"><DitherTitle level={3}>好友卫星</DitherTitle><span>{home.status === 'ready' ? `${home.friendSatellites.length} 颗` : '读取中'}</span></div>
             <p className="music-panel-note">已成为好友的人会围绕你的星球运行；每个新账号另有 3 位虚拟演示好友。虚拟好友不会伪装成真实账号，也不会进入私信或访问记录；移除后不会自动补回。</p>
-            {friendSatelliteError && <div className="music-galaxy-empty" role="alert"><p>{friendSatelliteError}</p><button type="button" className="music-text-button" onClick={() => { void reloadFriendSatellites() }}>重新读取</button></div>}
+            {friendSatelliteError && <div className="music-galaxy-empty" role="alert"><p>{friendSatelliteError}</p><DitherButton type="button" className="music-text-button" onClick={() => { void reloadFriendSatellites() }}>重新读取</DitherButton></div>}
             {friendSatelliteFeedback && <p className="music-feedback" role="status">{friendSatelliteFeedback}</p>}
             {home.status === 'ready' && home.friendSatellites.length > 0
               ? <div className="music-friend-satellites-list">{home.friendSatellites.map((friend) => <article className="music-friend-satellite-row" key={friend.id}>
                   <span className="music-friend-satellite-icon" style={{ '--friend-color': friend.color } as CSSProperties} aria-hidden="true"><i /></span>
                   <span className="music-friend-satellite-copy"><strong>{friend.displayName}</strong><small>{friend.tagline || (friend.isVirtual ? '虚拟演示好友' : '已成为好友')}</small></span>
-                  {friend.canRemove && <button className="music-text-button" type="button" aria-label={`移除好友卫星 ${friend.displayName}`} disabled={Boolean(friendSatelliteBusyId)} onClick={() => { void removeFriendSatellite(friend) }}>{friendSatelliteBusyId === friend.id ? '移除中…' : '移除'}</button>}
+                  {friend.canRemove && <DitherButton className="music-text-button" type="button" aria-label={`移除好友卫星 ${friend.displayName}`} disabled={Boolean(friendSatelliteBusyId)} onClick={() => { void removeFriendSatellite(friend) }}>{friendSatelliteBusyId === friend.id ? '移除中…' : '移除'}</DitherButton>}
                 </article>)}</div>
               : home.status === 'ready' ? <p className="music-moments-empty">轨道暂时空着。之后可以继续认识新的朋友。</p> : null}
           </section>
           <section className="music-settings-section" aria-label="Moment 公开范围">
-            <div className="music-section-heading"><h3>Moment 公开范围</h3><span>{momentsLoadError ? '暂不可用' : `${moments.length} 条`}</span></div>
+            <div className="music-section-heading"><DitherTitle level={3}>Moment 公开范围</DitherTitle><span>{momentsLoadError ? '暂不可用' : `${moments.length} 条`}</span></div>
             {!planet ? <p className="music-moments-empty">创建星球并留下 Moment 后，可以逐条调整公开范围。</p>
-              : momentsLoadError ? <div className="music-galaxy-empty" role="alert"><p>暂时无法读取 Moment，当前显示的内容不代表没有记录。</p><button type="button" className="music-text-button" onClick={() => { void reloadMoments() }}>重试读取</button></div>
+              : momentsLoadError ? <div className="music-galaxy-empty" role="alert"><p>暂时无法读取 Moment，当前显示的内容不代表没有记录。</p><DitherButton type="button" className="music-text-button" onClick={() => { void reloadMoments() }}>重试读取</DitherButton></div>
                 : !moments.length ? <p className="music-moments-empty">还没有 Moment。写下之后，你可以在这里决定每条内容是否公开。</p>
                   : <div className="music-settings-moments">{moments.map((moment) => <label className="music-visibility-toggle music-settings-toggle music-settings-moment" key={moment.id}>
                     <input aria-label={`公开 Moment：${moment.track.title}`} type="checkbox" checked={moment.visibility === 'public'} disabled={Boolean(settingsSaving)} onChange={(event) => { void updateMomentVisibility(moment.id, event.target.checked ? 'public' : 'private') }} />
@@ -1995,20 +1616,20 @@ function MusicApp() {
           </section>
         </div>}
         {moderatorAvailable && settingsStatus === 'ready' && <section className="music-settings-section" aria-label="内部内容审核">
-          <div className="music-section-heading"><h3>内部内容审核</h3><span>仅授权账号</span></div>
+          <div className="music-section-heading"><DitherTitle level={3}>内部内容审核</DitherTitle><span>仅授权账号</span></div>
           <p className="music-panel-note">处理举报并记录状态。审核列表不展示被举报内容。</p>
-          <button className="music-secondary-button" type="button" onClick={() => changeView('moderation')}>打开审核队列</button>
+          <DitherButton className="music-secondary-button" type="button" onClick={() => changeView('moderation')}>打开审核队列</DitherButton>
         </section>}
         <section className="music-settings-section" aria-label="匿名体验身份">
-          <div className="music-section-heading"><h3>匿名体验身份</h3><span>自动创建</span></div>
+          <div className="music-section-heading"><DitherTitle level={3}>匿名体验身份</DitherTitle><span>自动创建</span></div>
           <p className="music-panel-note">账号已保存在这个浏览器中。换浏览器或清除本站点数据后，会生成新的随机账号；当前演示阶段暂不支持跨设备找回。</p>
         </section>
       </aside>}
 
       {view === 'moderation' && !visitedPlanet && moderatorAvailable && <aside className="music-panel music-moderation-panel" aria-label="举报审核">
         <div className="music-panel-head">
-          <div><span className="music-kicker">Moodverse · 内部工具</span><h2>举报审核</h2></div>
-          <button className="music-text-button" type="button" onClick={() => changeView('settings')}>返回设置</button>
+          <div><span className="music-kicker">Moodverse · 内部工具</span><DitherTitle level={2}>举报审核</DitherTitle></div>
+          <DitherButton className="music-text-button" type="button" onClick={() => changeView('settings')}>返回设置</DitherButton>
         </div>
         <p className="music-panel-note">仅查看举报人提交的原因和补充说明，以及目标类型、编号等必要元数据。这里不会展示被举报的正文，也不会直接删除内容。</p>
         <div className="music-moderation-toolbar">
@@ -2021,11 +1642,11 @@ function MusicApp() {
               {(['open', 'reviewing', 'actioned', 'dismissed', 'all'] as const).map((status) => <option key={status} value={status}>{reportStatusLabels[status]}</option>)}
             </select>
           </div>
-          <button className="music-secondary-button" type="button" disabled={moderationStatus === 'loading'} onClick={() => { void loadModerationQueue(moderationFilter) }}>刷新队列</button>
+          <DitherButton className="music-secondary-button" type="button" disabled={moderationStatus === 'loading'} onClick={() => { void loadModerationQueue(moderationFilter) }}>刷新队列</DitherButton>
         </div>
         {moderationError && <p className="music-form-error" role="alert">{moderationError}</p>}
-        {moderationStatus === 'loading' && <p className="music-moments-empty" role="status">正在读取审核队列…</p>}
-        {moderationStatus === 'error' && <button className="music-text-button" type="button" onClick={() => { void loadModerationQueue(moderationFilter) }}>重试读取</button>}
+        {moderationStatus === 'loading' && <DitherLoadingRing label="正在读取审核队列…" />}
+        {moderationStatus === 'error' && <DitherButton className="music-text-button" type="button" onClick={() => { void loadModerationQueue(moderationFilter) }}>重试读取</DitherButton>}
         {moderationStatus === 'ready' && !moderationReports.length && <p className="music-moments-empty">当前筛选下没有待审核记录。</p>}
         {moderationStatus === 'ready' && moderationReports.length > 0 && <div className="music-moderation-list" aria-label="举报记录">
           {moderationReports.map((report) => <article className="music-moderation-report" key={report.id}>
@@ -2041,48 +1662,48 @@ function MusicApp() {
               {report.lastReview && <div><dt>最近审核</dt><dd>{reportStatusLabels[report.lastReview.toStatus as MusicReportStatus] ?? report.lastReview.toStatus ?? '状态已更新'} · {new Date(report.lastReview.createdAt).toLocaleString()}</dd></div>}
             </dl>
             {(report.status === 'open' || report.status === 'reviewing') && <div className="music-moderation-actions">
-              {report.status === 'open' && <button className="music-text-button" type="button" disabled={Boolean(moderationBusyId)} aria-label={`开始处理 ${report.id}`} onClick={() => { void reviewModerationReport(report.id, 'reviewing') }}>开始处理</button>}
-              <button className="music-text-button" type="button" disabled={Boolean(moderationBusyId)} aria-label={`标记已处置 ${report.id}`} onClick={() => { void reviewModerationReport(report.id, 'actioned') }}>标记已处置</button>
-              <button className="music-text-button" type="button" disabled={Boolean(moderationBusyId)} aria-label={`驳回 ${report.id}`} onClick={() => { void reviewModerationReport(report.id, 'dismissed') }}>驳回</button>
+              {report.status === 'open' && <DitherButton className="music-text-button" type="button" disabled={Boolean(moderationBusyId)} aria-label={`开始处理 ${report.id}`} onClick={() => { void reviewModerationReport(report.id, 'reviewing') }}>开始处理</DitherButton>}
+              <DitherButton className="music-text-button" type="button" disabled={Boolean(moderationBusyId)} aria-label={`标记已处置 ${report.id}`} onClick={() => { void reviewModerationReport(report.id, 'actioned') }}>标记已处置</DitherButton>
+              <DitherButton className="music-text-button" type="button" disabled={Boolean(moderationBusyId)} aria-label={`驳回 ${report.id}`} onClick={() => { void reviewModerationReport(report.id, 'dismissed') }}>驳回</DitherButton>
               {moderationBusyId === report.id && <span role="status">正在保存…</span>}
             </div>}
           </article>)}
-          {moderationHasMore && <button className="music-secondary-button music-moderation-more" type="button" disabled={Boolean(moderationBusyId)} onClick={() => { void loadModerationQueue(moderationFilter, moderationReports.length, true) }}>加载更多举报</button>}
+          {moderationHasMore && <DitherButton className="music-secondary-button music-moderation-more" type="button" disabled={Boolean(moderationBusyId)} onClick={() => { void loadModerationQueue(moderationFilter, moderationReports.length, true) }}>加载更多举报</DitherButton>}
         </div>}
       </aside>}
 
       {visitedPlanet && <aside className="music-panel music-public-planet-panel" aria-label={`公开星球 ${visitedPlanet.displayName}`}>
-        <div className="music-panel-head"><div><span className="music-kicker">公开星球 · 公开内容</span><h2>{visitedPlanet.displayName}</h2></div></div>
+        <div className="music-panel-head"><div><span className="music-kicker">公开星球 · 公开内容</span><DitherTitle level={2}>{visitedPlanet.displayName}</DitherTitle></div></div>
         {visitedPlanet.tagline && <p className="music-public-tagline">{visitedPlanet.tagline}</p>}
         <ReportControl api={api} target={{ type: 'planet', id: visitedPlanet.id }} ariaLabel="举报这颗星球" />
         <div className="music-social-actions" aria-label="星主关系">
-          <button className="music-secondary-button" type="button" disabled={Boolean(socialBusyId) || Boolean(friendRequests?.outgoing.some((request) => request.planetId === visitedPlanet.id && request.status === 'pending'))} onClick={() => { void sendFriendRequest() }}>
+          <DitherButton className="music-secondary-button" type="button" disabled={Boolean(socialBusyId) || Boolean(friendRequests?.outgoing.some((request) => request.planetId === visitedPlanet.id && request.status === 'pending'))} onClick={() => { void sendFriendRequest() }}>
             {socialBusyId === visitedPlanet.id ? '正在发送…' : friendRequests?.outgoing.some((request) => request.planetId === visitedPlanet.id && request.status === 'pending') ? '好友请求已发送' : '发送好友请求'}
-          </button>
-          <button className="music-text-button music-block-button" type="button" disabled={Boolean(blockingPlanetId)} onClick={() => { void blockVisitedPlanet() }}>
+          </DitherButton>
+          <DitherButton className="music-text-button music-block-button" type="button" disabled={Boolean(blockingPlanetId)} onClick={() => { void blockVisitedPlanet() }}>
             {blockingPlanetId === visitedPlanet.id ? '正在屏蔽…' : '屏蔽此人'}
-          </button>
+          </DitherButton>
         </div>
         {socialFeedback && <p className="music-social-feedback" role="status">{socialFeedback}</p>}
         {socialError && <p className="music-form-error" role="alert">{socialError}</p>}
-        <button className="music-text-button music-back-link" type="button" onClick={() => setVisitedPlanet(null)}>{view === 'galaxy' ? '← 返回 Galaxy' : view === 'roam' ? '← 返回随机漫游' : view === 'bottles' ? '← 返回漂流瓶' : '← 返回我的星球'}</button>
+        <DitherButton className="music-text-button music-back-link" type="button" onClick={() => setVisitedPlanet(null)}>{view === 'galaxy' ? '← 返回 Galaxy' : view === 'roam' ? '← 返回随机漫游' : view === 'bottles' ? '← 返回漂流瓶' : '← 返回我的星球'}</DitherButton>
 
         <section className="music-public-section" aria-label="对方公开选择的歌曲">
-          <div className="music-section-heading"><h3>星球上的歌</h3><span>{visitedPlanet.tracks.length} 首</span></div>
+          <div className="music-section-heading"><DitherTitle level={3}>星球上的歌</DitherTitle><span>{visitedPlanet.tracks.length} 首</span></div>
           <div className="music-owned-track-list">
             {visitedPlanet.tracks.map((track) => <article className="music-owned-track" key={track.id}>
-              {track.coverUrl ? <img src={track.coverUrl} alt="" loading="lazy" /> : <span className="music-cover-fallback" aria-hidden="true">♫</span>}
+              <DitherTrackMark track={track} />
               <div className="music-track-label"><strong>{track.title}</strong><small>{track.artistName}{track.isPrimary ? ' · 星球主旋律' : ''}{isDemoTrack(track) ? ' · 演示曲目（不可播放）' : ''}</small></div>
               {track.officialUrl
                 ? <a href={track.officialUrl} target="_blank" rel="noreferrer" aria-label={`${track.title} · ${track.artistName} · 在官方平台打开`}>↗</a>
                 : <span className="music-link-unavailable" title="暂无官方播放链接">—</span>}
-              {canOpenSongPortal(track.id) && <button className="music-track-portal-button" type="button" onClick={() => { void openSongPortal(track) }}>继续寻找</button>}
+              {canOpenSongPortal(track.id) && <DitherButton className="music-track-portal-button" type="button" onClick={() => { void openSongPortal(track) }}>继续寻找</DitherButton>}
             </article>)}
           </div>
         </section>
 
         <section className="music-public-section music-moments" aria-label="对方公开的 Moments">
-          <div className="music-section-heading"><h3>公开 Moment</h3><span>{visitedPlanet.moments.length}</span></div>
+          <div className="music-section-heading"><DitherTitle level={3}>公开 Moment</DitherTitle><span>{visitedPlanet.moments.length}</span></div>
           {!visitedPlanet.moments.length
             ? <p className="music-moments-empty">这颗星球还没有公开 Moment。</p>
             : visitedPlanet.moments.map((moment) => <article className="music-moment-item" key={moment.id}>
@@ -2093,28 +1714,28 @@ function MusicApp() {
               </article>)}
         </section>
         {visitError && <p className="music-form-error" role="alert">{visitError}</p>}
-        {songPortal.status === 'ready' && <button className="music-secondary-button" type="button" onClick={() => setVisitedPlanet(null)}>返回同歌结果</button>}
+        {songPortal.status === 'ready' && <DitherButton className="music-secondary-button" type="button" onClick={() => setVisitedPlanet(null)}>返回同歌结果</DitherButton>}
       </aside>}
 
       {planet && !visitedPlanet && view === 'planet' && <aside className="music-panel music-planet-panel" aria-label="我的音乐星球">
-        <div className="music-panel-head"><div><span className="music-kicker">星球轨道 · {planet.visibility === 'public' ? '公开访问' : '仅自己'}</span><h2>留在这里的歌</h2></div><span className="music-count">{planet.tracks.length}<i>首</i></span></div>
+        <div className="music-panel-head"><div><span className="music-kicker">星球轨道 · {planet.visibility === 'public' ? '公开访问' : '仅自己'}</span><DitherTitle level={2}>留在这里的歌</DitherTitle></div><span className="music-count">{planet.tracks.length}<i>首</i></span></div>
         <div className="music-owned-track-list">
           {planet.tracks.map((track) => <article className="music-owned-track" key={track.id}>
-            {track.coverUrl ? <img src={track.coverUrl} alt="" loading="lazy" /> : <span className="music-cover-fallback" aria-hidden="true">♫</span>}
+            <DitherTrackMark track={track} />
             <div className="music-track-label"><strong>{track.title}</strong><small>{track.artistName}{track.isPrimary ? ' · 星球主旋律' : ''}{isDemoTrack(track) ? ' · 演示曲目（不可播放）' : ''}</small></div>
             {track.officialUrl
               ? <a href={track.officialUrl} target="_blank" rel="noreferrer" aria-label={`${track.title} · ${track.artistName} · 在官方平台打开`}>↗</a>
               : <span className="music-link-unavailable" title="暂无官方播放链接">—</span>}
-            <button className="music-track-portal-button" type="button" onClick={() => { void openSongPortal(track) }}>寻找与《{track.title}》同歌的星球</button>
+            <DitherButton className="music-track-portal-button" type="button" aria-label={`寻找与《${track.title}》同歌的星球`} onClick={() => { void openSongPortal(track) }}>撞歌 ↗</DitherButton>
           </article>)}
         </div>
 
         {songPortal.status !== 'idle' && <section className="music-song-portal" aria-label="同歌星球">
           <div className="music-section-heading">
-            <h3>与《{songPortal.track.title}》同歌</h3>
-            <button type="button" className="music-close-inline" aria-label="关闭同歌结果" onClick={() => setSongPortal({ status: 'idle' })}>×</button>
+            <DitherTitle level={3}>与《{songPortal.track.title}》同歌</DitherTitle>
+            <DitherButton type="button" className="music-close-inline" aria-label="关闭同歌结果" onClick={() => setSongPortal({ status: 'idle' })}>×</DitherButton>
           </div>
-          {songPortal.status === 'loading' && <div className="music-discovery-loading" role="status" aria-label="正在寻找同歌星球"><span /><span /><span /></div>}
+          {songPortal.status === 'loading' && <DitherLoadingRing label="正在寻找同歌星球" />}
           {songPortal.status === 'error' && <p className="music-form-error" role="alert">{songPortal.message}</p>}
           {songPortal.status === 'ready' && <>
             <p className={`music-discovery-status${songPortal.response.ranking.mode === 'model' ? ' is-model' : ''}`} aria-live="polite">
@@ -2129,9 +1750,9 @@ function MusicApp() {
               : <div className="music-discovery-list">
                   {songPortal.response.matches.map((match) => <article className="music-discovery-match" key={match.planetId}>
                     <div className="music-discovery-match-copy"><strong>{match.displayName}</strong>{match.tagline && <p>{match.tagline}</p>}<small>{matchDescription(match)}</small></div>
-                    <button className="music-secondary-button" type="button" disabled={Boolean(visitingPlanetId)} onClick={() => requestPublicPlanetVisit(match.planetId, match.displayName, 'song_portal', songPortal.track.id)}>
+                    <DitherButton className="music-secondary-button" type="button" disabled={Boolean(visitingPlanetId)} onClick={() => requestPublicPlanetVisit(match.planetId, match.displayName, 'song_portal', songPortal.track.id)}>
                       {visitingPlanetId === match.planetId ? '正在接近…' : `访问星球 ${match.displayName}`}
-                    </button>
+                    </DitherButton>
                   </article>)}
                 </div>}
             {visitError && <p className="music-form-error" role="alert">{visitError}</p>}
@@ -2139,7 +1760,7 @@ function MusicApp() {
         </section>}
 
         <form className="music-moment-form" onSubmit={addMoment}>
-          <div className="music-section-heading"><h3>留下一个 Moment</h3><span>最多 500 字</span></div>
+          <div className="music-section-heading"><DitherTitle level={3}>留下一个 Moment</DitherTitle><span>最多 500 字</span></div>
           <label htmlFor="music-moment-track">这段 Moment 属于哪首歌</label>
           <select id="music-moment-track" value={momentTrackId} onChange={(event) => setMomentTrackId(event.target.value)}>
             {planet.tracks.map((track) => <option key={track.id} value={track.id}>{track.title} · {track.artistName}</option>)}
@@ -2147,12 +1768,12 @@ function MusicApp() {
           <textarea value={momentText} onChange={(event) => setMomentText(event.target.value)} maxLength={500} placeholder="这首歌让你想起了什么？" aria-label="Moment 内容" />
           <div className="music-moment-actions"><label className="music-moment-privacy"><input type="checkbox" checked={momentPrivate} onChange={(event) => setMomentPrivate(event.target.checked)} /><span>{momentPrivate ? '仅自己可见' : '公开给访客'}</span></label><span>{momentText.length}/500</span></div>
           {momentFeedback && <p className="music-feedback" aria-live="polite">{momentFeedback}</p>}
-          <button className="music-secondary-button" type="submit" disabled={savingMoment || !momentTrackId}>{savingMoment ? '正在保存…' : '保存 Moment'} <span aria-hidden="true">↗</span></button>
+          <DitherButton className="music-secondary-button" type="submit" disabled={savingMoment || !momentTrackId}>{savingMoment ? '正在保存…' : '保存 Moment'} <span aria-hidden="true">↗</span></DitherButton>
         </form>
 
         <section className="music-moments" aria-label="我的 Moments">
-          <div className="music-section-heading"><h3>沿途留下的 Moment</h3><span>{moments.length}</span></div>
-          {!moments.length ? <p className="music-moments-empty">还没有 Moment。写下一段真实的片刻，星球就会继续变化。</p> : moments.map((moment) => <article className="music-moment-item" key={moment.id}>
+          <div className="music-section-heading"><DitherTitle level={3}>沿途留下的 Moment</DitherTitle><span>{moments.length}</span></div>
+          {!moments.length ? <p className="music-moments-empty">还没有 Moment。留下一段片刻吧。</p> : moments.map((moment) => <article className="music-moment-item" key={moment.id}>
             <div><strong>{moment.track.title}</strong><span>{moment.visibility === 'public' ? '公开' : '仅自己'} · {new Date(moment.createdAt).toLocaleDateString('zh-CN')}</span></div>
             {moment.contentText && <p>{moment.contentText}</p>}
             {momentManagement.status === 'editing' && momentManagement.momentId === moment.id
@@ -2179,10 +1800,10 @@ function MusicApp() {
                     <span>{momentManagement.visibility === 'public' ? '公开给访客' : '仅自己可见'}</span>
                   </label>
                   <div className="music-moment-owner-actions">
-                    <button className="music-secondary-button" type="submit" disabled={momentManagement.busy}>
+                    <DitherButton className="music-secondary-button" type="submit" disabled={momentManagement.busy}>
                       {momentManagement.busy ? '正在保存…' : '保存 Moment 修改'}
-                    </button>
-                    <button className="music-text-button" type="button" disabled={momentManagement.busy} onClick={() => setMomentManagement({ status: 'idle' })}>取消编辑</button>
+                    </DitherButton>
+                    <DitherButton className="music-text-button" type="button" disabled={momentManagement.busy} onClick={() => setMomentManagement({ status: 'idle' })}>取消编辑</DitherButton>
                   </div>
                   {momentManagement.error && <p className="music-form-error" role="alert">{momentManagement.error}</p>}
                 </form>
@@ -2191,58 +1812,58 @@ function MusicApp() {
                     <p>删除后，这条 Moment 会从访客页面和发现入口移除。</p>
                     {momentManagement.error && <p className="music-form-error" role="alert">{momentManagement.error}</p>}
                     <div className="music-moment-owner-actions">
-                      <button className="music-text-button is-danger" type="button" disabled={momentManagement.busy} onClick={() => { void deleteMoment() }}>
+                      <DitherButton className="music-text-button is-danger" type="button" disabled={momentManagement.busy} onClick={() => { void deleteMoment() }}>
                         {momentManagement.busy ? '正在删除…' : `确认删除 Moment：${moment.contentText.slice(0, 40) || moment.track.title}`}
-                      </button>
-                      <button className="music-text-button" type="button" disabled={momentManagement.busy} onClick={() => setMomentManagement({ status: 'idle' })}>
+                      </DitherButton>
+                      <DitherButton className="music-text-button" type="button" disabled={momentManagement.busy} onClick={() => setMomentManagement({ status: 'idle' })}>
                         {`取消删除 Moment：${moment.contentText.slice(0, 40) || moment.track.title}`}
-                      </button>
+                      </DitherButton>
                     </div>
                   </div>
                 : <div className="music-moment-owner-actions">
-                    <button className="music-text-button" type="button" disabled={momentManagement.status !== 'idle'} aria-label={`编辑 Moment：${moment.contentText.slice(0, 40) || moment.track.title}`} onClick={() => beginMomentEdit(moment)}>编辑</button>
-                    <button className="music-text-button is-danger" type="button" disabled={momentManagement.status !== 'idle'} aria-label={`删除 Moment：${moment.contentText.slice(0, 40) || moment.track.title}`} onClick={() => setMomentManagement({ status: 'confirm-delete', momentId: moment.id, busy: false, error: '' })}>删除</button>
+                    <DitherButton className="music-text-button" type="button" disabled={momentManagement.status !== 'idle'} aria-label={`编辑 Moment：${moment.contentText.slice(0, 40) || moment.track.title}`} onClick={() => beginMomentEdit(moment)}>编辑</DitherButton>
+                    <DitherButton className="music-text-button is-danger" type="button" disabled={momentManagement.status !== 'idle'} aria-label={`删除 Moment：${moment.contentText.slice(0, 40) || moment.track.title}`} onClick={() => setMomentManagement({ status: 'confirm-delete', momentId: moment.id, busy: false, error: '' })}>删除</DitherButton>
                   </div>}
           </article>)}
         </section>
       </aside>}
 
       {view === 'galaxy' && !visitedPlanet && <aside className="music-panel music-galaxy-panel" aria-label="Galaxy 公开星球发现">
-        <div className="music-panel-head"><div><span className="music-kicker">公开星球 · 可直接访问</span><h2>Galaxy</h2></div></div>
+        <div className="music-panel-head"><div><span className="music-kicker">公开星球 · 可直接访问</span><DitherTitle level={2}>Galaxy</DitherTitle></div></div>
         <p className="music-panel-note">按曲目、艺人或曲风浏览。艺人／曲风相近不代表听过同一首歌。</p>
         <div className="music-galaxy-dimensions" role="group" aria-label="Galaxy 分组方式">
-          {([{ id: 'song', label: '歌曲' }, { id: 'artist', label: '艺人' }, { id: 'genre', label: '曲风' }] as const).map((option) => <button
+          {([{ id: 'song', label: '歌曲' }, { id: 'artist', label: '艺人' }, { id: 'genre', label: '曲风' }] as const).map((option) => <DitherButton
             type="button"
             key={option.id}
             aria-pressed={galaxy.status !== 'idle' && galaxy.by === option.id}
             disabled={galaxy.status === 'loading'}
             onClick={() => { void regroupGalaxy(option.id) }}
-          >{option.label}</button>)}
+          >{option.label}</DitherButton>)}
         </div>
-        {galaxy.status === 'loading' && <p className="music-moments-empty" role="status">正在整理公开星球…</p>}
-        {galaxy.status === 'error' && <div className="music-galaxy-empty" role="alert"><p>Galaxy 暂时没有响应。</p><button type="button" className="music-text-button" onClick={() => { void loadGalaxy(galaxy.by) }}>重试</button></div>}
+        {galaxy.status === 'loading' && <DitherLoadingRing label="正在整理公开星球…" />}
+        {galaxy.status === 'error' && <div className="music-galaxy-empty" role="alert"><p>Galaxy 暂时没有响应。</p><DitherButton type="button" className="music-text-button" onClick={() => { void loadGalaxy(galaxy.by) }}>重试</DitherButton></div>}
         {galaxy.status === 'ready' && <>
           {!galaxy.response.groups.length
             ? <p className="music-moments-empty">现在还没有可展示的公开星球。</p>
             : <div className="music-galaxy-groups" role="group" aria-label="发现分组">
-                {galaxy.response.groups.map((group) => <button
+                {galaxy.response.groups.map((group) => <DitherButton
                   type="button"
                   className={`music-galaxy-group${galaxy.selectedGroupKey === group.key ? ' is-selected' : ''}`}
                   key={group.key}
                   aria-pressed={galaxy.selectedGroupKey === group.key}
                   onClick={() => focusGalaxyGroup(group.key)}
-                >{group.label} <span>· {group.planetCount}</span></button>)}
+                >{group.label} <span>· {group.planetCount}</span></DitherButton>)}
               </div>}
           {galaxy.response.groups.find((group) => group.key === galaxy.selectedGroupKey) && (() => {
             const group = galaxy.response.groups.find((item) => item.key === galaxy.selectedGroupKey)!
             return <section className="music-public-section" aria-label="分组中的公开星球">
-              <div className="music-section-heading"><h3>{group.label}</h3><span>{group.planetCount} 颗</span></div>
+              <div className="music-section-heading"><DitherTitle level={3}>{group.label}</DitherTitle><span>{group.planetCount} 颗</span></div>
               <div className="music-discovery-list">
                 {group.planets.map((candidate) => <article className="music-discovery-match" key={candidate.planetId}>
-                  <div className="music-discovery-match-copy"><strong>{candidate.displayName}</strong>{candidate.tagline && <p>{candidate.tagline}</p>}<small>{galaxyReason(candidate.reasonCode)}</small></div>
-                  <button className="music-secondary-button" type="button" disabled={Boolean(visitingPlanetId)} onClick={() => requestPublicPlanetVisit(candidate.planetId, candidate.displayName, 'galaxy')}>
+                  <div className="music-discovery-match-copy"><DitherPlanetMark planetId={candidate.planetId} visual={candidate.visual} /><strong>{candidate.displayName}</strong>{candidate.tagline && <p>{candidate.tagline}</p>}<small>{galaxyReason(candidate.reasonCode)}</small></div>
+                  <DitherButton className="music-secondary-button" type="button" disabled={Boolean(visitingPlanetId)} onClick={() => requestPublicPlanetVisit(candidate.planetId, candidate.displayName, 'galaxy')}>
                     {visitingPlanetId === candidate.planetId ? '正在接近…' : `访问星球 ${candidate.displayName}`}
-                  </button>
+                  </DitherButton>
                 </article>)}
               </div>
             </section>
@@ -2252,10 +1873,10 @@ function MusicApp() {
       </aside>}
 
       {view === 'roam' && !visitedPlanet && <aside className="music-panel music-discovery-panel" aria-label="随机漫游">
-        <div className="music-panel-head"><div><span className="music-kicker">相关性与随机性 · 今日航线</span><h2>随机漫游</h2></div></div>
+        <div className="music-panel-head"><div><span className="music-kicker">相关性与随机性 · 今日航线</span><DitherTitle level={2}>随机漫游</DitherTitle></div></div>
         <p className="music-panel-note">只从真实、公开可访问的星球中探索。打开卡片才会访问；推荐本身不会留下足迹。</p>
-        {discovery.status === 'loading' && <p className="music-moments-empty" role="status">正在寻找下一站…</p>}
-        {discovery.status === 'error' && <div className="music-galaxy-empty" role="alert"><p>暂时无法整理漫游路线。</p><button type="button" className="music-text-button" onClick={() => { void loadDiscovery() }}>重试</button></div>}
+        {discovery.status === 'loading' && <DitherLoadingRing label="正在寻找下一站…" />}
+        {discovery.status === 'error' && <div className="music-galaxy-empty" role="alert"><p>暂时无法整理漫游路线。</p><DitherButton type="button" className="music-text-button" onClick={() => { void loadDiscovery() }}>重试</DitherButton></div>}
         {discovery.status === 'ready' && <>
           <p className={`music-discovery-status${discovery.response.ranking.mode === 'model' ? ' is-model' : ''}`} aria-live="polite">
             {discovery.response.ranking.mode === 'model'
@@ -2273,12 +1894,12 @@ function MusicApp() {
             : <div className="music-discovery-list">
                 {discovery.response.recommendations.map((candidate) => <article className="music-discovery-match" key={candidate.planetId}>
                   <div className="music-discovery-match-copy"><strong>{candidate.displayName}</strong>{candidate.tagline && <p>{candidate.tagline}</p>}<small>{discoveryReason(candidate.reasonCode)}</small></div>
-                  <button className="music-secondary-button" type="button" disabled={Boolean(visitingPlanetId)} onClick={() => requestPublicPlanetVisit(candidate.planetId, candidate.displayName, 'random_roam')}>
+                  <DitherButton className="music-secondary-button" type="button" disabled={Boolean(visitingPlanetId)} onClick={() => requestPublicPlanetVisit(candidate.planetId, candidate.displayName, 'random_roam')}>
                     {visitingPlanetId === candidate.planetId ? '正在接近…' : `访问星球 ${candidate.displayName}`}
-                  </button>
+                  </DitherButton>
                 </article>)}
               </div>}
-          <button className="music-text-button music-reroll-button" type="button" onClick={() => { void loadDiscovery() }}>再漫游一次 ↗</button>
+          <DitherButton className="music-text-button music-reroll-button" type="button" onClick={() => { void loadDiscovery() }}>再漫游一次 ↗</DitherButton>
         </>}
       </aside>}
 
@@ -2290,20 +1911,20 @@ function MusicApp() {
       />}
 
       {view === 'orbit' && !visitedPlanet && <aside className="music-panel music-orbit-panel" aria-label="My Orbit">
-        <div className="music-panel-head"><div><span className="music-kicker">你的私人星图 · 仅自己可见</span><h2>My Orbit</h2></div></div>
+        <div className="music-panel-head"><div><span className="music-kicker">你的私人星图 · 仅自己可见</span><DitherTitle level={2}>My Orbit</DitherTitle></div></div>
         <p className="music-panel-note">足迹会随星球当前的公开状态变化；隐身访问只留在你的历史里。</p>
-        {orbit.status === 'loading' && <p className="music-moments-empty" role="status">正在整理你的星图…</p>}
-        {orbit.status === 'error' && <div className="music-galaxy-empty" role="alert"><p>暂时无法读取 My Orbit。</p><button type="button" className="music-text-button" onClick={() => { void loadOrbit() }}>重试</button></div>}
+        {orbit.status === 'loading' && <DitherLoadingRing label="正在整理你的星图…" />}
+        {orbit.status === 'error' && <div className="music-galaxy-empty" role="alert"><p>暂时无法读取 My Orbit。</p><DitherButton type="button" className="music-text-button" onClick={() => { void loadOrbit() }}>重试</DitherButton></div>}
         {socialFeedback && view === 'orbit' && <p className="music-social-feedback" role="status">{socialFeedback}</p>}
         {socialError && view === 'orbit' && <p className="music-form-error" role="alert">{socialError}</p>}
         {friendRequests && view === 'orbit' && <section className="music-orbit-group music-friend-requests" aria-label="好友请求">
-          <div className="music-section-heading"><h3>好友请求</h3><span>{friendRequests.incoming.length} 待处理</span></div>
+          <div className="music-section-heading"><DitherTitle level={3}>好友请求</DitherTitle><span>{friendRequests.incoming.length} 待处理</span></div>
           <h4>收到的好友请求</h4>
           {!friendRequests.incoming.length ? <p className="music-moments-empty">还没有新的请求。</p> : friendRequests.incoming.map((request) => <article className="music-orbit-entry" key={request.id}>
             <div><strong>{request.displayName}</strong>{request.tagline && <p>{request.tagline}</p>}</div>
             <div className="music-request-actions">
-              <button type="button" className="music-secondary-button" disabled={socialBusyId === request.id} onClick={() => { void respondToFriendRequest(request.id, 'accept') }}>接受 {request.displayName}</button>
-              <button type="button" className="music-text-button" disabled={socialBusyId === request.id} onClick={() => { void respondToFriendRequest(request.id, 'reject') }}>拒绝</button>
+              <DitherButton type="button" className="music-secondary-button" disabled={socialBusyId === request.id} onClick={() => { void respondToFriendRequest(request.id, 'accept') }}>接受 {request.displayName}</DitherButton>
+              <DitherButton type="button" className="music-text-button" disabled={socialBusyId === request.id} onClick={() => { void respondToFriendRequest(request.id, 'reject') }}>拒绝</DitherButton>
             </div>
           </article>)}
           <h4>已发送</h4>
@@ -2313,8 +1934,8 @@ function MusicApp() {
           </article>)}
         </section>}
         {conversation.status !== 'closed' && <section className="music-orbit-group music-conversation" aria-label={`与${conversation.displayName}的私信`}>
-          <div className="music-section-heading"><div><h3>与 {conversation.displayName} 私信</h3><small>仅好友可见</small></div><button className="music-text-button" type="button" onClick={() => { setConversation({ status: 'closed' }); setMessageError('') }}>返回好友列表</button></div>
-          {conversation.status === 'loading' && <p className="music-moments-empty" role="status">正在打开对话…</p>}
+          <div className="music-section-heading"><div><DitherTitle level={3}>与 {conversation.displayName} 私信</DitherTitle><small>仅好友可见</small></div><DitherButton className="music-text-button" type="button" onClick={() => { setConversation({ status: 'closed' }); setMessageError('') }}>返回好友列表</DitherButton></div>
+          {conversation.status === 'loading' && <DitherLoadingRing label="正在打开对话…" />}
           {conversation.status === 'error' && <p className="music-moments-empty">对话不可用，请确认好友关系仍然有效。</p>}
           {conversation.status === 'ready' && <>
             <div className="music-message-list" role="log" aria-label="私信记录">
@@ -2327,47 +1948,47 @@ function MusicApp() {
               <label htmlFor="music-direct-message">发送私信</label>
               <textarea id="music-direct-message" value={messageDraft} onChange={(event) => setMessageDraft(event.target.value)} maxLength={2000} placeholder="写一条文字消息…" />
               {messageError && <p className="music-form-error" role="alert">{messageError}</p>}
-              <button className="music-primary-button" type="submit" disabled={sendingMessage || !messageDraft.trim()}>{sendingMessage ? '发送中…' : '发送'}</button>
+              <DitherButton className="music-primary-button" type="submit" disabled={sendingMessage || !messageDraft.trim()}>{sendingMessage ? '发送中…' : '发送'}</DitherButton>
             </form>
           </>}
         </section>}
         {orbit.status === 'ready' && <div className="music-orbit-groups">
           <section className="music-orbit-group" aria-label="撞歌遇见">
-            <div className="music-section-heading"><h3>撞歌遇见</h3><span>{orbit.response.groups.songEncounters.length}</span></div>
+            <div className="music-section-heading"><DitherTitle level={3}>撞歌遇见</DitherTitle><span>{orbit.response.groups.songEncounters.length}</span></div>
             {!orbit.response.groups.songEncounters.length ? <p className="music-moments-empty">还没有通过同歌通道访问过星球。</p> : orbit.response.groups.songEncounters.map((entry) => <article className="music-orbit-entry" key={entry.planetId}>
-              <div><strong>{entry.displayName}</strong>{entry.tagline && <p>{entry.tagline}</p>}</div>
-              <button type="button" className="music-secondary-button" disabled={Boolean(visitingPlanetId)} onClick={() => requestPublicPlanetVisit(entry.planetId, entry.displayName, 'orbit')}>访问星球</button>
+              <div><DitherPlanetMark planetId={entry.planetId} visual={entry.visual} /><strong>{entry.displayName}</strong>{entry.tagline && <p>{entry.tagline}</p>}</div>
+              <DitherButton type="button" className="music-secondary-button" disabled={Boolean(visitingPlanetId)} onClick={() => requestPublicPlanetVisit(entry.planetId, entry.displayName, 'orbit')}>访问星球</DitherButton>
             </article>)}
           </section>
           <section className="music-orbit-group" aria-label="好友">
-            <div className="music-section-heading"><h3>好友</h3><span>{orbit.response.groups.friends.length}</span></div>
+            <div className="music-section-heading"><DitherTitle level={3}>好友</DitherTitle><span>{orbit.response.groups.friends.length}</span></div>
             {!orbit.response.groups.friends.length ? <p className="music-moments-empty">成为好友后，会长期留在这里。</p> : orbit.response.groups.friends.map((entry) => <article className="music-orbit-entry" key={entry.userId}>
-              <div><strong>{entry.displayName}</strong>{entry.unreadCount > 0 && <small className="music-unread-count">未读 {entry.unreadCount} 条</small>}{entry.tagline && <p>{entry.tagline}</p>}{!entry.canVisit && <small>星球当前不可公开访问</small>}</div>
+              <div><DitherPlanetMark planetId={entry.planetId} visual={entry.visual} /><strong>{entry.displayName}</strong>{entry.unreadCount > 0 && <small className="music-unread-count">未读 {entry.unreadCount} 条</small>}{entry.tagline && <p>{entry.tagline}</p>}{!entry.canVisit && <small>星球当前不可公开访问</small>}</div>
               <div className="music-friend-actions">
-                <button type="button" className="music-secondary-button" aria-label={`私信 ${entry.displayName}${entry.unreadCount > 0 ? `，未读 ${entry.unreadCount} 条` : ''}`} onClick={() => { void openConversation(entry.userId, entry.displayName) }}>私信{entry.unreadCount > 0 ? ` · ${entry.unreadCount}` : ''}</button>
-                {entry.canVisit && entry.planetId && <button type="button" className="music-secondary-button" disabled={Boolean(visitingPlanetId)} onClick={() => requestPublicPlanetVisit(entry.planetId!, entry.displayName, 'orbit')}>访问星球</button>}
+                <DitherButton type="button" className="music-secondary-button" aria-label={`私信 ${entry.displayName}${entry.unreadCount > 0 ? `，未读 ${entry.unreadCount} 条` : ''}`} onClick={() => { void openConversation(entry.userId, entry.displayName) }}>私信{entry.unreadCount > 0 ? ` · ${entry.unreadCount}` : ''}</DitherButton>
+                {entry.canVisit && entry.planetId && <DitherButton type="button" className="music-secondary-button" disabled={Boolean(visitingPlanetId)} onClick={() => requestPublicPlanetVisit(entry.planetId!, entry.displayName, 'orbit')}>访问星球</DitherButton>}
               </div>
             </article>)}
           </section>
           <section className="music-orbit-group" aria-label="我访问过">
-            <div className="music-section-heading"><h3>我访问过</h3><span>{orbit.response.groups.visitedByMe.length}</span></div>
+            <div className="music-section-heading"><DitherTitle level={3}>我访问过</DitherTitle><span>{orbit.response.groups.visitedByMe.length}</span></div>
             {!orbit.response.groups.visitedByMe.length ? <p className="music-moments-empty">你访问过的公开星球会出现在这里。</p> : orbit.response.groups.visitedByMe.map((entry) => <article className="music-orbit-entry" key={entry.planetId}>
-              <div><strong>{entry.displayName}</strong>{entry.tagline && <p>{entry.tagline}</p>}{entry.isIncognito && <small>隐身访问 · 仅你可见</small>}</div>
-              <button type="button" className="music-secondary-button" disabled={Boolean(visitingPlanetId)} onClick={() => requestPublicPlanetVisit(entry.planetId, entry.displayName, 'orbit')}>再次访问</button>
+              <div><DitherPlanetMark planetId={entry.planetId} visual={entry.visual} /><strong>{entry.displayName}</strong>{entry.tagline && <p>{entry.tagline}</p>}{entry.isIncognito && <small>隐身访问 · 仅你可见</small>}</div>
+              <DitherButton type="button" className="music-secondary-button" disabled={Boolean(visitingPlanetId)} onClick={() => requestPublicPlanetVisit(entry.planetId, entry.displayName, 'orbit')}>再次访问</DitherButton>
             </article>)}
           </section>
           <section className="music-orbit-group" aria-label="访问过我">
-            <div className="music-section-heading"><h3>访问过我</h3><span>{orbit.response.groups.visitorsToMe.length}</span></div>
+            <div className="music-section-heading"><DitherTitle level={3}>访问过我</DitherTitle><span>{orbit.response.groups.visitorsToMe.length}</span></div>
             {!orbit.response.groups.visitorsToMe.length ? <p className="music-moments-empty">非隐身访客的公开星球会显示在这里。</p> : orbit.response.groups.visitorsToMe.map((entry) => <article className="music-orbit-entry" key={`${entry.userId}-${entry.planetId}`}>
-              <div><strong>{entry.displayName}</strong>{entry.tagline && <p>{entry.tagline}</p>}</div>
-              <button type="button" className="music-secondary-button" disabled={Boolean(visitingPlanetId)} onClick={() => requestPublicPlanetVisit(entry.planetId, entry.displayName, 'orbit')}>回访星球</button>
+              <div><DitherPlanetMark planetId={entry.planetId} visual={entry.visual} /><strong>{entry.displayName}</strong>{entry.tagline && <p>{entry.tagline}</p>}</div>
+              <DitherButton type="button" className="music-secondary-button" disabled={Boolean(visitingPlanetId)} onClick={() => requestPublicPlanetVisit(entry.planetId, entry.displayName, 'orbit')}>回访星球</DitherButton>
             </article>)}
           </section>
           <section className="music-orbit-group" aria-label="路过的星球">
-            <div className="music-section-heading"><h3>路过的星球</h3><span>{orbit.response.groups.dailyRoam.length} · {orbit.response.date}</span></div>
+            <div className="music-section-heading"><DitherTitle level={3}>路过的星球</DitherTitle><span>{orbit.response.groups.dailyRoam.length} · {orbit.response.date}</span></div>
             {!orbit.response.groups.dailyRoam.length ? <p className="music-moments-empty">今天没有可推荐的公开星球。</p> : orbit.response.groups.dailyRoam.map((entry) => <article className="music-orbit-entry" key={entry.planetId}>
-              <div><strong>{entry.displayName}</strong>{entry.tagline && <p>{entry.tagline}</p>}<small>{discoveryReason(entry.reasonCode)}</small></div>
-              <button type="button" className="music-secondary-button" disabled={Boolean(visitingPlanetId)} onClick={() => requestPublicPlanetVisit(entry.planetId, entry.displayName, 'daily_roam')}>访问星球 {entry.displayName}</button>
+              <div><DitherPlanetMark planetId={entry.planetId} visual={entry.visual} /><strong>{entry.displayName}</strong>{entry.tagline && <p>{entry.tagline}</p>}<small>{discoveryReason(entry.reasonCode)}</small></div>
+              <DitherButton type="button" className="music-secondary-button" disabled={Boolean(visitingPlanetId)} onClick={() => requestPublicPlanetVisit(entry.planetId, entry.displayName, 'daily_roam')}>访问星球 {entry.displayName}</DitherButton>
             </article>)}
           </section>
         </div>}
@@ -2391,13 +2012,13 @@ function MusicApp() {
         }}
       >
         <span className="music-kicker">公开星球 · 访问前确认</span>
-        <h2 id="music-visit-title">要访问「{pendingVisit.displayName}」吗？</h2>
+        <DitherTitle level={2} id="music-visit-title">要访问「{pendingVisit.displayName}」吗？</DitherTitle>
         <p>默认会在对方的 Orbit 留下最近访问足迹。你也可以选择隐身；隐身足迹只保留在自己的访问历史中。</p>
         <label className="music-visit-incognito"><input type="checkbox" checked={incognitoVisit} onChange={(event) => setIncognitoVisit(event.target.checked)} /><span><strong>隐身访问</strong><small>对方不会在“访问过我”中看到你</small></span></label>
         {visitError && <p className="music-form-error" role="alert">{visitError}</p>}
         <div className="music-visit-actions">
-          <button className="music-secondary-button" type="button" disabled={Boolean(visitingPlanetId)} onClick={() => { setPendingVisit(null); setVisitError('') }}>暂不访问</button>
-          <button className="music-primary-button" type="button" disabled={Boolean(visitingPlanetId)} onClick={() => { void visitPublicPlanet() }}>{visitingPlanetId ? '正在接近…' : '继续访问'} <span aria-hidden="true">↗</span></button>
+          <DitherButton className="music-secondary-button" type="button" disabled={Boolean(visitingPlanetId)} onClick={() => { setPendingVisit(null); setVisitError('') }}>暂不访问</DitherButton>
+          <DitherButton className="music-primary-button" type="button" disabled={Boolean(visitingPlanetId)} onClick={() => { void visitPublicPlanet() }}>{visitingPlanetId ? '正在接近…' : '继续访问'} <span aria-hidden="true">↗</span></DitherButton>
         </div>
       </section>
     </div>}
