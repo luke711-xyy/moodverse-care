@@ -46,3 +46,10 @@ test('rotated hit areas use the inverse of the painted shape rotation', () => {
   const screenY = 100 + 60 * (point!.x * Math.sin(rotation) + point!.y * Math.cos(rotation))
   expect(hitTestDitherAssets([{ id: 'rotated', spec: rotatedSpec, x: 100, y: 100, radius: 60, rotation }], screenX, screenY)?.id).toBe('rotated')
 })
+
+test('coarse visible WebGL edge cells remain clickable after rotation', () => {
+  const asset = { id: 'coarse', spec: { ...spec, overrides: { form: 'organic' as const, size: 1 } }, x: 150, y: 150, radius: 100, rotation: .7 }
+  // Actual WebGL readPixels gives alpha 129 at this cell. Its unquantized
+  // mathematical point is outside the silhouette, but the painted cell is not.
+  expect(hitTestDitherAssets([asset], 150 - 78, 150 - 43)?.id).toBe('coarse')
+})

@@ -42,7 +42,7 @@ float threshold(vec2 p){
 void main(){
  vec2 coord=vAsset;
  if(uStyle.w>0.){vec2 delta=coord-uPointer;coord+=delta*exp(-dot(delta,delta)*6.)*uStyle.w;}
- float ct=cos(uRotation),st=sin(uRotation);coord=mat2(ct,st,-st,ct)*coord;
+ float ct=cos(uRotation),st=sin(uRotation);coord=mat2(ct,-st,st,ct)*coord;
  vec2 cells=floor((coord+1.2)*uGrid);
  vec2 uv=(cells+.5)/uGrid-1.2;
  float r=length(uv),ang=atan(uv.y,uv.x),t=uPhase;

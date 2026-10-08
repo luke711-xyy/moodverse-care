@@ -17,6 +17,7 @@ export function Stage(props: Props) {
   const wrap = useRef<HTMLDivElement>(null), latestFrame = useRef<StageFrame | null>(null)
   const [bounds, setBounds] = useState({ width: 1000, height: 700 })
   const [ownRotation, setOwnRotation] = useState(0)
+  const [renderMode, setRenderMode] = useState<'webgl2' | 'canvas2d'>('webgl2')
   const drag = useRef<{ x: number; y: number; travel: number } | null>(null)
   const owner = useMemo(()=>props.appearancePreview ?? (props.planet ? resolveDitherSpec(props.planet.id, props.planet.tracks, props.planet.visual) : createDitherSpec({ planetId: 'preview-' + props.previewSeed, tracks: props.previewTracks ?? [] })), [props.appearancePreview, props.planet, props.previewSeed, props.previewTracks])
   const visitor = useMemo(()=>props.visitedPlanet ? resolveDitherSpec(props.visitedPlanet.id, props.visitedPlanet.tracks, props.visitedPlanet.visual) : undefined, [props.visitedPlanet])
@@ -53,7 +54,8 @@ export function Stage(props: Props) {
   const activate = (clientX:number, clientY:number)=> {
     if (traveling) return
     const rect=wrap.current!.getBoundingClientRect(), x=clientX-rect.left, y=clientY-rect.top, frame=latestFrame.current!
-    const hit=hitTestDitherAssets(frame.assets.filter(a=>a.id !== 'nebula'),x,y)
+    const canvas=wrap.current!.querySelector<HTMLCanvasElement>('[data-dither-renderer]')
+    const hit=hitTestDitherAssets(frame.assets.filter(a=>a.id !== 'nebula'),x,y,{mode:renderMode,pointer:frame.pointer,pixelRatio:canvas ? canvas.width/rect.width : 1})
     if (hit?.id.startsWith('music:')) { props.onMusicSelect(hit.id.slice(6)); return }
     if (hit?.id.startsWith('friend:')) { props.onFriendSelect(hit.id.slice(7)); return }
     if (hit?.id.startsWith('planet:') && props.focusedGalaxy) {
@@ -76,7 +78,7 @@ export function Stage(props: Props) {
       {Array.from({length:80},(_,i)=><rect key={i} x={stableHash('star-x'+i)%1000/1000*bounds.width} y={stableHash('star-y'+i)%1000/1000*bounds.height} width={i%9===0 ? 2 : 1} height={i%9===0 ? 2 : 1} opacity={.15+i%4*.12} />)}
       {frame.orbits.map((orbit,i)=><DitherOrbit key={i} orbit={orbit} />)}
     </svg>
-    <DitherCanvas getFrame={getFrame} reducedMotion={props.reducedMotion} />
+    <DitherCanvas getFrame={getFrame} reducedMotion={props.reducedMotion} onModeChange={setRenderMode} />
     {traveling && <div className="dither-travel-caption" style={{opacity:cloud}} aria-live="polite">{desiredHome===0 ? '穿过星云 · Galaxy' : '穿过星云 · 我的星球'}</div>}
     <div className="dither-stage-accessible" aria-label="场景对象">
       {props.productView==='galaxy' && !visitor && (props.focusedGalaxy ? props.galaxySystems.filter(s=>s.id===props.focusedGalaxy).flatMap(s=>s.planets.map(p=><button disabled={traveling} key={p.id} onClick={()=>props.onOpenPlanet(p,s.id)}>场景星球：{p.alias}</button>)) : props.galaxySystems.map(s=><button disabled={traveling} key={s.id} onClick={()=>props.onSelectGalaxy(s.id)}>场景星系：{s.label}</button>))}
