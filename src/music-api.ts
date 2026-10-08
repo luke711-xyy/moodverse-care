@@ -29,6 +29,18 @@ export type MusicPlanet = {
   tracks: MusicPlanetTrack[]
 }
 
+export type MusicFriendSatellite = {
+  id: string
+  displayName: string
+  tagline: string
+  color: string
+  visualSeed: string
+  orbitRadius: number
+  orbitPhase: number
+  isVirtual: boolean
+  canRemove: boolean
+}
+
 export type MusicMoment = {
   id: string
   trackId: string
@@ -72,6 +84,7 @@ export type GalaxyPlanetCard = {
   displayName: string
   tagline: string
   reasonCode: 'same_song' | 'same_artist' | 'same_genre'
+  visual?: MusicPlanetVisual
 }
 
 export type GalaxyGroup = {
@@ -298,9 +311,15 @@ export function createMusicApi(fetcher: typeof fetch = fetch) {
     async loadHome() {
       const [catalog, owned] = await Promise.all([
         request<{ tracks: MusicTrackSummary[] }>('/api/music/catalog'),
-        request<{ planet: MusicPlanet | null }>('/api/me/music-planet'),
+        request<{ planet: MusicPlanet | null; friendSatellites?: MusicFriendSatellite[] }>('/api/me/music-planet'),
       ])
-      return { tracks: catalog.tracks, planet: owned.planet }
+      return { tracks: catalog.tracks, planet: owned.planet, friendSatellites: owned.friendSatellites ?? [] }
+    },
+    loadFriendSatellites() {
+      return request<{ friendSatellites: MusicFriendSatellite[] }>('/api/me/friend-satellites')
+    },
+    deleteFriendSatellite(id: string) {
+      return request<{ deleted: true }>(`/api/me/friend-satellites/${encodeURIComponent(id)}`, { method: 'DELETE' })
     },
     async loadMoments() {
       const response = await request<{ moments: MusicMoment[] }>('/api/me/music-planet/moments')

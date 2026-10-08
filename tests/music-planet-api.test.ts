@@ -59,7 +59,7 @@ async function call(
 
 async function readPlanet(subject = 'owner-subject-1') {
   const response = await call(onRequestGet, 'GET', undefined, subject)
-  return { response, body: await response.json() as { planet: null | Record<string, any>; isDemoAccount: boolean } }
+  return { response, body: await response.json() as { planet: null | Record<string, any>; isDemoAccount: boolean; friendSatellites: Array<Record<string, any>> } }
 }
 
 async function createPlanet(body: unknown, subject = 'owner-subject-1') {
@@ -75,8 +75,13 @@ test('music planet GET requires verified Access identity and returns an empty ow
 
   const { response, body } = await readPlanet()
   expect(response.status).toBe(200)
-  expect(body).toEqual({ planet: null, isDemoAccount: false })
+  expect(body.planet).toBeNull()
+  expect(body.isDemoAccount).toBe(false)
+  expect(body.friendSatellites).toHaveLength(3)
+  expect(body.friendSatellites.map((friend) => friend.displayName)).toEqual(['小满', '星野', '阿澄'])
+  expect(body.friendSatellites.every((friend) => friend.isVirtual && friend.canRemove)).toBe(true)
   expect(fixture.sqlite.prepare('SELECT count(*) AS count FROM music_planets').get()).toEqual({ count: 0 })
+  expect(fixture.sqlite.prepare('SELECT count(*) AS count FROM music_friend_satellites').get()).toEqual({ count: 3 })
 })
 
 test('default anonymous sessions persist in an HttpOnly device cookie', async () => {
@@ -87,6 +92,8 @@ test('default anonymous sessions persist in an HttpOnly device cookie', async ()
   expect(first.status).toBe(200)
   const cookie = first.headers.get('set-cookie')
   expect(cookie).toMatch(/^mv_session=.*; Path=\/; Max-Age=31536000; HttpOnly; Secure; SameSite=Lax$/)
+  const firstBody = await first.json() as { friendSatellites: Array<{ id: string }> }
+  expect(firstBody.friendSatellites).toHaveLength(3)
   const firstUser = fixture.sqlite.prepare('SELECT id FROM users').get() as { id: string }
 
   const returningDevice = await onRequestGet({
@@ -95,14 +102,18 @@ test('default anonymous sessions persist in an HttpOnly device cookie', async ()
   } as never)
   expect(returningDevice.status).toBe(200)
   expect(returningDevice.headers.get('set-cookie')).toBeNull()
+  const returningBody = await returningDevice.json() as { friendSatellites: Array<{ id: string }> }
+  expect(returningBody.friendSatellites.map((friend) => friend.id)).toEqual(firstBody.friendSatellites.map((friend) => friend.id))
   expect(fixture.sqlite.prepare('SELECT count(*) AS count FROM users').get()).toEqual({ count: 1 })
   expect(fixture.sqlite.prepare('SELECT id FROM users').get()).toEqual(firstUser)
+  expect(fixture.sqlite.prepare('SELECT count(*) AS count FROM music_friend_satellites').get()).toEqual({ count: 3 })
 
   const anotherDevice = await onRequestGet({
     request: new Request('https://moodverse.test/api/me/music-planet'), env: anonymousEnv,
   } as never)
   expect(anotherDevice.headers.get('set-cookie')).toMatch(/^mv_session=/)
   expect(fixture.sqlite.prepare('SELECT count(*) AS count FROM users').get()).toEqual({ count: 2 })
+  expect(fixture.sqlite.prepare('SELECT count(*) AS count FROM music_friend_satellites').get()).toEqual({ count: 6 })
 })
 
 test('marks only the configured demo email without returning its email address', async () => {

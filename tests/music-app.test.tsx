@@ -796,7 +796,11 @@ test('a visitor can browse public Galaxy planets by genre and open one without a
   expect(await screen.findByRole('heading', { name: 'Galaxy' })).toBeTruthy()
   expect(screen.queryByText('只属于我的星球视觉摘要。')).toBeNull()
   expect(await screen.findByRole('button', { name: 'indie · 1' })).toBeTruthy()
+  expect(await screen.findByRole('button', { name: '前往星系 indie' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: '穿过星云回到我的星球' })).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'indie · 1' }))
+  expect(await screen.findByText('星系 · indie')).toBeTruthy()
+  expect(screen.getByRole('button', { name: '← 回到宇宙' })).toBeTruthy()
   expect(await screen.findByRole('button', { name: '访问星球 潮汐边' })).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: '访问星球 潮汐边' }))
   expect(await screen.findByRole('dialog')).toBeTruthy()
@@ -901,6 +905,7 @@ test('My Orbit separates its five groups and visiting a daily route happens only
 test('My Orbit lets users answer friend requests and open a friend-only text conversation', async () => {
   let accepted = false
   let blocked = false
+  let friendSatelliteReloads = 0
   const sentMessages: string[] = []
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), 'https://moodverse.test')
@@ -911,6 +916,12 @@ test('My Orbit lets users answer friend requests and open a friend-only text con
       friends: accepted ? [{ userId: 'friend-a', planetId: 'friend-planet', displayName: '海边的人', tagline: '今晚听潮', occurredAt: '2026-09-30T09:00:00.000Z', canVisit: true, unreadCount: 1 }] : [],
       visitedByMe: [], visitorsToMe: [], dailyRoam: [],
     } })
+    if (url.pathname === '/api/me/friend-satellites') {
+      friendSatelliteReloads += 1
+      return Response.json({ friendSatellites: accepted ? [
+        { id: 'friend-friend-a', displayName: '海边的人', tagline: '今晚听潮', color: '#8dcfff', visualSeed: 'friend-a', orbitRadius: .34, orbitPhase: 1.1, isVirtual: false, canRemove: false },
+      ] : [] })
+    }
     if (url.pathname === '/api/me/friend-requests/request-a' && init?.method === 'PATCH') {
       accepted = true
       return Response.json({ requestId: 'request-a', status: 'accepted' })
@@ -948,6 +959,7 @@ test('My Orbit lets users answer friend requests and open a friend-only text con
   fireEvent.click(screen.getByRole('button', { name: '发送' }))
   expect(await screen.findByText('此好友关系已被屏蔽，无法发送消息。')).toBeTruthy()
   expect(sentMessages).toEqual(['我也在听。'])
+  expect(friendSatelliteReloads).toBe(1)
 })
 
 test('a visitor can send a friend request from a public planet and block its owner', async () => {
@@ -1061,4 +1073,44 @@ test('a visitor can send, receive, open, comment on and release a drift bottle',
   fireEvent.click(receiveToggle)
   expect(await screen.findByText('关闭后不会收到新的投递；已收到的瓶仍可处理。')).toBeTruthy()
   expect(receiving).toBe(false)
+})
+
+test('settings can remove a virtual friend satellite without treating it as a real friendship', async () => {
+  const state = {
+    friends: [
+      { id: 'friend-real', displayName: '真实好友', tagline: '', color: '#8dcfff', visualSeed: 'real', orbitRadius: .34, orbitPhase: .1, isVirtual: false, canRemove: false },
+      { id: 'friend-virtual-a', displayName: '小满', tagline: '喜欢沿着熟悉的旋律散步。', color: '#77dec8', visualSeed: 'mint', orbitRadius: .235, orbitPhase: .35, isVirtual: true, canRemove: true },
+      { id: 'friend-virtual-b', displayName: '星野', tagline: '把晚风收藏进歌里。', color: '#b39aff', visualSeed: 'lilac', orbitRadius: .265, orbitPhase: 2.42, isVirtual: true, canRemove: true },
+      { id: 'friend-virtual-c', displayName: '阿澄', tagline: '每一条河都有自己的节奏。', color: '#ffc47d', visualSeed: 'amber', orbitRadius: .295, orbitPhase: 4.53, isVirtual: true, canRemove: true },
+    ],
+    deleted: [] as string[],
+  }
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = new URL(String(input), 'https://moodverse.test').pathname
+    if (path === '/api/music/catalog') return Response.json({ tracks })
+    if (path === '/api/me/music-planet') return Response.json({ planet: null, friendSatellites: state.friends })
+    if (path === '/api/me/social-settings') return Response.json({ allowFriendRequests: true, allowDriftBottles: true })
+    if (path === '/api/admin/music-reports') return Response.json({ error: 'NOT_AVAILABLE' }, { status: 404 })
+    if (path.startsWith('/api/me/friend-satellites/') && init?.method === 'DELETE') {
+      const id = decodeURIComponent(path.split('/').at(-1)!)
+      state.deleted.push(id)
+      state.friends = state.friends.filter((friend) => friend.id !== id)
+      return Response.json({ deleted: true })
+    }
+    throw new Error(`Unexpected request: ${path}`)
+  }))
+
+  render(<MusicApp />)
+  await screen.findByRole('button', { name: '设置' })
+  fireEvent.click(screen.getByRole('button', { name: '设置' }))
+  await screen.findByText('真实好友')
+  expect(screen.getByText('真实好友').parentElement?.parentElement?.querySelector('button')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: '移除好友卫星 小满' }))
+
+  expect(await screen.findByText('已将「小满」移出星球轨道。')).toBeTruthy()
+  expect(screen.queryByText('小满')).toBeNull()
+  expect(screen.getByText('星野')).toBeTruthy()
+  expect(screen.getByText('阿澄')).toBeTruthy()
+  expect(screen.getByText('真实好友')).toBeTruthy()
+  expect(state.deleted).toEqual(['friend-virtual-a'])
 })

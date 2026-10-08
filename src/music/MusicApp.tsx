@@ -1,15 +1,17 @@
-import { Component, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react'
-import type { GalaxyGroupBy, MusicAdminReport, MusicApi, MusicDirectMessage, MusicDiscoveryResponse, MusicDriftBottleDetail, MusicDriftBottlesResponse, MusicFriendRequestsResponse, MusicGalaxyResponse, MusicMoment, MusicOrbitResponse, MusicPlanet, MusicPlanetVisitSource, MusicPlanetVisual, MusicReportQueueFilter, MusicReportReason, MusicReportStatus, MusicReportTarget, MusicSocialSettings, PublicMusicPlanet, SongPortalMatch, SongPortalResponse } from '../music-api'
+import { Component, lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react'
+import type { GalaxyGroupBy, MusicAdminReport, MusicApi, MusicDirectMessage, MusicDiscoveryResponse, MusicDriftBottleDetail, MusicDriftBottlesResponse, MusicFriendRequestsResponse, MusicFriendSatellite, MusicGalaxyResponse, MusicMoment, MusicOrbitResponse, MusicPlanet, MusicPlanetVisitSource, MusicPlanetVisual, MusicReportQueueFilter, MusicReportReason, MusicReportStatus, MusicReportTarget, MusicSocialSettings, PublicMusicPlanet, SongPortalMatch, SongPortalResponse } from '../music-api'
 import { createMusicApi, MusicApiError } from '../music-api'
 import { togglePlanetTrack, validatePlanetDraft } from '../music-app-domain'
 import type { MusicTrackSummary } from '../music-domain'
+import { buildMusicGalaxySceneSystems } from './galaxy-scene'
+import { advanceJourney, getSelfArrivalJourneyDuration, getSelfArrivalJourneyProgress, getSelfReturnJourneyProgress, getTourAnchorProgress, normalizeWheelDelta, reachesTourHomeEndpoint, SELF_RETURN_CLOUD_DURATION_MS, SELF_RETURN_TOUR_DURATION_MS, TOUR_END } from '../universe'
 import type { Planet } from '../types'
 import './music-app.css'
 
 type HomeState =
   | { status: 'loading' }
   | { status: 'error' }
-  | { status: 'ready'; tracks: MusicTrackSummary[]; planet: MusicPlanet | null; moments: MusicMoment[] }
+  | { status: 'ready'; tracks: MusicTrackSummary[]; planet: MusicPlanet | null; moments: MusicMoment[]; friendSatellites: MusicFriendSatellite[] }
 
 type ComposerStatus = 'idle' | 'pending' | 'ready' | 'unavailable' | 'failed' | 'delayed'
 
@@ -23,7 +25,7 @@ type ProductView = 'planet' | 'galaxy' | 'roam' | 'orbit' | 'bottles' | 'setting
 
 type GalaxyState =
   | { status: 'idle' }
-  | { status: 'loading'; by: GalaxyGroupBy }
+  | { status: 'loading'; by: GalaxyGroupBy; previous?: MusicGalaxyResponse }
   | { status: 'ready'; by: GalaxyGroupBy; response: MusicGalaxyResponse; selectedGroupKey: string | null }
   | { status: 'error'; by: GalaxyGroupBy }
 
@@ -245,29 +247,259 @@ function supportsWebGL2() {
   }
 }
 
-function Stage({ planet, previewSeed, reducedMotion }: { planet: MusicPlanet | null; previewSeed: string; reducedMotion: boolean }) {
-  const scenePlanet = useMemo(() => toScenePlanet(planet, previewSeed), [planet, previewSeed])
-  const visual = visualFor(planet)
+type MusicSceneMode = 'self' | 'home-galaxy' | 'universe' | 'galaxy' | 'planet'
+type MusicCameraTransition = 'galaxy-to-tour' | 'home-to-planet'
+
+const GALAXY_TO_TOUR_CAMERA_DURATION_MS = 720
+const HOME_PLANET_APPROACH_CAMERA_DURATION_MS = 980
+
+function MusicPortalOverlay({ portal, returning }: { portal: number; returning: boolean }) {
+  const opacity = Math.sin(Math.max(0, Math.min(1, portal)) * Math.PI)
+  if (opacity < 0.015) return null
+  const caption = returning
+    ? '正在回到宇宙'
+    : portal < .38
+      ? '星系巡游完成 · 前方进入星云'
+      : '正在抵达 · 你的星球'
+  return <div className="portal-layer" aria-hidden="true" style={{ '--portal': opacity } as CSSProperties}>
+    <div className="portal-caption">{caption}</div>
+  </div>
+}
+
+function MusicGalaxyAxis({ systems, journey, onSelect, onHome }: {
+  systems: ReturnType<typeof buildMusicGalaxySceneSystems>
+  journey: number
+  onSelect: (index: number) => void
+  onHome: () => void
+}) {
+  const progress = systems.length ? Math.max(0, Math.min(1, journey / TOUR_END)) : 0
+  const currentIndex = Math.round(progress * Math.max(0, systems.length - 1))
+  if (!systems.length) return null
+  const current = systems[currentIndex]
+  return <div className="music-galaxy-axis" style={{ '--axis-color': current.color } as CSSProperties}>
+    <div className="music-galaxy-axis-label" aria-live="polite">正在观测 · {current.label}</div>
+    <div className="music-galaxy-axis-scroll" role="group" aria-label="Galaxy 星系导航">
+      <div className="music-galaxy-axis-track" style={{ '--axis-track-width': `${Math.max(100, systems.length * 31 + 44)}px` } as CSSProperties}>
+        <i style={{ transform: `scaleX(${progress})` }} />
+        {systems.map((system, index) => <button
+          type="button" key={system.id} title={`星系 · ${system.label}`}
+          aria-label={`前往星系 ${system.label}`} aria-current={index === currentIndex ? 'step' : undefined}
+          className={index === currentIndex ? 'is-current' : index < currentIndex ? 'is-passed' : ''}
+          style={{ '--node-color': system.color } as CSSProperties}
+          onClick={() => onSelect(index)}
+        ><span /></button>)}
+        <button type="button" className="music-galaxy-axis-home" aria-label="穿过星云回到我的星球" title="我的星球" onClick={onHome}><span>✦</span></button>
+      </div>
+    </div>
+  </div>
+}
+
+function MusicGalaxyFooter({ label, color, onBack }: { label: string; color: string; onBack: () => void }) {
+  return <div className="music-galaxy-footer" style={{ '--axis-color': color } as CSSProperties}>
+    <div>星系 · {label}</div>
+    <button type="button" onClick={onBack}>← 回到宇宙</button>
+  </div>
+}
+
+function Stage({ planet, friendSatellites, visitedPlanet, previewSeed, reducedMotion, productView, focusedGalaxy, galaxySystems, galaxyRotation, routeJourney, regrouping, onSelectGalaxy, onOpenPlanet, onRotate }: {
+  planet: MusicPlanet | null
+  friendSatellites: MusicFriendSatellite[]
+  visitedPlanet: PublicMusicPlanet | null
+  previewSeed: string
+  reducedMotion: boolean
+  productView: ProductView
+  focusedGalaxy?: string
+  galaxySystems: ReturnType<typeof buildMusicGalaxySceneSystems>
+  galaxyRotation: number
+  routeJourney: number
+  regrouping: boolean
+  onSelectGalaxy: (id: string) => void
+  onOpenPlanet: (planet: Planet, galaxyId: string) => void
+  onRotate: (delta: number) => void
+}) {
+  const ownerScenePlanet = useMemo(() => toScenePlanet(planet, previewSeed), [planet, previewSeed])
+  const visitorScenePlanet = useMemo(() => visitedPlanet ? toScenePlanet(visitedPlanet, visitedPlanet.id) : undefined, [visitedPlanet])
+  const visual = visualFor(visitedPlanet ?? planet)
   const [sceneAttempt, setSceneAttempt] = useState(0)
+  const [sceneMode, setSceneMode] = useState<MusicSceneMode>('self')
+  const [journey, setJourney] = useState(0)
+  const [traveling, setTraveling] = useState(false)
+  const [selfReturning, setSelfReturning] = useState(false)
+  const [cameraTransition, setCameraTransition] = useState<MusicCameraTransition | null>(null)
+  const [cameraTransitionProgress, setCameraTransitionProgress] = useState(0)
+  const journeyRef = useRef(0)
+  const lastFocusedGalaxy = useRef<string | undefined>(undefined)
+  const lastVisitorScenePlanet = useRef<Planet | undefined>(undefined)
+  const desiredMode: MusicSceneMode = productView === 'galaxy'
+    ? visitedPlanet ? 'planet' : focusedGalaxy ? 'galaxy' : 'universe'
+    : 'self'
+  const previousMode = useRef<MusicSceneMode>('self')
+  const transitionToken = useRef(0)
+  const dragX = useRef<number | null>(null)
+  useEffect(() => {
+    if (focusedGalaxy) lastFocusedGalaxy.current = focusedGalaxy
+  }, [focusedGalaxy])
+  useEffect(() => {
+    if (visitorScenePlanet) lastVisitorScenePlanet.current = visitorScenePlanet
+  }, [visitorScenePlanet])
+  const setJourneyProgress = useCallback((next: number) => {
+    journeyRef.current = next
+    setJourney(next)
+  }, [])
+  useLayoutEffect(() => {
+    const from = previousMode.current
+    previousMode.current = desiredMode
+    const token = ++transitionToken.current
+    let frame = 0
+    let cancelled = false
+    const animate = (start: number, end: number, durationMs: number) => new Promise<void>((resolve) => {
+      if (durationMs <= 0 || reducedMotion || typeof window.requestAnimationFrame !== 'function') {
+        setJourneyProgress(end)
+        resolve()
+        return
+      }
+      const startedAt = performance.now()
+      const tick = (now: number) => {
+        if (cancelled || token !== transitionToken.current) { resolve(); return }
+        const progress = Math.min(1, (now - startedAt) / durationMs)
+        const eased = progress * progress * (3 - 2 * progress)
+        setJourneyProgress(start + (end - start) * eased)
+        if (progress >= 1) resolve()
+        else frame = window.requestAnimationFrame(tick)
+      }
+      frame = window.requestAnimationFrame(tick)
+    })
+    const animateJourney = (durationMs: number, sample: (elapsedMs: number) => number) => new Promise<void>((resolve) => {
+      if (durationMs <= 0 || reducedMotion || typeof window.requestAnimationFrame !== 'function') {
+        setJourneyProgress(sample(durationMs))
+        resolve()
+        return
+      }
+      const startedAt = performance.now()
+      const tick = (now: number) => {
+        if (cancelled || token !== transitionToken.current) { resolve(); return }
+        const elapsed = Math.min(durationMs, Math.max(0, now - startedAt))
+        setJourneyProgress(sample(elapsed))
+        if (elapsed >= durationMs) resolve()
+        else frame = window.requestAnimationFrame(tick)
+      }
+      frame = window.requestAnimationFrame(tick)
+    })
+    const animateCameraTransition = (kind: MusicCameraTransition, durationMs: number) => new Promise<void>((resolve) => {
+      setCameraTransition(kind)
+      setCameraTransitionProgress(0)
+      if (durationMs <= 0 || reducedMotion || typeof window.requestAnimationFrame !== 'function') {
+        setCameraTransitionProgress(1)
+        resolve()
+        return
+      }
+      const startedAt = performance.now()
+      const tick = (now: number) => {
+        if (cancelled || token !== transitionToken.current) { resolve(); return }
+        const progress = Math.min(1, (now - startedAt) / durationMs)
+        setCameraTransitionProgress(progress * progress * (3 - 2 * progress))
+        if (progress >= 1) resolve()
+        else frame = window.requestAnimationFrame(tick)
+      }
+      frame = window.requestAnimationFrame(tick)
+    })
+    const run = async () => {
+      if (desiredMode === 'universe' && from === 'self' && planet) {
+        setTraveling(true)
+        setSelfReturning(true)
+        setSceneMode('home-galaxy')
+        setJourneyProgress(1)
+        const duration = reducedMotion ? 0 : SELF_RETURN_CLOUD_DURATION_MS + SELF_RETURN_TOUR_DURATION_MS
+        await animateJourney(duration, (elapsed) => getSelfReturnJourneyProgress(1, elapsed))
+        if (cancelled) return
+        setSceneMode('universe')
+        setJourneyProgress(0)
+        setSelfReturning(false)
+        setTraveling(false)
+        return
+      }
+      if (desiredMode === 'self' && from !== 'self' && planet) {
+        setTraveling(true)
+        setSelfReturning(false)
+        const departureGalaxyId = focusedGalaxy ?? lastFocusedGalaxy.current
+        const departureGalaxyIndex = departureGalaxyId
+          ? galaxySystems.findIndex((system) => system.id === departureGalaxyId)
+          : -1
+        const startingJourney = departureGalaxyIndex >= 0
+          ? getTourAnchorProgress(departureGalaxyIndex, galaxySystems.length) * TOUR_END
+          : routeJourney
+        if ((from === 'galaxy' || from === 'planet') && departureGalaxyId) {
+          setJourneyProgress(startingJourney)
+          await animateCameraTransition('galaxy-to-tour', reducedMotion ? 0 : GALAXY_TO_TOUR_CAMERA_DURATION_MS)
+          if (cancelled) return
+        }
+        setCameraTransition(null)
+        setSceneMode('universe')
+        const start = Math.max(0, Math.min(1, startingJourney))
+        setJourneyProgress(start)
+        const duration = getSelfArrivalJourneyDuration(start, reducedMotion)
+        await animateJourney(duration, (elapsed) => getSelfArrivalJourneyProgress(start, elapsed, reducedMotion))
+        if (cancelled) return
+        setSceneMode('home-galaxy')
+        await animate(1, 1, reducedMotion ? 0 : 220)
+        if (cancelled) return
+        setSceneMode('self')
+        await animateCameraTransition('home-to-planet', reducedMotion ? 0 : HOME_PLANET_APPROACH_CAMERA_DURATION_MS)
+        if (cancelled) return
+        setCameraTransition(null)
+        setTraveling(false)
+        return
+      }
+      setSelfReturning(false)
+      setCameraTransition(null)
+      setSceneMode(desiredMode)
+      if (desiredMode === 'universe' && !planet) setJourneyProgress(0)
+    }
+    void run()
+    return () => {
+      cancelled = true
+      if (typeof window.cancelAnimationFrame === 'function') window.cancelAnimationFrame(frame)
+    }
+  }, [desiredMode, planet, reducedMotion, routeJourney, setJourneyProgress])
+
+  useEffect(() => {
+    if (!traveling && productView === 'galaxy' && sceneMode === 'universe') setJourneyProgress(Math.min(TOUR_END, routeJourney))
+  }, [productView, routeJourney, sceneMode, traveling, setJourneyProgress])
+
   const canRenderScene = useMemo(() => supportsWebGL2(), [sceneAttempt])
   const SceneCanvas = useMemo(() => lazy(() => import('../scene').then(({ UniverseCanvas }) => ({ default: UniverseCanvas }))), [sceneAttempt])
+  const journeyState = advanceJourney(journey, 0)
+  const portalVeil = Math.sin(journeyState.portalProgress * Math.PI)
   return <>
     <div className="music-scene-wrap" aria-hidden="true">
-      <div className="music-fallback-planet" style={{ '--surface-color': visual.palette.surface, '--ocean-color': visual.palette.ocean, '--accent-color': visual.palette.accent } as CSSProperties} />
+      {sceneMode !== 'universe' && <div className="music-fallback-planet" style={{ '--surface-color': visual.palette.surface, '--ocean-color': visual.palette.ocean, '--accent-color': visual.palette.accent } as CSSProperties} />}
     </div>
     {canRenderScene ? <SceneErrorBoundary key={sceneAttempt} onRetry={() => setSceneAttempt((attempt) => attempt + 1)}>
-      <div className="music-scene-canvas" aria-hidden="true">
+      <div className={`music-scene-canvas${regrouping ? ' is-regrouping' : ''}`} style={{ filter: `blur(${portalVeil * 3.5 + (regrouping ? 7 : 0)}px) saturate(${regrouping ? .72 : 1})` }} aria-hidden="true"
+        onPointerDown={(event) => { if (sceneMode === 'galaxy' && event.button === 0) dragX.current = event.clientX }}
+        onPointerMove={(event) => { if (dragX.current !== null) { const delta = event.clientX - dragX.current; dragX.current = event.clientX; onRotate(delta * .006) } }}
+        onPointerUp={() => { dragX.current = null }} onPointerCancel={() => { dragX.current = null }} onLostPointerCapture={() => { dragX.current = null }}>
         <Suspense fallback={null}>
           <SceneCanvas
-            view="self"
+            view={sceneMode}
             focusedThemes={[]}
-            ownPlanet={scenePlanet}
-            ownPlanets={[scenePlanet]}
+            musicGalaxySystems={galaxySystems}
+            focusedMusicGalaxyId={cameraTransition === 'galaxy-to-tour' ? focusedGalaxy ?? lastFocusedGalaxy.current : focusedGalaxy}
+            onMusicGalaxyClick={onSelectGalaxy}
+            onMusicPlanetClick={onOpenPlanet}
+            ownPlanet={ownerScenePlanet}
+            ownPlanets={planet ? [ownerScenePlanet] : []}
+            friendSatellites={friendSatellites}
             starAppearance={{ color: visual.palette.accent }}
-            selectedPlanet={scenePlanet}
-            galaxyRotation={0}
-            selfReturning={false}
-            journey={0}
+            selectedPlanet={sceneMode === 'planet'
+              ? visitorScenePlanet ?? (cameraTransition === 'galaxy-to-tour' ? lastVisitorScenePlanet.current : undefined)
+              : sceneMode === 'self' ? ownerScenePlanet : undefined}
+            galaxyRotation={sceneMode === 'universe' ? 0 : galaxyRotation}
+            selfReturning={selfReturning}
+            scriptedJourney={traveling}
+            cinematicTransition={cameraTransition}
+            cinematicTransitionProgress={cameraTransitionProgress}
+            journey={sceneMode === 'universe' && productView === 'galaxy' ? Math.min(TOUR_END, journey) : journey}
             reducedMotion={reducedMotion}
             onBillboardClick={() => undefined}
             onPublicBillboardClick={() => undefined}
@@ -284,6 +516,7 @@ function Stage({ planet, previewSeed, reducedMotion }: { planet: MusicPlanet | n
       <span>3D 星球暂不可用，仍可继续选歌、浏览内容和使用社交功能。</span>
       <button className="music-text-button" type="button" onClick={() => setSceneAttempt((attempt) => attempt + 1)}>重试 3D 画面</button>
     </div>}
+    <MusicPortalOverlay portal={journeyState.portalProgress} returning={selfReturning} />
   </>
 }
 
@@ -594,6 +827,11 @@ function MusicApp() {
   const [songPortal, setSongPortal] = useState<SongPortalState>({ status: 'idle' })
   const [view, setView] = useState<ProductView>('planet')
   const [galaxy, setGalaxy] = useState<GalaxyState>({ status: 'idle' })
+  const [galaxyJourney, setGalaxyJourney] = useState(0)
+  const galaxyJourneyRef = useRef(galaxyJourney)
+  galaxyJourneyRef.current = galaxyJourney
+  const [galaxyRotation, setGalaxyRotation] = useState(0)
+  const [galaxyRegrouping, setGalaxyRegrouping] = useState(false)
   const [discovery, setDiscovery] = useState<DiscoveryState>({ status: 'idle' })
   const [orbit, setOrbit] = useState<OrbitState>({ status: 'idle' })
   const [socialSettings, setSocialSettings] = useState<MusicSocialSettings | null>(null)
@@ -615,6 +853,9 @@ function MusicApp() {
   const [planetEditError, setPlanetEditError] = useState('')
   const [planetEditFeedback, setPlanetEditFeedback] = useState('')
   const [friendRequests, setFriendRequests] = useState<MusicFriendRequestsResponse | null>(null)
+  const [friendSatelliteBusyId, setFriendSatelliteBusyId] = useState('')
+  const [friendSatelliteError, setFriendSatelliteError] = useState('')
+  const [friendSatelliteFeedback, setFriendSatelliteFeedback] = useState('')
   const [socialError, setSocialError] = useState('')
   const [socialFeedback, setSocialFeedback] = useState('')
   const [socialBusyId, setSocialBusyId] = useState('')
@@ -656,6 +897,9 @@ function MusicApp() {
     setMomentManagement({ status: 'idle' })
     setSongPortal({ status: 'idle' })
     setGalaxy({ status: 'idle' })
+    setGalaxyJourney(0)
+    setGalaxyRotation(0)
+    setGalaxyRegrouping(false)
     setDiscovery({ status: 'idle' })
     setOrbit({ status: 'idle' })
     setSocialSettings(null)
@@ -678,6 +922,9 @@ function MusicApp() {
     setPlanetEditError('')
     setPlanetEditFeedback('')
     setFriendRequests(null)
+    setFriendSatelliteBusyId('')
+    setFriendSatelliteError('')
+    setFriendSatelliteFeedback('')
     setSocialError('')
     setSocialFeedback('')
     setSocialBusyId('')
@@ -698,7 +945,7 @@ function MusicApp() {
     const epoch = accountEpoch.current
     setHome({ status: 'loading' })
     try {
-      const { tracks, planet } = await api.loadHome()
+      const { tracks, planet, friendSatellites } = await api.loadHome()
       let moments: MusicMoment[] = []
       let failedToLoadMoments = false
       if (planet) {
@@ -710,7 +957,7 @@ function MusicApp() {
       }
       if (epoch !== accountEpoch.current) return
       setMomentsLoadError(failedToLoadMoments)
-      setHome({ status: 'ready', tracks, planet, moments })
+      setHome({ status: 'ready', tracks, planet, moments, friendSatellites })
       if (planet) {
         setMomentTrackId(planet.tracks.find((track) => track.isPrimary)?.id ?? planet.tracks[0]?.id ?? '')
         setComposerStatus(validVisual(planet.visual) ? 'ready' : 'idle')
@@ -836,7 +1083,6 @@ function MusicApp() {
   const tracks = home.status === 'ready' ? home.tracks : []
   const planet = home.status === 'ready' ? home.planet : null
   const moments = home.status === 'ready' ? home.moments : []
-  const displayedPlanet = visitedPlanet ?? planet
   const visibleTracks = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase()
     if (!needle) return tracks
@@ -851,6 +1097,20 @@ function MusicApp() {
   }, [planetEditQuery, planet, tracks])
   const previewSeed = selectedTrackIds.join('-')
   const activeVisual = visualFor(planet)
+  const galaxySceneResponse = galaxy.status === 'ready' ? galaxy.response : galaxy.status === 'loading' ? galaxy.previous : undefined
+  const galaxySceneSystems = useMemo(
+    () => galaxySceneResponse ? buildMusicGalaxySceneSystems(galaxySceneResponse.by, galaxySceneResponse.groups) : [],
+    [galaxySceneResponse],
+  )
+  const selectedGalaxyGroup = galaxy.status === 'ready'
+    ? galaxy.response.groups.find((group) => group.key === galaxy.selectedGroupKey)
+    : undefined
+  const visitedGalaxyGroup = visitedPlanet && galaxySceneResponse
+    ? galaxySceneResponse.groups.find((group) => group.planets.some((candidate) => candidate.planetId === visitedPlanet.id))
+    : undefined
+  const focusedGalaxyKey = visitedGalaxyGroup?.key ?? selectedGalaxyGroup?.key
+  const focusedGalaxyId = focusedGalaxyKey && galaxySceneResponse ? `${galaxySceneResponse.by}:${focusedGalaxyKey}` : undefined
+  const focusedGalaxySystem = focusedGalaxyId ? galaxySceneSystems.find((system) => system.id === focusedGalaxyId) : undefined
 
   const openSongPortal = async (track: MusicTrackSummary) => {
     const epoch = accountEpoch.current
@@ -946,15 +1206,60 @@ function MusicApp() {
 
   const loadGalaxy = async (by: GalaxyGroupBy) => {
     const epoch = accountEpoch.current
-    setGalaxy({ status: 'loading', by })
+    const previous = galaxy.status === 'ready' ? galaxy.response : galaxy.status === 'loading' ? galaxy.previous : undefined
+    setGalaxy({ status: 'loading', by, ...(previous ? { previous } : {}) })
     try {
       const response = await api.loadGalaxy(by)
       if (epoch !== accountEpoch.current) return
       setGalaxy({ status: 'ready', by, response, selectedGroupKey: null })
+      setGalaxyJourney(0)
+      setGalaxyRotation(0)
     } catch {
       if (epoch !== accountEpoch.current) return
-      setGalaxy({ status: 'error', by })
+      if (previous) setGalaxy({ status: 'ready', by: previous.by, response: previous, selectedGroupKey: null })
+      else setGalaxy({ status: 'error', by })
     }
+  }
+
+  const regroupGalaxy = async (by: GalaxyGroupBy) => {
+    if (galaxy.status === 'loading' || galaxy.status === 'ready' && galaxy.by === by) return
+    const epoch = accountEpoch.current
+    const previous = galaxySceneResponse
+    setGalaxyRegrouping(false)
+    setGalaxy({ status: 'loading', by, ...(previous ? { previous } : {}) })
+    setVisitError('')
+    try {
+      const response = await api.loadGalaxy(by)
+      if (epoch !== accountEpoch.current) return
+      setGalaxyRegrouping(true)
+      await new Promise((resolve) => window.setTimeout(resolve, 140))
+      if (epoch !== accountEpoch.current) return
+      setGalaxy({ status: 'ready', by, response, selectedGroupKey: null })
+      setGalaxyJourney(0)
+      setGalaxyRotation(0)
+      await new Promise((resolve) => window.setTimeout(resolve, 220))
+    } catch {
+      if (epoch !== accountEpoch.current) return
+      if (previous) {
+        setGalaxy({ status: 'ready', by: previous.by, response: previous, selectedGroupKey: null })
+        setVisitError('新的分类暂时无法载入，已保留原来的星系排列。')
+      } else setGalaxy({ status: 'error', by })
+    } finally {
+      if (epoch === accountEpoch.current) setGalaxyRegrouping(false)
+    }
+  }
+
+  const focusGalaxyGroup = (groupKey: string) => {
+    if (galaxy.status !== 'ready') return
+    const groupIndex = galaxy.response.groups.findIndex((group) => group.key === groupKey)
+    if (groupIndex < 0) return
+    setGalaxy({ ...galaxy, selectedGroupKey: groupKey })
+    setGalaxyJourney(getTourAnchorProgress(groupIndex, galaxy.response.groups.length) * TOUR_END)
+  }
+
+  const focusGalaxyById = (id: string) => {
+    const system = galaxySceneSystems.find((item) => item.id === id)
+    if (system) focusGalaxyGroup(system.key)
   }
 
   const loadDiscovery = async () => {
@@ -1004,6 +1309,42 @@ function MusicApp() {
       if (epoch !== accountEpoch.current) return
       setSettingsStatus('error')
       setSettingsError('暂时无法读取设置。你可以重试；已有设置不会被覆盖。')
+    }
+  }
+
+  const reloadFriendSatellites = async () => {
+    const epoch = accountEpoch.current
+    setFriendSatelliteError('')
+    try {
+      const { friendSatellites } = await api.loadFriendSatellites()
+      if (epoch !== accountEpoch.current) return
+      setHome((current) => current.status === 'ready' ? { ...current, friendSatellites } : current)
+    } catch {
+      if (epoch !== accountEpoch.current) return
+      setFriendSatelliteError('好友卫星暂时没有读取成功，请重试。')
+    }
+  }
+
+  const removeFriendSatellite = async (friend: MusicFriendSatellite) => {
+    if (friendSatelliteBusyId) return
+    const epoch = accountEpoch.current
+    setFriendSatelliteBusyId(friend.id)
+    setFriendSatelliteError('')
+    setFriendSatelliteFeedback('')
+    try {
+      await api.deleteFriendSatellite(friend.id)
+      if (epoch !== accountEpoch.current) return
+      setHome((current) => current.status === 'ready'
+        ? { ...current, friendSatellites: current.friendSatellites.filter((item) => item.id !== friend.id) }
+        : current)
+      setFriendSatelliteFeedback(`已将「${friend.displayName}」移出星球轨道。`)
+    } catch (error) {
+      if (epoch !== accountEpoch.current) return
+      setFriendSatelliteError(error instanceof MusicApiError && error.status === 404
+        ? '这颗好友卫星已经不在轨道上了，请重新读取。'
+        : '没有移除成功，请检查连接后重试。')
+    } finally {
+      if (epoch === accountEpoch.current) setFriendSatelliteBusyId('')
     }
   }
 
@@ -1254,6 +1595,7 @@ function MusicApp() {
       if (epoch !== accountEpoch.current) return
       setSocialFeedback(action === 'accept' ? '已接受好友请求。现在可以在 My Orbit 中私信。' : '已拒绝好友请求。')
       await loadOrbit()
+      if (action === 'accept') await reloadFriendSatellites()
     } catch (error) {
       if (epoch !== accountEpoch.current) return
       setSocialError(error instanceof MusicApiError && error.code === 'USER_BLOCKED'
@@ -1313,6 +1655,8 @@ function MusicApp() {
     setVisitError('')
     if (next === 'galaxy') {
       setSongPortal({ status: 'idle' })
+      setGalaxyJourney(0)
+      setGalaxyRotation(0)
       void loadGalaxy('genre')
     }
     if (next === 'roam') {
@@ -1346,6 +1690,35 @@ function MusicApp() {
       void loadModerationQueue('open')
     }
   }
+  const changeViewRef = useRef(changeView)
+  changeViewRef.current = changeView
+
+  const selectedGroupKeyForWheel = galaxy.status === 'ready' ? galaxy.selectedGroupKey : null
+  useEffect(() => {
+    if (view !== 'galaxy' || visitedPlanet || galaxy.status !== 'ready') return
+    const onWheel = (event: WheelEvent) => {
+      const target = event.target
+      if (target instanceof Element) {
+        const overGalaxyAxis = Boolean(target.closest('.music-galaxy-axis'))
+        if (target.closest('.music-panel, .music-topbar, .music-visit-dialog, input, textarea, select')
+          || (!overGalaxyAxis && target.closest('button'))) return
+      }
+      const step = normalizeWheelDelta(event.deltaY, event.deltaMode, window.innerHeight)
+      if (!step) return
+      event.preventDefault()
+      if (selectedGroupKeyForWheel) setGalaxyRotation((rotation) => rotation - step * 10)
+      else {
+        const progress = galaxyJourneyRef.current
+        const nextProgress = Math.max(0, Math.min(TOUR_END, progress + step))
+        galaxyJourneyRef.current = nextProgress
+        setGalaxyJourney(nextProgress)
+        if (!reachesTourHomeEndpoint(progress, step)) return
+        changeViewRef.current('planet')
+      }
+    }
+    window.addEventListener('wheel', onWheel, { passive: false })
+    return () => window.removeEventListener('wheel', onWheel)
+  }, [selectedGroupKeyForWheel, galaxy.status, view, visitedPlanet])
 
   const canOpenSongPortal = (trackId: string) => Boolean(planet?.tracks.some((track) => track.id === trackId)
     || moments.some((moment) => moment.trackId === trackId && moment.visibility === 'public'))
@@ -1450,8 +1823,24 @@ function MusicApp() {
   const canCreate = home.status === 'ready' && !planet
 
   return <main className={`music-app${planet ? ' has-planet' : ' is-onboarding'}`}>
-    <Stage planet={displayedPlanet} previewSeed={previewSeed} reducedMotion={reducedMotion} />
+    <Stage
+      planet={planet} friendSatellites={home.status === 'ready' ? home.friendSatellites : []} visitedPlanet={visitedPlanet} previewSeed={previewSeed} reducedMotion={reducedMotion}
+      productView={view} focusedGalaxy={focusedGalaxyId} galaxySystems={galaxySceneSystems}
+      galaxyRotation={galaxyRotation} routeJourney={galaxyJourney} regrouping={galaxyRegrouping}
+      onSelectGalaxy={focusGalaxyById}
+      onOpenPlanet={(scenePlanet, _galaxyId) => requestPublicPlanetVisit(scenePlanet.id, scenePlanet.alias, 'galaxy')}
+      onRotate={(delta) => setGalaxyRotation((rotation) => rotation + delta)}
+    />
     <BrandHeader connected={connected} view={view} onChangeView={changeView} />
+    {view === 'galaxy' && !visitedPlanet && galaxy.status === 'ready' && !galaxy.selectedGroupKey && <MusicGalaxyAxis
+      systems={galaxySceneSystems} journey={galaxyJourney}
+      onSelect={(index) => setGalaxyJourney(getTourAnchorProgress(index, galaxySceneSystems.length) * TOUR_END)}
+      onHome={() => changeView('planet')}
+    />}
+    {view === 'galaxy' && !visitedPlanet && focusedGalaxySystem && <MusicGalaxyFooter
+      label={focusedGalaxySystem.label} color={focusedGalaxySystem.color}
+      onBack={() => { if (galaxy.status === 'ready') setGalaxy({ ...galaxy, selectedGroupKey: null }) }}
+    />}
 
     <div className="music-layout">
       <section className="music-copy">
@@ -1580,6 +1969,19 @@ function MusicApp() {
               <input aria-label="接收漂流瓶" type="checkbox" checked={socialSettings.allowDriftBottles} disabled={Boolean(settingsSaving)} onChange={(event) => { void updateSocialPreference('allowDriftBottles', event.target.checked) }} />
               <span><strong>接收漂流瓶</strong><small>{settingsSaving === 'allowDriftBottles' ? '正在保存…' : socialSettings.allowDriftBottles ? '系统可以向你投递新的漂流瓶。' : '暂不接收新的漂流瓶。'}</small></span>
             </label>
+          </section>
+          <section className="music-settings-section" aria-label="好友卫星管理">
+            <div className="music-section-heading"><h3>好友卫星</h3><span>{home.status === 'ready' ? `${home.friendSatellites.length} 颗` : '读取中'}</span></div>
+            <p className="music-panel-note">已成为好友的人会围绕你的星球运行；每个新账号另有 3 位虚拟演示好友。虚拟好友不会伪装成真实账号，也不会进入私信或访问记录；移除后不会自动补回。</p>
+            {friendSatelliteError && <div className="music-galaxy-empty" role="alert"><p>{friendSatelliteError}</p><button type="button" className="music-text-button" onClick={() => { void reloadFriendSatellites() }}>重新读取</button></div>}
+            {friendSatelliteFeedback && <p className="music-feedback" role="status">{friendSatelliteFeedback}</p>}
+            {home.status === 'ready' && home.friendSatellites.length > 0
+              ? <div className="music-friend-satellites-list">{home.friendSatellites.map((friend) => <article className="music-friend-satellite-row" key={friend.id}>
+                  <span className="music-friend-satellite-icon" style={{ '--friend-color': friend.color } as CSSProperties} aria-hidden="true"><i /></span>
+                  <span className="music-friend-satellite-copy"><strong>{friend.displayName}</strong><small>{friend.tagline || (friend.isVirtual ? '虚拟演示好友' : '已成为好友')}</small></span>
+                  {friend.canRemove && <button className="music-text-button" type="button" aria-label={`移除好友卫星 ${friend.displayName}`} disabled={Boolean(friendSatelliteBusyId)} onClick={() => { void removeFriendSatellite(friend) }}>{friendSatelliteBusyId === friend.id ? '移除中…' : '移除'}</button>}
+                </article>)}</div>
+              : home.status === 'ready' ? <p className="music-moments-empty">轨道暂时空着。之后可以继续认识新的朋友。</p> : null}
           </section>
           <section className="music-settings-section" aria-label="Moment 公开范围">
             <div className="music-section-heading"><h3>Moment 公开范围</h3><span>{momentsLoadError ? '暂不可用' : `${moments.length} 条`}</span></div>
@@ -1814,7 +2216,7 @@ function MusicApp() {
             key={option.id}
             aria-pressed={galaxy.status !== 'idle' && galaxy.by === option.id}
             disabled={galaxy.status === 'loading'}
-            onClick={() => { void loadGalaxy(option.id) }}
+            onClick={() => { void regroupGalaxy(option.id) }}
           >{option.label}</button>)}
         </div>
         {galaxy.status === 'loading' && <p className="music-moments-empty" role="status">正在整理公开星球…</p>}
@@ -1828,7 +2230,7 @@ function MusicApp() {
                   className={`music-galaxy-group${galaxy.selectedGroupKey === group.key ? ' is-selected' : ''}`}
                   key={group.key}
                   aria-pressed={galaxy.selectedGroupKey === group.key}
-                  onClick={() => setGalaxy({ ...galaxy, selectedGroupKey: group.key })}
+                  onClick={() => focusGalaxyGroup(group.key)}
                 >{group.label} <span>· {group.planetCount}</span></button>)}
               </div>}
           {galaxy.response.groups.find((group) => group.key === galaxy.selectedGroupKey) && (() => {

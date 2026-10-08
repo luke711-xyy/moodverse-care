@@ -12,6 +12,7 @@ const driftBottleMigrationSql = readFileSync(new URL('../migrations/0013_music_d
 const contentReportMigrationSql = readFileSync(new URL('../migrations/0014_music_content_reports.sql', import.meta.url), 'utf8')
 const accountDeletionMigrationSql = readFileSync(new URL('../migrations/0015_music_account_deletion.sql', import.meta.url), 'utf8')
 const reportTriageMigrationSql = readFileSync(new URL('../migrations/0017_music_report_triage.sql', import.meta.url), 'utf8')
+const friendSatelliteMigrationSql = readFileSync(new URL('../migrations/0018_music_friend_satellites.sql', import.meta.url), 'utf8')
 const schemaSql = readFileSync(new URL('../schema.sql', import.meta.url), 'utf8')
 
 function database() {
@@ -92,6 +93,7 @@ test('migration adds the music core without changing legacy user or planet recor
   db.exec(contentReportMigrationSql)
   db.exec(accountDeletionMigrationSql)
   db.exec(reportTriageMigrationSql)
+  db.exec(friendSatelliteMigrationSql)
 
   expect(tableNames(db)).toEqual(expect.arrayContaining([
     'users', 'planets', 'music_track_catalog', 'music_planets', 'music_planet_tracks', 'music_moments', 'music_ai_tasks',
@@ -103,6 +105,7 @@ test('migration adds the music core without changing legacy user or planet recor
     'music_drift_preferences', 'music_drift_bottles', 'music_drift_deliveries', 'music_drift_comments', 'music_drift_comment_likes',
     'music_content_reports',
     'music_report_reviews',
+    'music_friend_satellites',
   ]))
   expect(db.prepare('SELECT alias, theme FROM planets WHERE user_id = ?').get('owner-1')).toEqual({
     alias: '旧星球',
@@ -174,6 +177,7 @@ test('schema.sql mirrors the migration and deleting a music planet cascades thro
   migratedDb.exec(contentReportMigrationSql)
   migratedDb.exec(accountDeletionMigrationSql)
   migratedDb.exec(reportTriageMigrationSql)
+  migratedDb.exec(friendSatelliteMigrationSql)
 
   const db = database()
   db.exec(schemaSql)
@@ -187,6 +191,7 @@ test('schema.sql mirrors the migration and deleting a music planet cascades thro
     'music_drift_preferences', 'music_drift_bottles', 'music_drift_deliveries', 'music_drift_comments', 'music_drift_comment_likes',
     'music_content_reports', 'music_account_deletion_codes',
     'music_report_reviews',
+    'music_friend_satellites',
   ]))
 
   db.prepare(`

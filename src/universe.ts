@@ -48,6 +48,10 @@ export const GALAXY_ARM_HALF_THICKNESS_SCALE = 0.17
 export const GALAXY_ARM_DEPTH_SCALE = 0.72
 export const SELF_RETURN_CLOUD_DURATION_MS = 680
 export const SELF_RETURN_TOUR_DURATION_MS = 900
+export const SELF_ARRIVAL_TOUR_DURATION_MS = 2200
+export const SELF_ARRIVAL_OVERSHOOT_DURATION_MS = 300
+export const SELF_ARRIVAL_CLOUD_DURATION_MS = 750
+export const SELF_ARRIVAL_LANDING_DURATION_MS = 140
 const DEFAULT_PLANET_COUNT = 10
 const DEFAULT_VIEWPORT_HEIGHT = 800
 const LINE_HEIGHT_PX = 16
@@ -56,7 +60,7 @@ const JOURNEY_WHEEL_DISTANCE_MULTIPLIER = 1.8
 export const TOUR_END = 0.72
 export const PORTAL_START = 0.8
 export const TOUR_OVERSHOOT = 0.1
-const SELF_START = 0.98
+export const SELF_START = 0.98
 const TAU = Math.PI * 2
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5))
 
@@ -196,6 +200,13 @@ export function normalizeWheelDelta(
     / JOURNEY_WHEEL_DISTANCE_MULTIPLIER
 }
 
+export function reachesTourHomeEndpoint(progress: number, wheelStep: number): boolean {
+  return Number.isFinite(progress)
+    && Number.isFinite(wheelStep)
+    && wheelStep > 0
+    && progress + wheelStep >= TOUR_END
+}
+
 export function advanceJourney(progress: number, wheelStep: number): JourneyState {
   const safeProgress = Number.isFinite(progress) ? progress : 0
   const safeStep = Number.isFinite(wheelStep) ? wheelStep : 0
@@ -237,6 +248,66 @@ export function getSelfReturnJourneyProgress(startProgress: number, elapsedMs: n
 
   const tourPhase = ease((elapsed - SELF_RETURN_CLOUD_DURATION_MS) / SELF_RETURN_TOUR_DURATION_MS)
   return PORTAL_START * (1 - tourPhase)
+}
+
+type SelfArrivalSegment = { from: number; to: number; duration: number }
+
+function selfArrivalSegments(start: number): SelfArrivalSegment[] {
+  return [
+    {
+      from: start,
+      to: TOUR_END,
+      duration: start < TOUR_END ? ((TOUR_END - start) / TOUR_END) * SELF_ARRIVAL_TOUR_DURATION_MS : 0,
+    },
+    {
+      from: Math.max(start, TOUR_END),
+      to: PORTAL_START,
+      duration: start < PORTAL_START
+        ? ((PORTAL_START - Math.max(start, TOUR_END)) / (PORTAL_START - TOUR_END)) * SELF_ARRIVAL_OVERSHOOT_DURATION_MS
+        : 0,
+    },
+    {
+      from: Math.max(start, PORTAL_START),
+      to: SELF_START,
+      duration: start < SELF_START
+        ? ((SELF_START - Math.max(start, PORTAL_START)) / (SELF_START - PORTAL_START)) * SELF_ARRIVAL_CLOUD_DURATION_MS
+        : 0,
+    },
+    {
+      from: Math.max(start, SELF_START),
+      to: 1,
+      duration: ((1 - Math.max(start, SELF_START)) / (1 - SELF_START)) * SELF_ARRIVAL_LANDING_DURATION_MS,
+    },
+  ]
+}
+
+export function getSelfArrivalJourneyDuration(startProgress: number, reducedMotion = false): number {
+  const start = clamp(Number.isFinite(startProgress) ? startProgress : 0, 0, 1)
+  if (reducedMotion || start >= 1) return 0
+
+  // Keep the scripted arrival aligned with advanceJourney: tour ends at .72,
+  // cloud entry starts at .8, and the cloud crossing completes at .98.
+  return selfArrivalSegments(start).reduce((duration, segment) => duration + segment.duration, 0)
+}
+
+export function getSelfArrivalJourneyProgress(startProgress: number, elapsedMs: number, reducedMotion = false): number {
+  const start = clamp(Number.isFinite(startProgress) ? startProgress : 0, 0, 1)
+  const elapsed = Math.max(0, Number.isFinite(elapsedMs) ? elapsedMs : 0)
+  if (reducedMotion || start >= 1) return 1
+
+  const ease = (value: number) => {
+    const t = clamp(value, 0, 1)
+    return t * t * (3 - 2 * t)
+  }
+  let remaining = elapsed
+  for (const segment of selfArrivalSegments(start)) {
+    if (segment.duration <= 0) continue
+    if (remaining < segment.duration) {
+      return segment.from + (segment.to - segment.from) * ease(remaining / segment.duration)
+    }
+    remaining -= segment.duration
+  }
+  return 1
 }
 
 export function homeGalaxyEntranceScale(portalProgress: number): number {

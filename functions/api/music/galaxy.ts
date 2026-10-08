@@ -1,5 +1,5 @@
 import { authenticatedMusicUser, type Env } from '../../_shared'
-import type { GalaxyGroup, GalaxyGroupBy, GalaxyPlanetCard } from '../../../src/music-api'
+import type { GalaxyGroup, GalaxyGroupBy, GalaxyPlanetCard, MusicPlanetVisual } from '../../../src/music-api'
 
 type PublicMusicRow = {
   planet_id: string
@@ -11,6 +11,7 @@ type PublicMusicRow = {
   artist_id: string
   artist_name: string
   genres_json: string
+  visual_json: string
 }
 
 type GroupAccumulator = {
@@ -21,6 +22,44 @@ type GroupAccumulator = {
 
 const GROUP_LIMIT = 40
 const PLANETS_PER_GROUP = 20
+const isHexColor = (value: unknown): value is string => typeof value === 'string' && /^#[\da-f]{6}$/i.test(value)
+
+function publicVisual(value: string): MusicPlanetVisual | undefined {
+  try {
+    const parsed: unknown = JSON.parse(value)
+    if (typeof parsed !== 'object' || parsed === null) return undefined
+    const visual = parsed as Partial<MusicPlanetVisual>
+    const terrain = visual.terrainFeatures
+    const validTerrain = typeof terrain === 'object' && terrain !== null
+      && Number.isInteger(terrain.mountainRanges) && terrain.mountainRanges >= 0 && terrain.mountainRanges <= 6
+      && Number.isInteger(terrain.basins) && terrain.basins >= 0 && terrain.basins <= 4
+      && Number.isInteger(terrain.canyons) && terrain.canyons >= 0 && terrain.canyons <= 5
+      && Number.isInteger(terrain.escarpments) && terrain.escarpments >= 0 && terrain.escarpments <= 4
+    if ((visual.schemaVersion !== 1 && visual.schemaVersion !== 2)
+      || typeof visual.summary !== 'string'
+      || visual.summary.length > 280
+      || !isHexColor(visual.palette?.surface)
+      || !isHexColor(visual.palette?.ocean)
+      || !isHexColor(visual.palette?.accent)
+      || !['clear', 'mist', 'nebula', 'starlit'].includes(String(visual.atmosphere))
+      || !['still', 'drift', 'flow', 'pulse'].includes(String(visual.motion))
+      || typeof visual.particleDensity !== 'number'
+      || !Number.isFinite(visual.particleDensity)
+      || visual.particleDensity < 0 || visual.particleDensity > 1
+      || visual.schemaVersion === 2 && !validTerrain) return undefined
+    return {
+      schemaVersion: visual.schemaVersion,
+      summary: visual.summary,
+      palette: { ...visual.palette },
+      atmosphere: visual.atmosphere,
+      motion: visual.motion,
+      particleDensity: visual.particleDensity,
+      ...(validTerrain ? { terrainFeatures: terrain } : {}),
+    }
+  } catch {
+    return undefined
+  }
+}
 
 const respond = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
   status,
@@ -46,12 +85,15 @@ function parsedGenres(value: string) {
 }
 
 function addPlanet(group: GroupAccumulator, row: PublicMusicRow, reasonCode: GalaxyPlanetCard['reasonCode']) {
-  group.planets.set(row.planet_id, {
+  const card: GalaxyPlanetCard = {
     planetId: row.planet_id,
     displayName: row.display_name,
     tagline: row.tagline,
     reasonCode,
-  })
+  }
+  const visual = publicVisual(row.visual_json)
+  if (visual) card.visual = visual
+  group.planets.set(row.planet_id, card)
 }
 
 function groupRows(rows: PublicMusicRow[], by: GalaxyGroupBy): GalaxyGroup[] {
@@ -94,7 +136,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   const by = byValue as GalaxyGroupBy
 
   const { results } = await env.DB.prepare(`
-    SELECT DISTINCT p.id AS planet_id, p.display_name, p.tagline,
+    SELECT DISTINCT p.id AS planet_id, p.display_name, p.tagline, p.visual_json,
            c.id AS track_id, c.title, c.version_label, c.artist_id, c.artist_name, c.genres_json
     FROM music_planets p
     JOIN music_planet_tracks pt ON pt.planet_id = p.id
@@ -106,7 +148,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
            OR (b.blocker_user_id = p.owner_user_id AND b.blocked_user_id = ?1)
       ))
     UNION
-    SELECT DISTINCT p.id AS planet_id, p.display_name, p.tagline,
+    SELECT DISTINCT p.id AS planet_id, p.display_name, p.tagline, p.visual_json,
            c.id AS track_id, c.title, c.version_label, c.artist_id, c.artist_name, c.genres_json
     FROM music_moments m
     JOIN music_planets p ON p.id = m.planet_id

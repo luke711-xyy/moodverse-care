@@ -3,7 +3,7 @@ import { getVisiblePlanets, useAppStore } from './store'
 import { billboardTextParts, planetBillboards } from './billboards'
 import { UniverseCanvas } from './scene'
 import { adjacentOwnPlanetIndex, adjacentPlanetIndex, earliestActivePlanetId, selfPlanetWheelAction } from './scene-state'
-import { advanceJourney, getCurrentTourAnchorIndex, getSelfReturnJourneyProgress, getTourTrackProgress, hasReachedTourAnchor, normalizeWheelDelta, SELF_RETURN_CLOUD_DURATION_MS, SELF_RETURN_TOUR_DURATION_MS, PORTAL_START, TOUR_END, TOUR_OVERSHOOT } from './universe'
+import { advanceJourney, getCurrentTourAnchorIndex, getSelfArrivalJourneyDuration, getSelfArrivalJourneyProgress, getSelfReturnJourneyProgress, getTourTrackProgress, hasReachedTourAnchor, normalizeWheelDelta, SELF_RETURN_CLOUD_DURATION_MS, SELF_RETURN_TOUR_DURATION_MS, PORTAL_START, TOUR_END, TOUR_OVERSHOOT } from './universe'
 import { summarizePlanetWeather } from './climate'
 import { drawDoodleStrokes } from './doodle'
 import { moodById, MOODS, themeById, THEMES, TRIGGERS, todayKey, type Billboard, type DoodleStroke, type MoodEntry, type MoodId, type Planet, type PrivacyMode, type StarAppearance, type ThemeId } from './types'
@@ -852,12 +852,8 @@ export default function App() {
       return
     }
     setView('universe')
-    const portalStart = Math.max(startingProgress, TOUR_END)
-    const fullTourDuration = reducedMotion ? 620 : 2200
-    const fullArrivalDuration = reducedMotion ? 210 : 750
-    const tourDuration = Math.max(0, (TOUR_END - startingProgress) / TOUR_END * fullTourDuration)
-    const arrivalDuration = Math.max(0, (1 - portalStart) / (1 - TOUR_END) * fullArrivalDuration)
-    if (tourDuration + arrivalDuration === 0) {
+    const arrivalDuration = getSelfArrivalJourneyDuration(startingProgress, reducedMotion)
+    if (arrivalDuration === 0) {
       setPortal(1)
       setView('home-galaxy')
       return
@@ -866,11 +862,9 @@ export default function App() {
     const tick = (now: number) => {
       if (startedAt === null) startedAt = now
       const elapsed = now - startedAt
-      const progress = elapsed < tourDuration
-        ? startingProgress + (TOUR_END - startingProgress) * (elapsed / tourDuration)
-        : portalStart + (1 - portalStart) * Math.min(1, (elapsed - tourDuration) / arrivalDuration)
+      const progress = getSelfArrivalJourneyProgress(startingProgress, elapsed, reducedMotion)
       setPortal(progress)
-      autoJourneyFrame.current = progress < 1 ? requestAnimationFrame(tick) : null
+      autoJourneyFrame.current = elapsed < arrivalDuration ? requestAnimationFrame(tick) : null
     }
     autoJourneyFrame.current = requestAnimationFrame(tick)
   }

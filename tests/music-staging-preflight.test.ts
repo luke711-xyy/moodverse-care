@@ -9,6 +9,14 @@ binding = "DB"
 database_name = "moodverse-music-staging-db"
 database_id = "12345678-1234-1234-1234-123456789abc"
 migrations_dir = "./migrations-music-staging"
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "moodverse-music-staging-db"
+database_id = "12345678-1234-1234-1234-123456789abc"
+migrations_dir = "./migrations-music-staging"
+[env.production.vars]
+MUSIC_EMAIL_LOGIN_ENABLED = "false"
+MUSIC_ALLOW_LEGACY_ACCESS_AUTH = "false"
 `
 
 const validSchedulerManifest = `
@@ -49,6 +57,20 @@ describe('music staging deployment preflight', () => {
       validSchedulerManifest.replace('12345678-1234-1234-1234-123456789abc', productionId))
     expect(result.ok).toBe(false)
     expect(result.problems.join(' ')).toMatch(/production D1/i)
+  })
+
+  it('blocks Pages Production when it does not explicitly use the isolated staging D1', () => {
+    const withoutProductionOverride = validPagesManifest.replace(/\[\[env\.production\.d1_databases\]\][\s\S]*$/, '')
+    const result = inspect(withoutProductionOverride)
+    expect(result.ok).toBe(false)
+    expect(result.problems.join(' ')).toMatch(/Pages Production.*isolated staging D1/i)
+  })
+
+  it('blocks Pages Production when demo authentication flags are not explicit', () => {
+    const withoutProductionVars = validPagesManifest.replace(/\[env\.production\.vars\][\s\S]*$/, '')
+    const result = inspect(withoutProductionVars)
+    expect(result.ok).toBe(false)
+    expect(result.problems.join(' ')).toMatch(/demo email and legacy authentication disabled/i)
   })
 
   it('fails closed when the legacy production D1 ID cannot be read', () => {

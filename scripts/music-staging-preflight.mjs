@@ -9,6 +9,15 @@ function configValue(source, key) {
   return source.match(new RegExp(`^${key}\\s*=\\s*"([^"]+)"`, 'm'))?.[1] ?? null
 }
 
+function configBlock(source, heading) {
+  const lines = source.split(/\r?\n/)
+  const headerIndex = lines.findIndex(line => line.trim() === heading)
+  if (headerIndex < 0) return null
+  let endIndex = headerIndex + 1
+  while (endIndex < lines.length && !lines[endIndex].trim().startsWith('[')) endIndex += 1
+  return lines.slice(headerIndex + 1, endIndex).join('\n')
+}
+
 /**
  * Inspect only public deployment-manifest values; this function never reads secrets or contacts Cloudflare.
  * @param {string} pagesSource
@@ -20,6 +29,8 @@ export function inspectMusicStagingManifests(pagesSource, schedulerSource, produ
   const problems = []
   const pagesDatabaseId = configValue(pagesSource, 'database_id')
   const schedulerDatabaseId = configValue(schedulerSource, 'database_id')
+  const pagesProductionDatabase = configBlock(pagesSource, '[[env.production.d1_databases]]')
+  const pagesProductionVars = configBlock(pagesSource, '[env.production.vars]')
 
   if (configValue(pagesSource, 'name') !== 'moodverse-music-staging') {
     problems.push('Pages config must target moodverse-music-staging.')
@@ -39,6 +50,17 @@ export function inspectMusicStagingManifests(pagesSource, schedulerSource, produ
   }
   if (pagesDatabaseId !== schedulerDatabaseId) {
     problems.push('Pages and scheduler must use the same staging D1 database ID.')
+  }
+  if (!pagesProductionDatabase
+    || configValue(pagesProductionDatabase, 'binding') !== 'DB'
+    || configValue(pagesProductionDatabase, 'database_name') !== 'moodverse-music-staging-db'
+    || configValue(pagesProductionDatabase, 'database_id') !== pagesDatabaseId) {
+    problems.push('Pages Production must explicitly use the same isolated staging D1 database.')
+  }
+  if (!pagesProductionVars
+    || configValue(pagesProductionVars, 'MUSIC_EMAIL_LOGIN_ENABLED') !== 'false'
+    || configValue(pagesProductionVars, 'MUSIC_ALLOW_LEGACY_ACCESS_AUTH') !== 'false') {
+    problems.push('Pages Production must keep demo email and legacy authentication disabled.')
   }
   if (pagesDatabaseId && productionDatabaseId && pagesDatabaseId === productionDatabaseId) {
     problems.push('Staging must not use the production D1 database ID.')

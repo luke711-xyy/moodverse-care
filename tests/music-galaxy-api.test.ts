@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import { onRequestGet } from '../functions/api/music/galaxy'
 import { createMusicApiEnv, createMusicApiFixture, insertCatalogTrack } from './helpers/music-api-fixture'
+import type { MusicGalaxyResponse } from '../src/music-api'
 
 let fixture: ReturnType<typeof createMusicApiFixture>
 
@@ -81,4 +82,25 @@ test('Galaxy rejects unknown grouping modes instead of silently changing the dis
   const response = await getGalaxy('mood')
   expect(response.status).toBe(400)
   expect(await response.json()).toEqual({ error: 'INVALID_GROUPING' })
+})
+
+test('Galaxy includes only validated planet appearance data for rendering the public 3D scene', async () => {
+  fixture.sqlite.prepare(`UPDATE music_planets SET visual_json = ?1 WHERE id = 'planet-public'`).run(JSON.stringify({
+    schemaVersion: 2,
+    summary: '海蓝色星球',
+    palette: { surface: '#347c68', ocean: '#071d31', accent: '#72dac0' },
+    atmosphere: 'mist',
+    motion: 'flow',
+    particleDensity: 0.34,
+    terrainFeatures: { mountainRanges: 3, basins: 1, canyons: 2, escarpments: 1 },
+  }))
+
+  const response = await getGalaxy('artist')
+  const body = await response.json() as MusicGalaxyResponse
+  expect(body.groups[0].planets[0]).toMatchObject({ planetId: 'planet-public', visual: { palette: { surface: '#347c68' } } })
+
+  fixture.sqlite.prepare(`UPDATE music_planets SET visual_json = ?1 WHERE id = 'planet-public'`).run('{"schemaVersion":2,"palette":{"surface":"url(javascript:alert(1))"}}')
+  const invalidResponse = await getGalaxy('artist')
+  const invalidBody = await invalidResponse.json() as { groups: Array<{ planets: Array<{ visual?: unknown }> }> }
+  expect(invalidBody.groups[0].planets[0]).not.toHaveProperty('visual')
 })

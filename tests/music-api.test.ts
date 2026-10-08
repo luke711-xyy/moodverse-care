@@ -12,10 +12,34 @@ describe('music API client', () => {
       const path = new URL(input.toString(), 'https://moodverse.test').pathname
       return path === '/api/music/catalog'
         ? Response.json({ tracks: [track] })
-        : Response.json({ planet: null })
+        : Response.json({ planet: null, friendSatellites: [] })
     })
 
-    await expect(api.loadHome()).resolves.toEqual({ tracks: [track], planet: null })
+    await expect(api.loadHome()).resolves.toEqual({ tracks: [track], planet: null, friendSatellites: [] })
+  })
+
+  test('loads and owner-scoped removes a friend satellite', async () => {
+    const requests: Array<{ path: string; method?: string }> = []
+    const friend = {
+      id: 'virtual-friend-0-owner', displayName: '小满', tagline: '沿着旋律散步。', color: '#77dec8',
+      visualSeed: 'friend-mint', orbitRadius: .235, orbitPhase: .35, isVirtual: true, canRemove: true,
+    }
+    const api = createMusicApi(async (input, init) => {
+      requests.push({
+        path: new URL(input.toString(), 'https://moodverse.test').pathname,
+        ...(init?.method ? { method: init.method } : {}),
+      })
+      return init?.method === 'DELETE'
+        ? Response.json({ deleted: true })
+        : Response.json({ friendSatellites: [friend] })
+    })
+
+    await expect(api.loadFriendSatellites()).resolves.toEqual({ friendSatellites: [friend] })
+    await expect(api.deleteFriendSatellite(friend.id)).resolves.toEqual({ deleted: true })
+    expect(requests).toEqual([
+      { path: '/api/me/friend-satellites' },
+      { path: '/api/me/friend-satellites/virtual-friend-0-owner', method: 'DELETE' },
+    ])
   })
 
   test('surfaces an absent Cloudflare Access identity as a typed authorization error', async () => {

@@ -1,4 +1,5 @@
 import { authenticatedMusicUser, json, safeHttpsUrl, type Env } from '../../_shared'
+import { ensureDefaultFriendSatellites, readFriendSatellites } from '../../_music-friend-satellites'
 import { validateTrackSelection, type MusicTrackSummary } from '../../../src/music-domain'
 import { schedulePlanetComposition } from './music-planet/compose'
 
@@ -134,10 +135,12 @@ function isValidVisibility(value: unknown): value is 'public' | 'private' {
 export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   const identity = await authenticatedMusicUser(request, env)
   if (!identity) return response({ error: 'UNAUTHENTICATED' }, 401)
+  await ensureDefaultFriendSatellites(env, identity.userId)
   const planet = await readOwnerPlanet(env, identity.userId)
   const demoEmail = env.MUSIC_DEMO_EMAIL?.trim().toLocaleLowerCase() ?? ''
   const accountEmail = identity.email?.trim().toLocaleLowerCase() ?? ''
-  return response({ planet, isDemoAccount: Boolean(demoEmail && accountEmail && demoEmail === accountEmail) }, 200, identity.setCookie)
+  const friendSatellites = await readFriendSatellites(env, identity.userId)
+  return response({ planet, friendSatellites, isDemoAccount: Boolean(demoEmail && accountEmail && demoEmail === accountEmail) }, 200, identity.setCookie)
 }
 
 export const onRequestPost: PagesFunction<Env> = async (context) => {

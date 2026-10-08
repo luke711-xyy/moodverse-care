@@ -87,6 +87,8 @@ export function createMusicApiFixture() {
   if (existsSync(accountDeletionMigration)) sqlite.exec(readFileSync(accountDeletionMigration, 'utf8'))
   const reportTriageMigration = new URL('../../migrations/0017_music_report_triage.sql', import.meta.url)
   if (existsSync(reportTriageMigration)) sqlite.exec(readFileSync(reportTriageMigration, 'utf8'))
+  const friendSatelliteMigration = new URL('../../migrations/0018_music_friend_satellites.sql', import.meta.url)
+  if (existsSync(friendSatelliteMigration)) sqlite.exec(readFileSync(friendSatelliteMigration, 'utf8'))
 
   return {
     db: createD1Adapter(sqlite),

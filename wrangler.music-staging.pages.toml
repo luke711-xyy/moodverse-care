@@ -10,6 +10,19 @@ database_name = "moodverse-music-staging-db"
 database_id = "58d7ea1b-aaaf-4639-8adb-5fb2136dddf4"
 migrations_dir = "./migrations-music-staging"
 
+# The staging Pages project's `main` branch runs as its Production environment.
+# Override the dashboard's old production binding so this project can never
+# reach the moodverse-care production database.
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "moodverse-music-staging-db"
+database_id = "58d7ea1b-aaaf-4639-8adb-5fb2136dddf4"
+migrations_dir = "./migrations-music-staging"
+
+[env.production.vars]
+MUSIC_EMAIL_LOGIN_ENABLED = "false"
+MUSIC_ALLOW_LEGACY_ACCESS_AUTH = "false"
+
 [vars]
 MUSIC_EMAIL_LOGIN_ENABLED = "false"
 MUSIC_ALLOW_LEGACY_ACCESS_AUTH = "false"

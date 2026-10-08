@@ -10,6 +10,8 @@ import { derivePlanetClimate } from './climate'
 import { weatherAccent } from './weather'
 import { generateLightningPath } from './lightning'
 import { DEFAULT_FOCUSED_THEMES, moodById, themeById, THEME_IDS, type Billboard, type DoodleStroke, type MoodId, type Planet, type StarAppearance, type ThemeId } from './types'
+import type { MusicFriendSatellite } from './music-api'
+import type { MusicGalaxySceneSystem } from './music/galaxy-scene'
 import {
   advanceJourney,
   buildGalaxyAnchors,
@@ -38,15 +40,23 @@ type SceneProps = {
   view: 'universe' | 'galaxy' | 'planet' | 'home-galaxy' | 'self'
   focusedTheme?: ThemeId
   focusedThemes?: ThemeId[]
+  musicGalaxySystems?: MusicGalaxySceneSystem[]
+  focusedMusicGalaxyId?: string
+  onMusicGalaxyClick?: (id: string) => void
+  onMusicPlanetClick?: (planet: Planet, galaxyId: string) => void
   publicPlanets?: Planet[]
   ownPlanet?: Planet
   ownPlanets?: Planet[]
+  friendSatellites?: MusicFriendSatellite[]
   starAppearance?: StarAppearance
   ownPlanetGrowthToken?: number
   selectedPlanet?: Planet
   galaxyRotation: number
   selfRotation?: number
   selfReturning: boolean
+  scriptedJourney?: boolean
+  cinematicTransition?: 'galaxy-to-tour' | 'home-to-planet' | null
+  cinematicTransitionProgress?: number
   selectedBillboardId?: string
   onBillboardClick: (id?: string) => void
   onPublicBillboardClick: (planet: Planet, billboardId: string, rotation: number) => void
@@ -1374,7 +1384,71 @@ type PlanetActorMotion = {
   growth: boolean
 }
 
-function PlanetActor({ planet, detail, interactive, selectedBillboardId, onBillboardClick, onClick, reducedMotion, layout }: { planet: Planet; detail: 'far' | 'mid' | 'near'; interactive: boolean; selectedBillboardId?: string; onBillboardClick: (planet: Planet, billboardId: string) => void; onClick: (planet: Planet) => void; reducedMotion?: boolean; layout?: PlanetActorLayout }) {
+function FriendSatelliteOrbiter({ friend, reducedMotion }: { friend: MusicFriendSatellite; reducedMotion?: boolean }) {
+  const orbiter = useRef<THREE.Group>(null)
+  const halo = useRef<THREE.Mesh>(null)
+  const rays = useMemo(() => {
+    const positions: number[] = []
+    const seed = hashString32(friend.visualSeed)
+    for (let index = 0; index < 22; index += 1) {
+      const randomA = seeded(seed + index * 3 + 1)
+      const randomB = seeded(seed + index * 3 + 2)
+      const randomC = seeded(seed + index * 3 + 3)
+      const theta = randomA * Math.PI * 2
+      const phi = Math.acos(2 * randomB - 1)
+      const direction = new THREE.Vector3(Math.sin(phi) * Math.cos(theta), Math.cos(phi), Math.sin(phi) * Math.sin(theta))
+      const inner = .023 + randomC * .008
+      const outer = .043 + randomA * .018
+      positions.push(direction.x * inner, direction.y * inner, direction.z * inner)
+      positions.push(direction.x * outer, direction.y * outer, direction.z * outer)
+    }
+    const geometry = new THREE.BufferGeometry()
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+    return geometry
+  }, [friend.visualSeed])
+  useEffect(() => () => rays.dispose(), [rays])
+  useFrame(({ clock }) => {
+    if (orbiter.current) {
+      const angle = friend.orbitPhase + (reducedMotion ? 0 : clock.elapsedTime * .18)
+      orbiter.current.position.set(friend.orbitRadius * Math.cos(angle), .018 * Math.sin(angle * 1.7), friend.orbitRadius * Math.sin(angle))
+    }
+    if (halo.current) {
+      const pulse = reducedMotion ? 1 : 1 + Math.sin(clock.elapsedTime * 2.4 + friend.orbitPhase) * .075
+      halo.current.scale.setScalar(pulse)
+    }
+  })
+  return <group ref={orbiter} name={`friend-satellite-${friend.id}`}>
+    <mesh ref={halo}>
+      <sphereGeometry args={[.044, 14, 10]} />
+      <meshBasicMaterial color={friend.color} transparent opacity={.16} blending={THREE.AdditiveBlending} depthWrite={false} />
+    </mesh>
+    <lineSegments geometry={rays}>
+      <lineBasicMaterial color="#f4ffff" transparent opacity={.72} blending={THREE.AdditiveBlending} depthWrite={false} />
+    </lineSegments>
+    <mesh>
+      <sphereGeometry args={[.018, 14, 10]} />
+      <meshStandardMaterial color={friend.color} emissive={friend.color} emissiveIntensity={1.25} roughness={.34} metalness={.08} />
+    </mesh>
+    <mesh rotation={[Math.PI / 2.7, .16, 0]}>
+      <torusGeometry args={[.027, .0018, 4, 28]} />
+      <meshBasicMaterial color="#eafcff" transparent opacity={.78} blending={THREE.AdditiveBlending} depthWrite={false} />
+    </mesh>
+    <pointLight color={friend.color} intensity={.08} distance={.22} decay={2} />
+  </group>
+}
+
+function FriendSatelliteSystem({ friends, reducedMotion }: { friends: MusicFriendSatellite[]; reducedMotion?: boolean }) {
+  if (!friends.length) return null
+  return <group name="friend-satellite-system" rotation={[.58, .08, -.22]}>
+    {friends.map((friend) => <mesh key={`orbit-${friend.id}`} rotation={[Math.PI / 2, 0, 0]}>
+      <torusGeometry args={[friend.orbitRadius, .0012, 4, 88]} />
+      <meshBasicMaterial color={friend.color} transparent opacity={.14} blending={THREE.AdditiveBlending} depthWrite={false} />
+    </mesh>)}
+    {friends.map((friend) => <FriendSatelliteOrbiter key={friend.id} friend={friend} reducedMotion={reducedMotion} />)}
+  </group>
+}
+
+function PlanetActor({ planet, detail, interactive, selectedBillboardId, onBillboardClick, onClick, reducedMotion, layout, friendSatellites }: { planet: Planet; detail: 'far' | 'mid' | 'near'; interactive: boolean; selectedBillboardId?: string; onBillboardClick: (planet: Planet, billboardId: string) => void; onClick: (planet: Planet) => void; reducedMotion?: boolean; layout?: PlanetActorLayout; friendSatellites?: MusicFriendSatellite[] }) {
   const orbit = useRef<THREE.Group>(null)
   const ref = useRef<THREE.Group>(null)
   const rotationGroup = useRef<THREE.Group>(null)
@@ -1565,6 +1639,7 @@ function PlanetActor({ planet, detail, interactive, selectedBillboardId, onBillb
   })
   return <group ref={orbit} name={`planet-orbit-${planet.id}`}>
     <group ref={ref} position={base} name={`planet-${planet.id}`} onClick={interactive ? (event) => { event.stopPropagation(); onClick(planet) } : undefined}>
+      {planet.owner && detail === 'near' && friendSatellites && <FriendSatelliteSystem friends={friendSatellites} reducedMotion={reducedMotion} />}
       <group ref={rotationGroup} onPointerDown={draggable ? startDrag : undefined} onPointerMove={draggable ? moveDrag : undefined} onPointerUp={draggable ? endDrag : undefined} onPointerCancel={draggable ? endDrag : undefined} onLostPointerCapture={draggable ? () => { drag.current = null; if (planet.owner) saveOwnOrientation(planet.id, orientation.current); gl.domElement.style.cursor = 'grab' } : undefined} onPointerOver={draggable ? () => { if (!drag.current) gl.domElement.style.cursor = 'grab' } : undefined} onPointerOut={draggable ? () => { if (!drag.current) gl.domElement.style.cursor = '' } : undefined}>
         {detail === 'far' ? <FarPlanet planet={planet} radius={PLANET_RADIUS} /> : <DetailedPlanet planet={planet} radius={PLANET_RADIUS} detail={detail} />}
         {detail !== 'far' && <PlanetBillboards planet={planet} selectedBillboardId={selectedBillboardId} onBillboardClick={onBillboardClick} />}
@@ -1606,6 +1681,42 @@ function Galaxy({ anchor, active, planets, selectedPlanet, selectedBillboardId, 
       rotationTarget={rotationTarget} planeQuaternion={planeQuaternion} starAppearance={{ color: meta.color }}
       onStarClick={view === 'universe' ? () => onThemeClick(anchor.theme) : undefined}
       onPlanetClick={onPlanetClick} onBillboardClick={onBillboardClick} reducedMotion={reducedMotion}
+    />
+  </group>
+}
+
+function MusicGalaxy({ system, active, selectedPlanet, selectedBillboardId, view, rotationTarget, reducedMotion, onSelect, onPlanetClick, onBillboardClick }: {
+  system: MusicGalaxySceneSystem
+  active: boolean
+  selectedPlanet?: Planet
+  selectedBillboardId?: string
+  view: SceneProps['view']
+  rotationTarget: number
+  reducedMotion?: boolean
+  onSelect: () => void
+  onPlanetClick: (planet: Planet, galaxyId: string) => void
+  onBillboardClick: (planet: Planet, billboardId: string, galaxyId: string) => void
+}) {
+  const planeQuaternion = useMemo(
+    () => galaxyPlaneQuaternion(new THREE.Vector3(...system.anchor.position).negate()),
+    [system.anchor.position],
+  )
+  return <group position={system.anchor.position} name={`music-galaxy-${system.id}`} scale={[GALAXY_DISPLAY_SCALE, GALAXY_DISPLAY_SCALE, GALAXY_DISPLAY_SCALE]}>
+    {view === 'universe' && <mesh
+      name={`music-galaxy-select-area-${system.id}`}
+      onClick={(event) => { event.stopPropagation(); onSelect() }}
+    >
+      <sphereGeometry args={[GALAXY_SELECTION_RADIUS, 20, 14]} />
+      <meshBasicMaterial transparent opacity={0} colorWrite={false} depthWrite={false} />
+    </mesh>}
+    <GalaxyPhysicalGroup
+      seedKey={system.id} tint={system.color} active={active} planets={system.planets}
+      selectedPlanet={selectedPlanet} selectedBillboardId={selectedBillboardId} view={view}
+      rotationTarget={rotationTarget} planeQuaternion={planeQuaternion} starAppearance={{ color: system.color }}
+      onStarClick={view === 'universe' ? onSelect : undefined}
+      onPlanetClick={(planet) => onPlanetClick(planet, system.id)}
+      onBillboardClick={(planet, billboardId) => onBillboardClick(planet, billboardId, system.id)}
+      reducedMotion={reducedMotion} interactive={view === 'galaxy' || view === 'planet'}
     />
   </group>
 }
@@ -1871,7 +1982,7 @@ function GalaxyEmbryoActor({ index, position, onClick }: {
   </group>
 }
 
-function GalaxyPhysicalGroup({ seedKey, tint, active, planets, selectedPlanet, selectedBillboardId, view, rotationTarget, planeQuaternion, starAppearance, onStarClick, onPlanetClick, onBillboardClick, embryoPositions = [], onEmbryoClick, reducedMotion, planetLayouts, interactive }: {
+function GalaxyPhysicalGroup({ seedKey, tint, active, planets, selectedPlanet, selectedBillboardId, view, rotationTarget, planeQuaternion, starAppearance, onStarClick, onPlanetClick, onBillboardClick, embryoPositions = [], onEmbryoClick, reducedMotion, planetLayouts, interactive, friendSatellites }: {
   seedKey: string
   tint: string
   active: boolean
@@ -1890,6 +2001,7 @@ function GalaxyPhysicalGroup({ seedKey, tint, active, planets, selectedPlanet, s
   reducedMotion?: boolean
   planetLayouts?: Record<string, PlanetActorLayout>
   interactive?: boolean
+  friendSatellites?: MusicFriendSatellite[]
 }) {
   const clusterRotation = useRef<THREE.Group>(null)
   const orbitalRotation = useRef<THREE.Group>(null)
@@ -1908,6 +2020,7 @@ function GalaxyPhysicalGroup({ seedKey, tint, active, planets, selectedPlanet, s
           return <PlanetActor key={planet.id} planet={planet} detail={detail} interactive={(interactive ?? active) && !selected}
             reducedMotion={reducedMotion}
             layout={planetLayouts?.[planet.id]}
+            friendSatellites={selected && planet.owner ? friendSatellites : undefined}
             selectedBillboardId={selected ? selectedBillboardId : undefined}
             onBillboardClick={(item, billboardId) => onBillboardClick(item, billboardId, clusterRotation.current?.rotation.y ?? rotationTarget)}
             onClick={(item) => onPlanetClick(item, clusterRotation.current?.rotation.y ?? rotationTarget)} />
@@ -1969,6 +2082,7 @@ function OwnGalaxyDisplay({ props, motion, selfDirection }: { props: SceneProps;
       <GalaxyPhysicalGroup
         seedKey="home-galaxy" tint={appearance.color} active={active} planets={positionedPlanets}
         selectedPlanet={selectedOwnPlanet} selectedBillboardId={props.selectedBillboardId}
+        friendSatellites={props.friendSatellites}
         view={props.view} rotationTarget={props.galaxyRotation} planeQuaternion={planeQuaternion} starAppearance={appearance} onStarClick={props.onStarClick}
         onPlanetClick={(planet, rotation) => props.onOwnPlanetClick(planet, rotation)}
         onBillboardClick={(_, billboardId) => props.onBillboardClick(billboardId)}
@@ -1987,7 +2101,9 @@ function CameraDirector({ props, motion, debug, anchors, anchorByTheme, selfDire
   const targetPoint = useMemo(() => new THREE.Vector3(), [])
   const ownGalaxyPlanets = useMemo(() => buildOwnGalaxyPlanetAssets(props.ownPlanets), [props.ownPlanets])
   const homeGalaxyCenter = useMemo(() => toVector3(selfDirection).multiplyScalar(HOME_GALAXY_CENTER_DISTANCE), [selfDirection])
-  const focusedAnchor = props.focusedTheme ? anchorByTheme[props.focusedTheme] : undefined
+  const focusedMusicGalaxy = props.musicGalaxySystems?.find((system) => system.id === props.focusedMusicGalaxyId)
+  const focusedAnchor = focusedMusicGalaxy?.anchor ?? (props.focusedTheme ? anchorByTheme[props.focusedTheme] : undefined)
+  const focusedPlanets = focusedMusicGalaxy?.planets ?? props.publicPlanets ?? []
   const focusedPlaneQuaternion = useMemo(
     () => focusedAnchor ? galaxyPlaneQuaternion(new THREE.Vector3(...focusedAnchor.position).negate()) : new THREE.Quaternion(),
     [focusedAnchor],
@@ -2001,7 +2117,12 @@ function CameraDirector({ props, motion, debug, anchors, anchorByTheme, selfDire
   const projectedSubject = useMemo(() => new THREE.Vector3(), [])
   const targetScreenRight = useMemo(() => new THREE.Vector3(), [])
   const targetScreenUp = useMemo(() => new THREE.Vector3(), [])
+  const transitionFromPosition = useMemo(() => new THREE.Vector3(), [])
+  const transitionFromPoint = useMemo(() => new THREE.Vector3(), [])
+  const transitionToPosition = useMemo(() => new THREE.Vector3(), [])
+  const transitionToPoint = useMemo(() => new THREE.Vector3(), [])
   const arrived = useRef(false)
+  const wasSelfReturning = useRef(false)
   const focusPlanetInDetail = (
     pose: ReturnType<typeof getPlanetFocusPose>,
     viewportFov: number,
@@ -2056,7 +2177,9 @@ function CameraDirector({ props, motion, debug, anchors, anchorByTheme, selfDire
     }
   }
   useFrame(({ clock }, delta) => {
-    const journeyLambda = props.reducedMotion ? 18 : props.selfReturning ? 18 : 4.8
+    if (props.selfReturning && !wasSelfReturning.current) motion.current.journey = props.journey
+    wasSelfReturning.current = props.selfReturning
+    const journeyLambda = props.reducedMotion ? 18 : props.selfReturning || props.scriptedJourney ? 18 : 4.8
     motion.current.journey = THREE.MathUtils.damp(motion.current.journey, props.journey, journeyLambda, delta)
     const journeyState = advanceJourney(motion.current.journey, 0)
     motion.current.tourProgress = journeyState.tourProgress
@@ -2065,9 +2188,10 @@ function CameraDirector({ props, motion, debug, anchors, anchorByTheme, selfDire
     motion.current.selfBlend = smoothstep(0.28, 0.94, journeyState.portalProgress)
 
     let fov = 47
-    if ((props.view === 'galaxy' || props.view === 'planet') && props.focusedTheme && focusedAnchor) {
+    if ((props.view === 'galaxy' || props.view === 'planet') && focusedAnchor && (focusedMusicGalaxy || props.focusedTheme)) {
       const selectedPlanet = props.view === 'planet' ? props.selectedPlanet : undefined
-      const detailView = Boolean(selectedPlanet)
+      const focusedPlanet = selectedPlanet ? focusedPlanets.find((planet) => planet.id === selectedPlanet.id) : undefined
+      const detailView = Boolean(focusedPlanet)
       fov = 50
       if (detailView) {
         const subjectRadius = PLANET_RADIUS * GALAXY_DISPLAY_SCALE
@@ -2077,8 +2201,8 @@ function CameraDirector({ props, motion, debug, anchors, anchorByTheme, selfDire
         const focalLengthPx = size.height / (2 * Math.tan((fov * Math.PI) / 360))
         const focusDistance = subjectRadius * focalLengthPx / desiredRadiusPx
         const orbitalAngle = galaxyOrbitAngle(clock.elapsedTime, props.reducedMotion)
-        const orbitingPosition = rotateGalaxyPosition(selectedPlanet!.position, orbitalAngle)
-        orbitingPosition[1] += Math.sin(clock.elapsedTime * 0.52 + selectedPlanet!.orbit) * 0.026
+        const orbitingPosition = rotateGalaxyPosition(focusedPlanet!.position, orbitalAngle)
+        orbitingPosition[1] += Math.sin(clock.elapsedTime * 0.52 + focusedPlanet!.orbit) * 0.026
         const planePosition = toVector3(orbitingPosition).applyQuaternion(focusedPlaneQuaternion).toArray() as Vec3
         const pose = getPlanetFocusPose(
           focusedAnchor,
@@ -2128,7 +2252,20 @@ function CameraDirector({ props, motion, debug, anchors, anchorByTheme, selfDire
           1,
           focusDistance,
         )
-        focusPlanetInDetail(pose, fov, 1.8, 0.48, 0.52)
+        if (props.cinematicTransition === 'home-to-planet') {
+          const wideFov = size.width < 560 ? 51 : 47
+          transitionFromPosition.copy(homeGalaxyCenter).addScaledVector(toVector3(selfDirection), -homeGalaxyFocusDistance(size.width))
+          transitionFromPoint.copy(homeGalaxyCenter)
+          focusPlanetInDetail(pose, fov, 1.8, 0.48, 0.52)
+          transitionToPosition.copy(targetPosition)
+          transitionToPoint.copy(targetPoint)
+          const blend = smoothstep(0, 1, props.cinematicTransitionProgress ?? 0)
+          targetPosition.lerpVectors(transitionFromPosition, transitionToPosition, blend)
+          targetPoint.lerpVectors(transitionFromPoint, transitionToPoint, blend)
+          fov = wideFov + (fov - wideFov) * blend
+        } else {
+          focusPlanetInDetail(pose, fov, 1.8, 0.48, 0.52)
+        }
       } else {
         targetPosition.copy(homeGalaxyCenter).addScaledVector(toVector3(selfDirection), -homeGalaxyFocusDistance(size.width))
         targetPoint.copy(homeGalaxyCenter)
@@ -2153,14 +2290,32 @@ function CameraDirector({ props, motion, debug, anchors, anchorByTheme, selfDire
       fov = compact ? 51 : 47
     }
 
-    const cameraLambda = props.reducedMotion ? 20 : props.selfReturning ? 11 : props.view === 'planet' ? 4.8 : 3.75
+    if (props.cinematicTransition === 'galaxy-to-tour') {
+      transitionFromPosition.copy(targetPosition)
+      transitionFromPoint.copy(targetPoint)
+      const tourState = advanceJourney(props.journey, 0)
+      const pose = sampleFocusedTourPose(tourState.tourProgress, anchors)
+      const travel = tourState.portalProgress * portalTravelDistance(size.width)
+      transitionToPosition.set(...pose.direction).multiplyScalar(travel)
+      transitionToPoint.copy(transitionToPosition).addScaledVector(toVector3(pose.direction), Math.max(2.3, 3.1 - travel))
+      if (tourState.portalProgress > 0) {
+        transitionToPoint.lerp(homeGalaxyCenter, smoothstep(PORTAL_CLOUD_CROSSING_PROGRESS + 0.08, 0.98, tourState.portalProgress))
+      }
+      const blend = smoothstep(0, 1, props.cinematicTransitionProgress ?? 0)
+      targetPosition.lerpVectors(transitionFromPosition, transitionToPosition, blend)
+      targetPoint.lerpVectors(transitionFromPoint, transitionToPoint, blend)
+      const tourFov = size.width < 560 ? 51 : 47
+      fov += (tourFov - fov) * blend
+    }
+
+    const cameraLambda = props.reducedMotion ? 20 : props.selfReturning ? 11 : props.cinematicTransition || props.scriptedJourney ? 9 : props.view === 'planet' ? 4.8 : 3.75
     camera.position.x = THREE.MathUtils.damp(camera.position.x, targetPosition.x, cameraLambda, delta)
     camera.position.y = THREE.MathUtils.damp(camera.position.y, targetPosition.y, cameraLambda, delta)
     camera.position.z = THREE.MathUtils.damp(camera.position.z, targetPosition.z, cameraLambda, delta)
     targetCamera.position.copy(targetPosition)
     targetCamera.up.set(0, 1, 0)
     targetCamera.lookAt(targetPoint)
-    const alpha = 1 - Math.exp(-(props.reducedMotion ? 20 : props.selfReturning ? 11 : 4.25) * delta)
+    const alpha = 1 - Math.exp(-(props.reducedMotion ? 20 : props.selfReturning ? 11 : props.cinematicTransition || props.scriptedJourney ? 9 : 4.25) * delta)
     camera.quaternion.slerp(targetCamera.quaternion, alpha)
     if (camera instanceof THREE.PerspectiveCamera) {
       camera.fov = THREE.MathUtils.damp(camera.fov, fov, cameraLambda, delta)
@@ -2174,15 +2329,15 @@ function CameraDirector({ props, motion, debug, anchors, anchorByTheme, selfDire
     }
     if (props.journey < 0.94) arrived.current = false
 
-    const activeCount = props.publicPlanets?.filter((planet) => planet.theme === props.focusedTheme).length ?? 0
+    const activeCount = focusedMusicGalaxy?.planets.length ?? (props.publicPlanets?.filter((planet) => planet.theme === props.focusedTheme).length ?? 0)
     const selectedCount = props.view === 'planet' && props.selectedPlanet ? 1 : 0
     debug.current = {
       view: props.view, phase: journeyState.phase, journey: motion.current.journey, journeyTarget: props.journey,
       tourProgress: journeyState.tourProgress, portalProgress: journeyState.portalProgress, focusedTheme: props.focusedTheme,
       camera: { position: camera.position.toArray(), quaternion: camera.quaternion.toArray(), fov: camera instanceof THREE.PerspectiveCamera ? camera.fov : 47 },
-      galaxies: anchors.map((anchor) => ({
+      galaxies: anchors.map((anchor, index) => ({
         theme: anchor.theme, position: [...anchor.position], scale: GALAXY_DISPLAY_SCALE,
-        planetCount: props.publicPlanets?.filter((planet) => planet.theme === anchor.theme).length ?? 0,
+        planetCount: props.musicGalaxySystems?.[index]?.planets.length ?? props.publicPlanets?.filter((planet) => planet.theme === anchor.theme).length ?? 0,
       })),
       lod: props.view === 'universe'
         ? { far: props.publicPlanets?.length ?? 0, mid: 0, near: 0 }
@@ -2195,7 +2350,9 @@ function CameraDirector({ props, motion, debug, anchors, anchorByTheme, selfDire
 
 function SceneContent(props: SceneProps) {
   const focusedThemes = props.focusedThemes ?? DEFAULT_FOCUSED_THEMES
-  const anchors = useMemo(() => buildGalaxyAnchors(focusedThemes, 22), [focusedThemes])
+  const anchors = useMemo(() => props.musicGalaxySystems
+    ? props.musicGalaxySystems.map((system) => system.anchor)
+    : buildGalaxyAnchors(focusedThemes, 22), [focusedThemes, props.musicGalaxySystems])
   const anchorByTheme = useMemo(() => Object.fromEntries(anchors.map((anchor) => [anchor.theme, anchor])) as Partial<Record<ThemeId, GalaxyAnchor>>, [anchors])
   const selfDirection = SELF_PLANET_DIRECTION
   const motion = useRef<MotionState>({ journey: 0, tourProgress: 0, portalProgress: 0, universeOpacity: 1, selfBlend: 0 })
@@ -2218,7 +2375,7 @@ function SceneContent(props: SceneProps) {
     <Starfield />
     <MeteorField reducedMotion={props.reducedMotion} themeId={ownPlanet?.theme} />
     <CameraDirector props={props} motion={motion} debug={debug} anchors={anchors} anchorByTheme={anchorByTheme} selfDirection={selfDirection} />
-    {anchors.map((anchor) => <Galaxy
+    {!props.musicGalaxySystems && anchors.map((anchor) => <Galaxy
       key={anchor.theme} anchor={anchor}
       active={props.focusedTheme === anchor.theme && (props.view === 'galaxy' || props.view === 'planet')}
       rotationTarget={props.focusedTheme === anchor.theme ? props.galaxyRotation : 0}
@@ -2226,6 +2383,16 @@ function SceneContent(props: SceneProps) {
       selectedPlanet={props.selectedPlanet} selectedBillboardId={props.selectedBillboardId} view={props.view}
       reducedMotion={props.reducedMotion}
       onThemeClick={props.onThemeClick} onPlanetClick={props.onPlanetClick} onBillboardClick={props.onPublicBillboardClick}
+    />)}
+    {props.musicGalaxySystems?.map((system) => <MusicGalaxy
+      key={system.id} system={system}
+      active={props.focusedMusicGalaxyId === system.id && (props.view === 'galaxy' || props.view === 'planet')}
+      rotationTarget={props.focusedMusicGalaxyId === system.id ? props.galaxyRotation : 0}
+      selectedPlanet={props.selectedPlanet} selectedBillboardId={props.selectedBillboardId}
+      view={props.view} reducedMotion={props.reducedMotion}
+      onSelect={() => props.onMusicGalaxyClick?.(system.id)}
+      onPlanetClick={(planet, galaxyId) => props.onMusicPlanetClick?.(planet, galaxyId)}
+      onBillboardClick={() => undefined}
     />)}
     <OwnGalaxyDisplay props={props} motion={motion} selfDirection={selfDirection} />
     <PortalCloud motion={motion} planet={ownPlanet} selfDirection={selfDirection} />

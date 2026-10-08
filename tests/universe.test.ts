@@ -14,6 +14,8 @@ import {
   GALAXY_CLUSTER_RADIUS,
   GALAXY_SELECTION_RADIUS,
   getCurrentTourAnchorIndex,
+  getSelfArrivalJourneyDuration,
+  getSelfArrivalJourneyProgress,
   getSelfReturnJourneyProgress,
   getGalaxyFocusPose,
   getPlanetFocusPose,
@@ -25,12 +27,20 @@ import {
   GALAXY_ARM_ROTATION_SPEED,
   GALAXY_PLANE_VIEW_ANGLE,
   normalizeWheelDelta,
+  PORTAL_START,
   projectedRadiusPx,
   planetPickRadiusWorld,
+  reachesTourHomeEndpoint,
   rotateGalaxyPosition,
   sampleTourPose,
+  SELF_ARRIVAL_CLOUD_DURATION_MS,
+  SELF_ARRIVAL_LANDING_DURATION_MS,
+  SELF_ARRIVAL_OVERSHOOT_DURATION_MS,
+  SELF_ARRIVAL_TOUR_DURATION_MS,
+  SELF_START,
   SELF_RETURN_CLOUD_DURATION_MS,
   SELF_RETURN_TOUR_DURATION_MS,
+  TOUR_END,
   TOUR_OVERSHOOT,
 } from '../src/universe.ts'
 import { THEME_IDS } from '../src/types.ts'
@@ -203,6 +213,14 @@ describe('wheel-driven journey', () => {
     expect(advanceJourney(0.2, pixelStep).progress).toBeGreaterThan(0.2)
   })
 
+  it('returns to the user planet when forward wheel movement reaches the final axis node', () => {
+    expect(reachesTourHomeEndpoint(TOUR_END - 0.01, 0.01)).toBe(true)
+    expect(reachesTourHomeEndpoint(TOUR_END, 0.001)).toBe(true)
+    expect(reachesTourHomeEndpoint(TOUR_END - 0.01, -0.02)).toBe(false)
+    expect(reachesTourHomeEndpoint(TOUR_END - 0.01, 0.005)).toBe(false)
+    expect(reachesTourHomeEndpoint(Number.NaN, 1)).toBe(false)
+  })
+
   it('uses the final wheel buffer to rotate beyond the full tour before opening the portal', () => {
     const stillTouring = advanceJourney(0.78, 0.019)
 
@@ -272,6 +290,37 @@ describe('wheel-driven journey', () => {
     expect(halfwayThroughTour).toBeCloseTo(0.4, 10)
     expect(returned).toBe(0)
     expect(getSelfReturnJourneyProgress(0.7, SELF_RETURN_TOUR_DURATION_MS)).toBe(0)
+  })
+
+  it('uses the original tour-then-nebula sequence when arriving at the home planet', () => {
+    const duration = getSelfArrivalJourneyDuration(0)
+    const tourEnd = SELF_ARRIVAL_TOUR_DURATION_MS
+    const cloudStart = tourEnd + SELF_ARRIVAL_OVERSHOOT_DURATION_MS
+    const cloudEnd = cloudStart + SELF_ARRIVAL_CLOUD_DURATION_MS
+
+    expect(getSelfArrivalJourneyProgress(0, 0)).toBe(0)
+    expect(getSelfArrivalJourneyProgress(0, tourEnd)).toBeCloseTo(0.72, 10)
+    expect(getSelfArrivalJourneyProgress(0, cloudStart)).toBe(PORTAL_START)
+    expect(advanceJourney(getSelfArrivalJourneyProgress(0, cloudStart), 0).portalProgress).toBe(0)
+    expect(getSelfArrivalJourneyProgress(0, cloudStart + SELF_ARRIVAL_CLOUD_DURATION_MS / 2)).toBeCloseTo(0.89, 10)
+    expect(advanceJourney(getSelfArrivalJourneyProgress(0, cloudStart + SELF_ARRIVAL_CLOUD_DURATION_MS / 2), 0).portalProgress).toBeCloseTo(0.5, 10)
+    expect(getSelfArrivalJourneyProgress(0, cloudEnd)).toBe(SELF_START)
+    expect(advanceJourney(getSelfArrivalJourneyProgress(0, cloudEnd), 0).portalProgress).toBe(1)
+    const selectedGalaxyProgress = 0.64
+    const selectedGalaxyTourTime = ((TOUR_END - selectedGalaxyProgress) / TOUR_END) * SELF_ARRIVAL_TOUR_DURATION_MS
+    const selectedGalaxyCloudStart = selectedGalaxyTourTime + SELF_ARRIVAL_OVERSHOOT_DURATION_MS
+    expect(getSelfArrivalJourneyProgress(selectedGalaxyProgress, selectedGalaxyCloudStart)).toBe(PORTAL_START)
+    expect(getSelfArrivalJourneyDuration(selectedGalaxyProgress) - selectedGalaxyCloudStart).toBeCloseTo(
+      SELF_ARRIVAL_CLOUD_DURATION_MS + SELF_ARRIVAL_LANDING_DURATION_MS,
+      10,
+    )
+    expect(getSelfArrivalJourneyProgress(0, duration)).toBe(1)
+    expect(getSelfArrivalJourneyProgress(0.9, 0)).toBeCloseTo(0.9, 10)
+    expect(getSelfArrivalJourneyDuration(1)).toBe(0)
+    expect(getSelfArrivalJourneyProgress(1, 0)).toBe(1)
+    expect(getSelfArrivalJourneyDuration(0.3, true)).toBe(0)
+    expect(getSelfArrivalJourneyProgress(0.3, 0, true)).toBe(1)
+    expect(duration).toBe(tourEnd + SELF_ARRIVAL_OVERSHOOT_DURATION_MS + SELF_ARRIVAL_CLOUD_DURATION_MS + SELF_ARRIVAL_LANDING_DURATION_MS)
   })
 
   it('aligns galaxy stops with the progress track and reserves its end for the final turn', () => {
