@@ -1,5 +1,6 @@
 import { authenticatedMusicUser, json, type Env } from '../../../../_shared'
 import { readPublicPlanet } from '../[id]'
+import { decodePlanetRouteId } from '../_route'
 
 type VisitSource = 'direct' | 'song_portal' | 'galaxy' | 'random_roam' | 'daily_roam' | 'orbit'
 type VisitBody = { isIncognito?: unknown; source?: unknown; trackId?: unknown }
@@ -13,8 +14,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   const identity = await authenticatedMusicUser(request, env)
   if (!identity) return respond({ error: 'UNAUTHENTICATED' }, 401)
 
-  const planetId = typeof params?.id === 'string' ? params.id.trim() : ''
-  if (!planetId || planetId.length > 128) return respond({ error: 'PLANET_NOT_FOUND' }, 404)
+  const planetId = decodePlanetRouteId(params?.id)
+  if (!planetId) return respond({ error: 'PLANET_NOT_FOUND' }, 404)
 
   const body = await json<VisitBody>(request)
   if (body && (typeof body !== 'object' || Array.isArray(body))) return respond({ error: 'INVALID_VISIT' }, 400)

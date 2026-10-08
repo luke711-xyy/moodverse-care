@@ -1,5 +1,6 @@
 import { afterEach, beforeAll, beforeEach, expect, test, vi } from 'vitest'
 import { authenticatedMusicUser } from '../functions/_shared'
+import { onRequestGet as onRequestGetPublicPlanet } from '../functions/api/music/planets/[id]'
 import { onRequestPost as onRequestVisit } from '../functions/api/music/planets/[id]/visit'
 import { createAccessTestAuthority } from './helpers/cloudflare-access-jwt'
 import { createMusicApiEnv, createMusicApiFixture, insertCatalogTrack } from './helpers/music-api-fixture'
@@ -54,14 +55,15 @@ async function createIdentity(subject: string) {
   return identity!.userId
 }
 
-async function visit(planetId: string, subject = 'visit-visitor', body: unknown = { isIncognito: false }) {
+async function visit(planetId: string, subject = 'visit-visitor', body: unknown = { isIncognito: false }, encodePathId = false) {
   const signed = await authority.request({ sub: subject, email: `${subject}@example.com` })
-  const request = new Request(`https://moodverse.test/api/music/planets/${planetId}/visit`, {
+  const routeId = encodePathId ? encodeURIComponent(planetId) : planetId
+  const request = new Request(`https://moodverse.test/api/music/planets/${routeId}/visit`, {
     method: 'POST',
     headers: { ...Object.fromEntries(signed.headers), 'content-type': 'application/json' },
     body: JSON.stringify(body),
   })
-  return onRequestVisit({ request, env: env(), params: { id: planetId } } as never)
+  return onRequestVisit({ request, env: env(), params: { id: routeId } } as never)
 }
 
 test('visiting a public planet requires a verified Cloudflare Access identity', async () => {
@@ -84,6 +86,32 @@ test('ordinary visits expose only current public planet data and upsert one visi
   expect(later.status).toBe(200)
   expect(fixture.sqlite.prepare('SELECT count(*) AS count, max(is_incognito) AS is_incognito FROM music_planet_visits WHERE planet_id = ? AND visitor_user_id = ?').get('planet-public', visitorId)).toEqual({ count: 1, is_incognito: 0 })
   expect(JSON.stringify(await later.json())).not.toContain('访客不能看见。')
+})
+
+test('encoded colon IDs remain readable and visitable for anonymous demo planets', async () => {
+  const planetId = 'demo:planet:encoded-test'
+  const encodedOwnerId = await createIdentity('encoded-planet-owner')
+  fixture.sqlite.prepare(`
+    INSERT INTO music_planets (id, owner_user_id, display_name, tagline, visibility, created_at, updated_at)
+    VALUES (?, ?, '匿名演示星球', '可以正常访问。', 'public', '2026-09-30T08:00:00.000Z', '2026-09-30T08:00:00.000Z')
+  `).run(planetId, encodedOwnerId)
+
+  const encodedId = encodeURIComponent(planetId)
+  const signed = await authority.request({ sub: 'visit-visitor', email: 'visit-visitor@example.com' })
+  const detail = await onRequestGetPublicPlanet({
+    request: new Request(`https://moodverse.test/api/music/planets/${encodedId}`, { headers: signed.headers }),
+    env: env(), params: { id: encodedId },
+  } as never)
+  expect(detail.status).toBe(200)
+  expect(await detail.json()).toMatchObject({ planet: { id: planetId, displayName: '匿名演示星球' } })
+
+  const visitResult = await visit(planetId, 'visit-visitor', { isIncognito: true }, true)
+  expect(visitResult.status).toBe(200)
+  expect(await visitResult.json()).toMatchObject({ planet: { id: planetId } })
+  expect(fixture.sqlite.prepare('SELECT planet_id, is_incognito FROM music_planet_visits WHERE visitor_user_id = ?').get(visitorId)).toEqual({
+    planet_id: planetId,
+    is_incognito: 1,
+  })
 })
 
 test('an incognito visit stays in the visitor history but is hidden from the planet owner', async () => {

@@ -1,6 +1,7 @@
 import { authenticatedMusicUser, safeHttpsUrl, type Env } from '../../../_shared'
 import type { MusicTrackSummary } from '../../../../src/music-domain'
 import { mapMoment, type MomentRow, stringArray } from '../../../_music-moments'
+import { decodePlanetRouteId } from './_route'
 
 type PublicPlanetRow = {
   id: string
@@ -122,8 +123,8 @@ export async function readPublicPlanet(env: Env, planetId: string, viewerUserId?
 }
 
 export const onRequestGet: PagesFunction<Env> = async ({ request, env, params }) => {
-  const planetId = typeof params?.id === 'string' ? params.id.trim() : ''
-  if (!planetId || planetId.length > 128) return respond({ error: 'PLANET_NOT_FOUND' }, 404)
+  const planetId = decodePlanetRouteId(params?.id)
+  if (!planetId) return respond({ error: 'PLANET_NOT_FOUND' }, 404)
   const identity = await authenticatedMusicUser(request, env)
   const planet = await readPublicPlanet(env, planetId, identity?.userId)
   return planet ? respond({ planet }) : respond({ error: 'PLANET_NOT_FOUND' }, 404)
