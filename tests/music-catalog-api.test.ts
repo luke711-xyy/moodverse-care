@@ -100,3 +100,14 @@ test('catalog marks fictional staging tracks and never exposes a fake playback U
   expect(result.tracks[0]).not.toHaveProperty('provider')
   expect(result.tracks[0]).not.toHaveProperty('providerTrackId')
 })
+
+test('catalog exposes only bounded features with provenance, missing tempo stays missing', async () => {
+  insertCatalogTrack(fixture.sqlite, { id: 'features' })
+  const valid = { source: 'curated', tempoBpm: 120, energy: .6 }
+  fixture.sqlite.prepare('UPDATE music_track_catalog SET visual_features_json=?').run(JSON.stringify(valid))
+  expect((await (await getCatalog()).json() as any).tracks[0].visualFeatures).toEqual(valid)
+  fixture.sqlite.prepare('UPDATE music_track_catalog SET visual_features_json=?').run('{"source":"tag-derived","energy":0.6}')
+  expect((await (await getCatalog()).json() as any).tracks[0].visualFeatures).not.toHaveProperty('tempoBpm')
+  fixture.sqlite.prepare('UPDATE music_track_catalog SET visual_features_json=?').run('{"source":"unknown","tempoBpm":140}')
+  expect((await (await getCatalog()).json() as any).tracks[0]).not.toHaveProperty('visualFeatures')
+})

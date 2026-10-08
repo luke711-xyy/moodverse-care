@@ -1,4 +1,5 @@
 import type { MusicTrackSummary, MusicVisualFeatures } from '../../music-domain'
+import { validateMusicFeatures } from './features.mjs'
 
 export const DITHER_PALETTE = { black: '#08080D', white: '#F2EFF8', blue: '#6C9DFF', violet: '#8E6BFF', pink: '#F279C5' } as const
 export const DITHER_FORMS = ['organic', 'particles', 'pulse', 'annulus'] as const
@@ -42,18 +43,7 @@ export function stableHash(value: string): number {
 }
 
 export function validateMusicVisualFeatures(value: unknown): Validation<MusicVisualFeatures> {
-  if (!record(value) || !['curated', 'demo', 'tag-derived', 'unknown'].includes(String(value.source))) return { ok: false }
-  for (const [key, item] of Object.entries(value)) {
-    if (key === 'source') continue
-    if (key === 'tempoBpm') {
-      if (item !== null && !finite(item, 30, 300)) return { ok: false }
-      // Tag defaults must not masquerade as a measured tempo.
-      if (item !== null && ['unknown', 'tag-derived'].includes(String(value.source))) return { ok: false }
-    } else if (['energy', 'hardness', 'acousticness'].includes(key)) {
-      if (!finite(item, 0, 1)) return { ok: false }
-    } else return { ok: false }
-  }
-  return { ok: true, value: { ...value } as MusicVisualFeatures }
+  return validateMusicFeatures(value)
 }
 
 export function validateDitherOverrides(value: unknown): Validation<DitherOverrides> {

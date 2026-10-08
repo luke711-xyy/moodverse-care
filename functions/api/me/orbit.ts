@@ -1,5 +1,6 @@
 import { authenticatedMusicUser, type Env } from '../../_shared'
 import { discoverPublicPlanets } from '../music/discovery'
+import { readPlanetDitherVisuals } from '../../_music-dither'
 
 type PlanetCardRow = {
   planet_id: string
@@ -159,5 +160,16 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   const date = new Date().toISOString().slice(0, 10)
   await ensureDailyRoam(env, identity.userId, date)
   const groups = await readOrbitGroups(env, identity.userId, date)
+  const ids = [...new Set(Object.values(groups).flatMap((group) => group.map((card) => card.planetId)).filter((id): id is string => Boolean(id)))]
+  const rows: Array<{ id: string; visual_json: string }> = []
+  for (let i = 0; i < ids.length; i += 80) {
+    const chunk = ids.slice(i, i + 80)
+    const result = await env.DB.prepare(`SELECT id,visual_json FROM music_planets WHERE visibility='public' AND id IN (${chunk.map(() => '?').join(',')})`).bind(...chunk).all<{ id: string; visual_json: string }>()
+    rows.push(...result.results)
+  }
+  const visuals = await readPlanetDitherVisuals(env, rows)
+  for (const group of Object.values(groups)) for (const card of group) {
+    if (card.planetId && visuals.has(card.planetId)) Object.assign(card, { visual: visuals.get(card.planetId) })
+  }
   return respond({ date, groups })
 }

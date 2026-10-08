@@ -1,5 +1,6 @@
 import { authenticatedMusicUser, type Env } from '../../_shared'
-import type { GalaxyGroup, GalaxyGroupBy, GalaxyPlanetCard, MusicPlanetVisual } from '../../../src/music-api'
+import type { GalaxyGroup, GalaxyGroupBy, GalaxyPlanetCard } from '../../../src/music-api'
+import { readPlanetDitherVisuals } from '../../_music-dither'
 
 type PublicMusicRow = {
   planet_id: string
@@ -22,45 +23,6 @@ type GroupAccumulator = {
 
 const GROUP_LIMIT = 40
 const PLANETS_PER_GROUP = 20
-const isHexColor = (value: unknown): value is string => typeof value === 'string' && /^#[\da-f]{6}$/i.test(value)
-
-function publicVisual(value: string): MusicPlanetVisual | undefined {
-  try {
-    const parsed: unknown = JSON.parse(value)
-    if (typeof parsed !== 'object' || parsed === null) return undefined
-    const visual = parsed as Partial<MusicPlanetVisual>
-    const terrain = visual.terrainFeatures
-    const validTerrain = typeof terrain === 'object' && terrain !== null
-      && Number.isInteger(terrain.mountainRanges) && terrain.mountainRanges >= 0 && terrain.mountainRanges <= 6
-      && Number.isInteger(terrain.basins) && terrain.basins >= 0 && terrain.basins <= 4
-      && Number.isInteger(terrain.canyons) && terrain.canyons >= 0 && terrain.canyons <= 5
-      && Number.isInteger(terrain.escarpments) && terrain.escarpments >= 0 && terrain.escarpments <= 4
-    if ((visual.schemaVersion !== 1 && visual.schemaVersion !== 2)
-      || typeof visual.summary !== 'string'
-      || visual.summary.length > 280
-      || !isHexColor(visual.palette?.surface)
-      || !isHexColor(visual.palette?.ocean)
-      || !isHexColor(visual.palette?.accent)
-      || !['clear', 'mist', 'nebula', 'starlit'].includes(String(visual.atmosphere))
-      || !['still', 'drift', 'flow', 'pulse'].includes(String(visual.motion))
-      || typeof visual.particleDensity !== 'number'
-      || !Number.isFinite(visual.particleDensity)
-      || visual.particleDensity < 0 || visual.particleDensity > 1
-      || visual.schemaVersion === 2 && !validTerrain) return undefined
-    return {
-      schemaVersion: visual.schemaVersion,
-      summary: visual.summary,
-      palette: { ...visual.palette },
-      atmosphere: visual.atmosphere,
-      motion: visual.motion,
-      particleDensity: visual.particleDensity,
-      ...(validTerrain ? { terrainFeatures: terrain } : {}),
-    }
-  } catch {
-    return undefined
-  }
-}
-
 const respond = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
   status,
   headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
@@ -91,8 +53,6 @@ function addPlanet(group: GroupAccumulator, row: PublicMusicRow, reasonCode: Gal
     tagline: row.tagline,
     reasonCode,
   }
-  const visual = publicVisual(row.visual_json)
-  if (visual) card.visual = visual
   group.planets.set(row.planet_id, card)
 }
 
@@ -163,5 +123,10 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     LIMIT 5000
   `).bind(identity?.userId ?? null).all<PublicMusicRow>()
 
-  return respond({ by, groups: groupRows(results, by) })
+  const groups = groupRows(results, by)
+  const shown = new Set(groups.flatMap((g) => g.planets.map((p) => p.planetId)))
+  const rows = [...new Map(results.filter((r) => shown.has(r.planet_id)).map((r) => [r.planet_id, { id: r.planet_id, visual_json: r.visual_json }])).values()]
+  const visuals = await readPlanetDitherVisuals(env, rows)
+  for (const group of groups) for (const planet of group.planets) planet.visual = visuals.get(planet.planetId)
+  return respond({ by, groups })
 }

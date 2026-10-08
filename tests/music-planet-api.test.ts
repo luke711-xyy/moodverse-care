@@ -1,6 +1,9 @@
 import { afterEach, beforeAll, beforeEach, expect, test, vi } from 'vitest'
 import { onRequestGet, onRequestPatch, onRequestPost } from '../functions/api/me/music-planet'
 import { createAccessTestAuthority } from './helpers/cloudflare-access-jwt'
+import { isDitherSpec } from '../src/music/dither/appearance'
+import { readPublicPlanet } from '../functions/api/music/planets/[id]'
+import { onRequestGet as getGalaxy } from '../functions/api/music/galaxy'
 import {
   createMusicApiEnv,
   createMusicApiFixture,
@@ -27,6 +30,7 @@ beforeEach(() => {
 
 afterEach(() => {
   fixture.close()
+  vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
 
@@ -216,7 +220,7 @@ test('track selection updates keep the planet identity and existing selection ti
   }
 })
 
-test('changing selected tracks automatically queues a planet composition refresh', async () => {
+test('changing selected tracks immediately saves deterministic appearance without an AI task', async () => {
   await createPlanet({ displayName: '改曲之后', trackIds: ['track-a', 'track-b', 'track-c'] })
   const originalFetch = globalThis.fetch
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -246,13 +250,73 @@ test('changing selected tracks automatically queues a planet composition refresh
   }, pending)
 
   expect(updated.status).toBe(200)
-  expect(pending).toHaveLength(1)
-  await Promise.all(pending)
-  expect(fixture.sqlite.prepare(`
-    SELECT status, model_name FROM music_ai_tasks WHERE kind = 'planet_composer'
-  `).get()).toEqual({ status: 'succeeded', model_name: 'qwen-local' })
-  expect(JSON.parse((fixture.sqlite.prepare('SELECT visual_json FROM music_planets').get() as { visual_json: string }).visual_json).summary)
-    .toBe('被新的曲目带向远方。')
+  expect(pending).toHaveLength(0)
+  expect((await updated.json() as any).planet.visual.schemaVersion).toBe(3)
+  expect(fixture.sqlite.prepare(`SELECT count(*) AS count FROM music_ai_tasks WHERE kind = 'planet_composer'`).get()).toEqual({ count: 0 })
+})
+
+test('appearance overrides persist across song updates, reject malformed inputs, and reset explicitly', async () => {
+  const created = await createPlanet({ displayName: '参数星球', trackIds: ['track-a', 'track-b', 'track-c'] })
+  expect(isDitherSpec(created.body.planet.visual)).toBe(true)
+  const edit = await call(onRequestPatch, 'PATCH', { appearanceOverrides: { motif: 'flower', size: 1.2 } })
+  expect(edit.status).toBe(200)
+  const edited = await edit.json() as any
+  expect(edited.planet.visual.overrides).toEqual({ motif: 'flower', size: 1.2 })
+  const change = await call(onRequestPatch, 'PATCH', { trackIds: ['track-d'] })
+  expect((await change.json() as any).planet.visual.overrides).toEqual(edited.planet.visual.overrides)
+  for (const invalid of [{ size: 10000 }, { shader: 'evil' }, null, [], { seedOffset: .5 }, { blue: 0, violet: 0, pink: 0 }]) {
+    const failed = await call(onRequestPatch, 'PATCH', { appearanceOverrides: invalid })
+    expect(failed.status).toBe(400)
+  }
+  const stale = await call(onRequestPatch, 'PATCH', { appearanceOverrides: { motif: 'tide' }, appearanceRevision: 0 })
+  expect(stale.status).toBe(409)
+  const reset = await call(onRequestPatch, 'PATCH', { appearanceOverrides: {} })
+  expect((await reset.json() as any).planet.visual.overrides).toEqual({})
+})
+
+test('owner, public and Galaxy use one authoritative v3 appearance, even for legacy JSON', async () => {
+  const created = await createPlanet({ displayName: '共同外观', trackIds: ['track-a', 'track-b', 'track-c'] })
+  const planetId = created.body.planet.id
+  const publicPlanet = await readPublicPlanet(env(), planetId)
+  expect(publicPlanet?.visual).toEqual(created.body.planet.visual)
+  const galaxy = await getGalaxy({ request: new Request('https://moodverse.test/api/music/galaxy?by=song'), env: env() } as never)
+  const groups = (await galaxy.json() as any).groups
+  expect(groups.flatMap((g: any) => g.planets).every((p: any) => JSON.stringify(p.visual) === JSON.stringify(publicPlanet?.visual))).toBe(true)
+  fixture.sqlite.exec('DROP TRIGGER IF EXISTS music_reject_legacy_visual_overwrite')
+  fixture.sqlite.prepare('UPDATE music_planets SET visual_schema_version=1, visual_json=? WHERE id=?').run('{"summary":"旧版"}', planetId)
+  const ownerLegacy = (await readPlanet()).body.planet
+  const publicLegacy = await readPublicPlanet(env(), planetId)
+  expect(isDitherSpec(ownerLegacy?.visual)).toBe(true)
+  expect(ownerLegacy?.visual).toEqual(publicLegacy?.visual)
+  expect(JSON.stringify(publicLegacy?.visual)).not.toContain('旧版')
+})
+
+test('concurrent appearance/track saves reject the loser without mixing tracks or overrides', async () => {
+  await createPlanet({ displayName: '并发', trackIds: ['track-a', 'track-b', 'track-c'] })
+  const original = fixture.db.prepare.bind(fixture.db)
+  let arrivals = 0, release!: () => void
+  const bothRead = new Promise<void>((resolve) => { release = resolve })
+  vi.spyOn(fixture.db, 'prepare').mockImplementation((sql: string) => {
+    const statement = original(sql)
+    if (sql.includes('visual_revision') && sql.includes('FROM music_planets WHERE owner_user_id')) {
+      const first = statement.first.bind(statement)
+      statement.first = async (...args: any[]) => {
+        const result = await first(...args)
+        if (arrivals < 2) { arrivals++; if (arrivals === 2) release(); await bothRead }
+        return result as any
+      }
+    }
+    return statement
+  })
+  const responses = await Promise.all([
+    call(onRequestPatch, 'PATCH', { trackIds: ['track-d'], appearanceOverrides: { motif: 'score' } }),
+    call(onRequestPatch, 'PATCH', { trackIds: ['track-e'], appearanceOverrides: { motif: 'flower' } }),
+  ])
+  expect(responses.map((r) => r.status).sort()).toEqual([200, 409])
+  const winner = responses.findIndex((r) => r.status === 200)
+  const planet = (await readPlanet()).body.planet!
+  expect(planet.tracks.map((t: any) => t.id)).toEqual([winner === 0 ? 'track-d' : 'track-e'])
+  expect(planet.visual.overrides.motif).toBe(winner === 0 ? 'score' : 'flower')
 })
 
 test('owner planet response omits HTTPS music URLs containing embedded credentials', async () => {

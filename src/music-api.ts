@@ -1,5 +1,6 @@
 import type { MusicTrackSummary, MomentVisibility } from './music-domain'
 import type { PlanetTerrainFeatureCounts } from './types'
+import type { DitherOverrides, DitherPlanetSpec } from './music/dither/appearance'
 
 export type MusicPlanetVisual = {
   schemaVersion: number
@@ -23,6 +24,7 @@ export type MusicPlanet = {
   tagline: string
   visibility: 'public' | 'private'
   visualSchemaVersion: number
+  appearanceRevision?: number
   visual: MusicPlanetVisual | Record<string, unknown>
   createdAt: string
   updatedAt: string
@@ -84,7 +86,7 @@ export type GalaxyPlanetCard = {
   displayName: string
   tagline: string
   reasonCode: 'same_song' | 'same_artist' | 'same_genre'
-  visual?: MusicPlanetVisual
+  visual?: MusicPlanetVisual | DitherPlanetSpec
 }
 
 export type GalaxyGroup = {
@@ -120,6 +122,7 @@ export type MusicOrbitCard = {
   displayName: string
   tagline: string
   occurredAt: string
+  visual?: DitherPlanetSpec
 }
 
 export type MusicOrbitResponse = {
@@ -259,6 +262,7 @@ export type MusicPlanetDraft = {
   tagline: string
   trackIds: string[]
   visibility: 'public' | 'private'
+  appearanceOverrides?: DitherOverrides
 }
 
 export type MusicSocialSettings = {
@@ -334,6 +338,8 @@ export function createMusicApi(fetcher: typeof fetch = fetch) {
       tagline?: string
       trackIds?: string[]
       primaryTrackId?: string
+      appearanceOverrides?: DitherOverrides
+      appearanceRevision?: number
     }) {
       return request<{ planet: MusicPlanet; compositionTask?: PlanetComposerTask }>('/api/me/music-planet', {
         method: 'PATCH', body: JSON.stringify(patch),

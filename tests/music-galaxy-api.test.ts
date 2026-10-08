@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, test } from 'vitest'
 import { onRequestGet } from '../functions/api/music/galaxy'
 import { createMusicApiEnv, createMusicApiFixture, insertCatalogTrack } from './helpers/music-api-fixture'
 import type { MusicGalaxyResponse } from '../src/music-api'
+import { isDitherSpec } from '../src/music/dither/appearance'
 
 let fixture: ReturnType<typeof createMusicApiFixture>
 
@@ -53,7 +54,7 @@ test('Galaxy groups active public selections and published public Moments, dedup
   const body = await response.json() as { groups: Array<{ key: string; label: string; planetCount: number; planets: Array<{ planetId: string; displayName: string; tagline: string; reasonCode: string }> }> }
 
   expect(response.status).toBe(200)
-  expect(body.groups).toEqual([
+  expect(body.groups.map((g) => ({ ...g, planets: g.planets.map(({ visual: _, ...p }: any) => p) }))).toEqual([
     { key: 'artist-1', label: '星际旅人', planetCount: 1,
       planets: [{ planetId: 'planet-public', displayName: '夜航者', tagline: '跟着歌声靠岸', reasonCode: 'same_artist' }] },
     { key: 'artist-c', label: '雨季', planetCount: 1,
@@ -74,8 +75,8 @@ test('Galaxy groups the same public planet into every associated genre without r
     ['ambient', 'ambient'],
     ['dream pop', 'dream pop'],
   ])
-  expect(body.groups[0].planets).toEqual([{ planetId: 'planet-public', displayName: '夜航者', tagline: '跟着歌声靠岸', reasonCode: 'same_genre' }])
-  expect(body.groups[1].planets).toEqual([{ planetId: 'planet-public', displayName: '夜航者', tagline: '跟着歌声靠岸', reasonCode: 'same_genre' }])
+  expect(body.groups[0].planets[0]).toMatchObject({ planetId: 'planet-public', displayName: '夜航者', tagline: '跟着歌声靠岸', reasonCode: 'same_genre' })
+  expect(body.groups[1].planets[0]).toMatchObject({ planetId: 'planet-public', displayName: '夜航者', tagline: '跟着歌声靠岸', reasonCode: 'same_genre' })
 })
 
 test('Galaxy rejects unknown grouping modes instead of silently changing the discovery rule', async () => {
@@ -84,7 +85,7 @@ test('Galaxy rejects unknown grouping modes instead of silently changing the dis
   expect(await response.json()).toEqual({ error: 'INVALID_GROUPING' })
 })
 
-test('Galaxy includes only validated planet appearance data for rendering the public 3D scene', async () => {
+test('Galaxy adapts legacy and unsafe appearance JSON into bounded deterministic 2D specs', async () => {
   fixture.sqlite.prepare(`UPDATE music_planets SET visual_json = ?1 WHERE id = 'planet-public'`).run(JSON.stringify({
     schemaVersion: 2,
     summary: '海蓝色星球',
@@ -97,10 +98,13 @@ test('Galaxy includes only validated planet appearance data for rendering the pu
 
   const response = await getGalaxy('artist')
   const body = await response.json() as MusicGalaxyResponse
-  expect(body.groups[0].planets[0]).toMatchObject({ planetId: 'planet-public', visual: { palette: { surface: '#347c68' } } })
+  expect(body.groups[0].planets[0].planetId).toBe('planet-public')
+  expect(isDitherSpec(body.groups[0].planets[0].visual)).toBe(true)
 
   fixture.sqlite.prepare(`UPDATE music_planets SET visual_json = ?1 WHERE id = 'planet-public'`).run('{"schemaVersion":2,"palette":{"surface":"url(javascript:alert(1))"}}')
   const invalidResponse = await getGalaxy('artist')
   const invalidBody = await invalidResponse.json() as { groups: Array<{ planets: Array<{ visual?: unknown }> }> }
-  expect(invalidBody.groups[0].planets[0]).not.toHaveProperty('visual')
+  expect(isDitherSpec(invalidBody.groups[0].planets[0].visual)).toBe(true)
+  expect(JSON.stringify(invalidBody)).not.toContain('javascript:')
+  expect(invalidBody.groups[0].planets[0].visual).toEqual(body.groups[0].planets[0].visual)
 })

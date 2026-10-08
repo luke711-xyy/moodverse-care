@@ -53,6 +53,7 @@ test('generates an idempotent, SQL-escaped upsert without writing to a database'
   const sql = buildMusicCatalogUpsertSql(normalized, new Date('2026-09-30T00:00:00.000Z'))
   const database = new DatabaseSync(':memory:')
   database.exec(readFileSync(new URL('../schema.sql', import.meta.url), 'utf8'))
+  database.exec(readFileSync(new URL('../migrations-music-staging/0002_dither_appearance.sql', import.meta.url), 'utf8'))
   try {
     database.exec(sql)
     expect(database.prepare('SELECT title, genres_json, mood_tags_json FROM music_track_catalog').get()).toEqual({
@@ -72,5 +73,16 @@ test('generates an idempotent, SQL-escaped upsert without writing to a database'
     })
   } finally {
     database.close()
+  }
+})
+
+test('catalog import preserves sourced optional music features and rejects fabricated or unsafe values', () => {
+  const visualFeatures = { source: 'curated', tempoBpm: 140, energy: .8, hardness: .7, acousticness: .2 }
+  const normalized = normalizeMusicCatalogPayload({ version: 1, tracks: [track({ visualFeatures })] })
+  expect(normalized[0].visualFeatures).toEqual(visualFeatures)
+  const sql = buildMusicCatalogUpsertSql(normalized)
+  expect(sql).toContain('visual_features_json')
+  for (const invalid of [{ source: 'guessed', tempoBpm: 100 }, { source: 'tag-derived', tempoBpm: 100 }, { source: 'demo', energy: 4 }, { source: 'demo', url: 'x' }, null]) {
+    expect(() => normalizeMusicCatalogPayload({ version: 1, tracks: [track({ visualFeatures: invalid })] })).toThrow(/visualFeatures/)
   }
 })

@@ -121,7 +121,8 @@ test('Moments default to public, private Moments remain owner-readable, and thei
   ]))
 })
 
-test('creating a public Moment automatically queues a planet composition refresh', async () => {
+test('creating a public Moment preserves appearance and never queues a composition task', async () => {
+  const before = fixture.sqlite.prepare('SELECT visual_json FROM music_planets WHERE id=?').get('planet-owner')
   const previousFetch = globalThis.fetch
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(input.toString())
@@ -150,13 +151,9 @@ test('creating a public Moment automatically queues a planet composition refresh
   }, pending)
 
   expect(created.status).toBe(201)
-  expect(pending).toHaveLength(1)
-  await Promise.all(pending)
-  expect(fixture.sqlite.prepare(`
-    SELECT status, model_name, model_version FROM music_ai_tasks WHERE kind = 'planet_composer'
-  `).get()).toEqual({ status: 'succeeded', model_name: 'qwen-local', model_version: '4b-q4-v1' })
-  expect(JSON.parse((fixture.sqlite.prepare('SELECT visual_json FROM music_planets WHERE id = ?')
-    .get('planet-owner') as { visual_json: string }).visual_json).summary).toBe('在夜色中慢慢流动。')
+  expect(pending).toHaveLength(0)
+  expect(fixture.sqlite.prepare(`SELECT count(*) AS count FROM music_ai_tasks WHERE kind='planet_composer'`).get()).toEqual({ count: 0 })
+  expect(fixture.sqlite.prepare('SELECT visual_json FROM music_planets WHERE id=?').get('planet-owner')).toEqual(before)
 })
 
 test('all owner Moment operations reject requests without a verified Access identity', async () => {

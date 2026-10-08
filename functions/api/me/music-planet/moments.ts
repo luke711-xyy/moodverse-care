@@ -1,5 +1,4 @@
 import { authenticatedMusicUser, json, type Env } from '../../../_shared'
-import { schedulePlanetComposition } from './compose'
 import {
   contentText,
   isRecord,
@@ -68,13 +67,5 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
   `).bind(momentId, planetId, trackId, text, image, visibility, publishedAt, timestamp).run()
 
   const saved = await readMoment(env, planetId, momentId)
-  const composition = visibility === 'public'
-    ? await schedulePlanetComposition(env, identity.userId, (task) => context.waitUntil(task))
-    : null
-  return respond({
-    moment: saved ? mapMoment(saved) : null,
-    ...(composition?.state === 'queued'
-      ? { compositionTask: { id: composition.taskId, status: 'queued' } }
-      : {}),
-  }, 201)
+  return respond({ moment: saved ? mapMoment(saved) : null }, 201)
 }

@@ -1,4 +1,4 @@
-import type { GalaxyGroup, GalaxyGroupBy, MusicPlanetVisual } from '../music-api'
+import type { GalaxyGroup, GalaxyGroupBy, GalaxyPlanetCard } from '../music-api'
 import type { Planet, ThemeId } from '../types'
 import { buildGalaxyAnchors, buildPlanetSlots, type GalaxyAnchor } from '../universe'
 
@@ -22,7 +22,8 @@ function stableHash(value: string) {
   return hash >>> 0
 }
 
-function visualOverride(visual: MusicPlanetVisual | undefined): Planet['visualOverride'] {
+function visualOverride(value: GalaxyPlanetCard['visual']): Planet['visualOverride'] {
+  const visual = value && 'palette' in value ? value : undefined
   if (!visual || !/^#[\da-f]{6}$/i.test(visual.palette.surface)
     || !/^#[\da-f]{6}$/i.test(visual.palette.ocean)
     || !/^#[\da-f]{6}$/i.test(visual.palette.accent)) return undefined
@@ -71,4 +72,3 @@ export function buildMusicGalaxySceneSystems(
     }
   })
 }
-

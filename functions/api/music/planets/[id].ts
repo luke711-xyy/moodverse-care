@@ -1,6 +1,7 @@
-import { authenticatedMusicUser, safeHttpsUrl, type Env } from '../../../_shared'
+import { authenticatedMusicUser, type Env } from '../../../_shared'
 import type { MusicTrackSummary } from '../../../../src/music-domain'
-import { mapMoment, type MomentRow, stringArray } from '../../../_music-moments'
+import { mapMoment, type MomentRow } from '../../../_music-moments'
+import { catalogTrack, readPlanetDitherVisuals, CATALOG_VISUAL_COLUMNS } from '../../../_music-dither'
 import { decodePlanetRouteId } from './_route'
 
 type PublicPlanetRow = {
@@ -28,6 +29,7 @@ type PublicTrackRow = {
   position: number
   is_primary: number
   selected_at: string
+  visual_features_json: string | null
 }
 
 const respond = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
@@ -38,31 +40,13 @@ const respond = (body: unknown, status = 200) => new Response(JSON.stringify(bod
   },
 })
 
-function visualObject(value: string): Record<string, unknown> {
-  try {
-    const parsed: unknown = JSON.parse(value)
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {}
-  } catch {
-    return {}
-  }
-}
-
 function trackSummary(row: PublicTrackRow): MusicTrackSummary & {
   position: number
   isPrimary: boolean
   selectedAt: string
 } {
   return {
-    id: row.id,
-    title: row.title,
-    artistId: row.artist_id,
-    artistName: row.artist_name,
-    versionLabel: row.version_label,
-    genres: stringArray(row.genres_json),
-    moodTags: stringArray(row.mood_tags_json),
-    officialUrl: safeHttpsUrl(row.official_url),
-    coverUrl: safeHttpsUrl(row.cover_url),
-    durationSeconds: row.duration_seconds,
+    ...catalogTrack(row),
     position: row.position,
     isPrimary: row.is_primary === 1,
     selectedAt: row.selected_at,
@@ -84,8 +68,7 @@ export async function readPublicPlanet(env: Env, planetId: string, viewerUserId?
 
   const [{ results: trackRows }, { results: momentRows }] = await Promise.all([
     env.DB.prepare(`
-      SELECT c.id, c.title, c.artist_id, c.artist_name, c.version_label, c.genres_json,
-             c.mood_tags_json, c.official_url, c.cover_url, c.duration_seconds,
+      SELECT ${CATALOG_VISUAL_COLUMNS},
              t.position, t.is_primary, t.selected_at
       FROM music_planet_tracks t
       JOIN music_track_catalog c ON c.id = t.track_id
@@ -108,13 +91,14 @@ export async function readPublicPlanet(env: Env, planetId: string, viewerUserId?
     `).bind(row.id).all<MomentRow>(),
   ])
 
+  const visuals = await readPlanetDitherVisuals(env, [row])
   return {
     id: row.id,
     displayName: row.display_name,
     tagline: row.tagline,
     visibility: row.visibility,
-    visualSchemaVersion: row.visual_schema_version,
-    visual: visualObject(row.visual_json),
+    visualSchemaVersion: 3,
+    visual: visuals.get(row.id)!,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     tracks: trackRows.map(trackSummary),

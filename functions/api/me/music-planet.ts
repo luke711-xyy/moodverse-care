@@ -1,7 +1,8 @@
-import { authenticatedMusicUser, json, safeHttpsUrl, type Env } from '../../_shared'
+import { authenticatedMusicUser, json, type Env } from '../../_shared'
 import { ensureDefaultFriendSatellites, readFriendSatellites } from '../../_music-friend-satellites'
 import { validateTrackSelection, type MusicTrackSummary } from '../../../src/music-domain'
-import { schedulePlanetComposition } from './music-planet/compose'
+import { catalogTrack, parseVisualJson, readVisualCatalogTracks, CATALOG_VISUAL_COLUMNS } from '../../_music-dither'
+import { createDitherSpec, resolveDitherSpec, validateDitherOverrides } from '../../../src/music/dither/appearance'
 
 type MusicPlanetRow = {
   id: string
@@ -10,6 +11,7 @@ type MusicPlanetRow = {
   visibility: 'public' | 'private'
   visual_schema_version: number
   visual_json: string
+  visual_revision: number
   created_at: string
   updated_at: string
 }
@@ -28,6 +30,7 @@ type MusicPlanetTrackRow = {
   position: number
   is_primary: number
   selected_at: string
+  visual_features_json: string | null
 }
 
 type PlanetInput = {
@@ -36,6 +39,8 @@ type PlanetInput = {
   visibility?: unknown
   trackIds?: unknown
   primaryTrackId?: unknown
+  appearanceOverrides?: unknown
+  appearanceRevision?: unknown
 }
 
 const own = (record: object, key: string) => Object.prototype.hasOwnProperty.call(record, key)
@@ -56,34 +61,15 @@ const limitedText = (value: unknown, maxLength: number, allowEmpty: boolean) => 
   return text
 }
 
-function parseStringArray(value: string): string[] {
-  try {
-    const parsed: unknown = JSON.parse(value)
-    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string').slice(0, 24) : []
-  } catch {
-    return []
-  }
-}
-
-function parseVisual(value: string): Record<string, unknown> {
-  try {
-    const parsed: unknown = JSON.parse(value)
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {}
-  } catch {
-    return {}
-  }
-}
-
 async function readOwnerPlanet(env: Env, userId: string) {
   const row = await env.DB.prepare(`
-    SELECT id, display_name, tagline, visibility, visual_schema_version, visual_json, created_at, updated_at
+    SELECT id, display_name, tagline, visibility, visual_schema_version, visual_json, visual_revision, created_at, updated_at
     FROM music_planets WHERE owner_user_id = ?1
   `).bind(userId).first<MusicPlanetRow>()
   if (!row) return null
 
   const { results } = await env.DB.prepare(`
-    SELECT c.id, c.title, c.artist_id, c.artist_name, c.version_label, c.genres_json, c.mood_tags_json,
-           c.official_url, c.cover_url, c.duration_seconds,
+    SELECT ${CATALOG_VISUAL_COLUMNS},
            t.position, t.is_primary, t.selected_at
     FROM music_planet_tracks t
     JOIN music_track_catalog c ON c.id = t.track_id
@@ -92,16 +78,7 @@ async function readOwnerPlanet(env: Env, userId: string) {
   `).bind(row.id).all<MusicPlanetTrackRow>()
 
   const tracks = results.map((track) => ({
-    id: track.id,
-    title: track.title,
-    artistId: track.artist_id,
-    artistName: track.artist_name,
-    versionLabel: track.version_label,
-    genres: parseStringArray(track.genres_json),
-    moodTags: parseStringArray(track.mood_tags_json),
-    officialUrl: safeHttpsUrl(track.official_url),
-    coverUrl: safeHttpsUrl(track.cover_url),
-    durationSeconds: track.duration_seconds,
+    ...catalogTrack(track),
     position: track.position,
     isPrimary: track.is_primary === 1,
     selectedAt: track.selected_at,
@@ -112,8 +89,9 @@ async function readOwnerPlanet(env: Env, userId: string) {
     displayName: row.display_name,
     tagline: row.tagline,
     visibility: row.visibility,
-    visualSchemaVersion: row.visual_schema_version,
-    visual: parseVisual(row.visual_json),
+    visualSchemaVersion: 3,
+    appearanceRevision: row.visual_revision,
+    visual: resolveDitherSpec(row.id, tracks, parseVisualJson(row.visual_json)),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     tracks,
@@ -169,11 +147,15 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
   const timestamp = new Date().toISOString()
   const planetId = crypto.randomUUID()
+  const tracks = await readVisualCatalogTracks(env, selection.trackIds, normalizedPrimaryId)
+  const overrides = validateDitherOverrides(body.appearanceOverrides === undefined ? {} : body.appearanceOverrides)
+  if (!overrides.ok) return response({ error: 'INVALID_APPEARANCE_OVERRIDES' }, 400)
+  const visual = createDitherSpec({ planetId, tracks, overrides: overrides.value })
   const statements = [env.DB.prepare(`
     INSERT INTO music_planets
-      (id, owner_user_id, display_name, tagline, visibility, created_at, updated_at)
-    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)
-  `).bind(planetId, identity.userId, displayName, tagline, visibility, timestamp)]
+      (id, owner_user_id, display_name, tagline, visibility, created_at, updated_at, visual_schema_version, visual_json)
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, 3, ?7)
+  `).bind(planetId, identity.userId, displayName, tagline, visibility, timestamp, JSON.stringify(visual))]
 
   for (const [position, trackId] of selection.trackIds.entries()) {
     statements.push(env.DB.prepare(`
@@ -192,13 +174,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
   }
 
   const planet = await readOwnerPlanet(env, identity.userId)
-  const composition = await schedulePlanetComposition(env, identity.userId, (task) => context.waitUntil(task))
-  return response({
-    planet,
-    ...(composition.state === 'queued'
-      ? { compositionTask: { id: composition.taskId, status: 'queued' } }
-      : {}),
-  }, 201)
+  return response({ planet }, 201)
 }
 
 export const onRequestPatch: PagesFunction<Env> = async (context) => {
@@ -209,7 +185,7 @@ export const onRequestPatch: PagesFunction<Env> = async (context) => {
   if (!body || typeof body !== 'object') return response({ error: 'INVALID_PLANET_UPDATE' }, 400)
 
   const current = await env.DB.prepare(`
-    SELECT id, display_name, tagline, visibility, created_at, updated_at
+    SELECT id, display_name, tagline, visibility, visual_schema_version, visual_json, visual_revision, created_at, updated_at
     FROM music_planets WHERE owner_user_id = ?1
   `).bind(identity.userId).first<MusicPlanetRow>()
   if (!current) return response({ error: 'PLANET_NOT_FOUND' }, 404)
@@ -219,7 +195,13 @@ export const onRequestPatch: PagesFunction<Env> = async (context) => {
   const hasVisibility = own(body, 'visibility')
   const hasTrackIds = own(body, 'trackIds')
   const hasPrimaryTrackId = own(body, 'primaryTrackId')
-  if (!hasDisplayName && !hasTagline && !hasVisibility && !hasTrackIds && !hasPrimaryTrackId) {
+  const hasOverrides = own(body, 'appearanceOverrides')
+  const overrides = hasOverrides ? validateDitherOverrides(body.appearanceOverrides) : null
+  if (hasOverrides && !overrides?.ok) return response({ error: 'INVALID_APPEARANCE_OVERRIDES' }, 400)
+  if (own(body, 'appearanceRevision') && (!Number.isInteger(body.appearanceRevision) || body.appearanceRevision !== current.visual_revision)) {
+    return response({ error: 'APPEARANCE_CONFLICT' }, 409)
+  }
+  if (!hasDisplayName && !hasTagline && !hasVisibility && !hasTrackIds && !hasPrimaryTrackId && !hasOverrides) {
     return response({ error: 'EMPTY_PLANET_UPDATE' }, 400)
   }
 
@@ -257,39 +239,42 @@ export const onRequestPatch: PagesFunction<Env> = async (context) => {
   }
 
   const timestamp = new Date().toISOString()
+  const writeToken = crypto.randomUUID()
+  const tracks = await readVisualCatalogTracks(env, nextTrackIds, primaryTrackId)
+  // Selected inactive tracks retain their metadata and appearance until replaced.
+  if (tracks.length !== nextTrackIds.length && !hasTrackIds) {
+    const { results } = await env.DB.prepare(`SELECT ${CATALOG_VISUAL_COLUMNS} FROM music_track_catalog c
+      WHERE c.id IN (${nextTrackIds.map(() => '?').join(',')})`).bind(...nextTrackIds).all<MusicPlanetTrackRow>()
+    tracks.splice(0, tracks.length, ...nextTrackIds.map((id) => ({ ...catalogTrack(results.find((r) => r.id === id)!), isPrimary: id === primaryTrackId })))
+  }
+  const visual = createDitherSpec({ planetId: current.id, tracks, previous: parseVisualJson(current.visual_json), ...(overrides?.ok ? { overrides: overrides.value } : {}) })
   const statements = [env.DB.prepare(`
     UPDATE music_planets
-    SET display_name = ?1, tagline = ?2, visibility = ?3, updated_at = ?4
-    WHERE id = ?5 AND owner_user_id = ?6
-  `).bind(displayName, tagline, visibility, timestamp, current.id, identity.userId)]
+    SET display_name = ?1, tagline = ?2, visibility = ?3, updated_at = ?4,
+        legacy_visual_json = COALESCE(legacy_visual_json, CASE WHEN visual_schema_version < 3 THEN visual_json END),
+        visual_schema_version = 3, visual_json = ?7, visual_revision = visual_revision + 1, visual_write_token = ?9
+    WHERE id = ?5 AND owner_user_id = ?6 AND visual_revision = ?8
+  `).bind(displayName, tagline, visibility, timestamp, current.id, identity.userId, JSON.stringify(visual), current.visual_revision, writeToken)]
 
   if (hasTrackIds) {
     const oldSelectedAt = new Map(existingTracks.map((track) => [track.track_id, track.selected_at]))
-    statements.unshift(env.DB.prepare('DELETE FROM music_planet_tracks WHERE planet_id = ?1').bind(current.id))
+    statements.push(env.DB.prepare('DELETE FROM music_planet_tracks WHERE planet_id = ?1 AND EXISTS (SELECT 1 FROM music_planets WHERE id=?1 AND visual_write_token=?2)').bind(current.id, writeToken))
     for (const [position, trackId] of nextTrackIds.entries()) {
       statements.push(env.DB.prepare(`
         INSERT INTO music_planet_tracks (planet_id, track_id, position, is_primary, selected_at)
-        VALUES (?1, ?2, ?3, ?4, ?5)
-      `).bind(current.id, trackId, position, trackId === primaryTrackId ? 1 : 0, oldSelectedAt.get(trackId) ?? timestamp))
+        SELECT ?1, ?2, ?3, ?4, ?5 WHERE EXISTS (SELECT 1 FROM music_planets WHERE id=?1 AND visual_write_token=?6)
+      `).bind(current.id, trackId, position, trackId === primaryTrackId ? 1 : 0, oldSelectedAt.get(trackId) ?? timestamp, writeToken))
     }
   } else if (hasPrimaryTrackId) {
     statements.push(env.DB.prepare(`
       UPDATE music_planet_tracks
       SET is_primary = CASE WHEN track_id = ?1 THEN 1 ELSE 0 END
-      WHERE planet_id = ?2
-    `).bind(primaryTrackId, current.id))
+      WHERE planet_id = ?2 AND EXISTS (SELECT 1 FROM music_planets WHERE id=?2 AND visual_write_token=?3)
+    `).bind(primaryTrackId, current.id, writeToken))
   }
 
-  await env.DB.batch(statements)
+  const writes = await env.DB.batch(statements)
+  if (writes[0].meta.changes !== 1) return response({ error: 'APPEARANCE_CONFLICT' }, 409)
   const planet = await readOwnerPlanet(env, identity.userId)
-  const shouldRecompose = hasDisplayName || hasTagline || hasTrackIds || hasPrimaryTrackId
-  const composition = shouldRecompose
-    ? await schedulePlanetComposition(env, identity.userId, (task) => context.waitUntil(task))
-    : null
-  return response({
-    planet,
-    ...(composition?.state === 'queued'
-      ? { compositionTask: { id: composition.taskId, status: 'queued' } }
-      : {}),
-  })
+  return response({ planet })
 }

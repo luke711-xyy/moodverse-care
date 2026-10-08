@@ -8,6 +8,7 @@ type D1Result = {
 }
 
 function createD1Adapter(database: DatabaseSync): D1Database {
+  let batchTail: Promise<unknown> = Promise.resolve()
   const prepare = (sql: string): D1PreparedStatement => {
     let values: SQLInputValue[] = []
     const statement: Partial<D1PreparedStatement> = {
@@ -42,17 +43,18 @@ function createD1Adapter(database: DatabaseSync): D1Database {
 
   return {
     prepare,
-    async batch<T = unknown>(statements: D1PreparedStatement[]): Promise<D1Result[]> {
-      database.exec('BEGIN')
-      try {
-        const output: D1Result[] = []
-        for (const statement of statements) output.push(await statement.run<T>() as D1Result)
-        database.exec('COMMIT')
-        return output
-      } catch (error) {
-        database.exec('ROLLBACK')
-        throw error
-      }
+    batch<T = unknown>(statements: D1PreparedStatement[]): Promise<D1Result[]> {
+      // D1 serializes transaction batches; parallel requests cannot nest BEGIN.
+      const result = batchTail.then(async () => {
+        database.exec('BEGIN')
+        try {
+          const output: D1Result[] = []
+          for (const statement of statements) output.push(await statement.run<T>() as D1Result)
+          database.exec('COMMIT'); return output
+        } catch (error) { database.exec('ROLLBACK'); throw error }
+      })
+      batchTail = result.then(() => undefined, () => undefined)
+      return result
     },
     async exec(query: string) {
       database.exec(query)
@@ -89,6 +91,7 @@ export function createMusicApiFixture() {
   if (existsSync(reportTriageMigration)) sqlite.exec(readFileSync(reportTriageMigration, 'utf8'))
   const friendSatelliteMigration = new URL('../../migrations/0018_music_friend_satellites.sql', import.meta.url)
   if (existsSync(friendSatelliteMigration)) sqlite.exec(readFileSync(friendSatelliteMigration, 'utf8'))
+  sqlite.exec(readFileSync(new URL('../../migrations-music-staging/0002_dither_appearance.sql', import.meta.url), 'utf8'))
 
   return {
     db: createD1Adapter(sqlite),

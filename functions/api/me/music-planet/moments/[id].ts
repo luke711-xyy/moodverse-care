@@ -1,5 +1,4 @@
 import { authenticatedMusicUser, json, type Env } from '../../../../_shared'
-import { schedulePlanetComposition } from '../compose'
 import {
   contentText,
   isRecord,
@@ -82,15 +81,7 @@ export const onRequestPatch: PagesFunction<Env> = async (context) => {
 
   const planetId = await ownedPlanetId(env, identity.userId)
   const saved = planetId ? await readMoment(env, planetId, momentId) : null
-  const composition = current.visibility === 'public' || visibility === 'public'
-    ? await schedulePlanetComposition(env, identity.userId, (task) => context.waitUntil(task))
-    : null
-  return respond({
-    moment: saved ? mapMoment(saved) : null,
-    ...(composition?.state === 'queued'
-      ? { compositionTask: { id: composition.taskId, status: 'queued' } }
-      : {}),
-  })
+  return respond({ moment: saved ? mapMoment(saved) : null })
 }
 
 export const onRequestDelete: PagesFunction<Env> = async (context) => {
@@ -127,13 +118,5 @@ export const onRequestDelete: PagesFunction<Env> = async (context) => {
     `).bind(momentId, identity.userId),
   ])
   if (deleted.meta.changes !== 1) return respond({ error: 'MOMENT_NOT_FOUND' }, 404)
-  const composition = existing.visibility === 'public'
-    ? await schedulePlanetComposition(env, identity.userId, (task) => context.waitUntil(task))
-    : null
-  return respond({
-    deleted: true,
-    ...(composition?.state === 'queued'
-      ? { compositionTask: { id: composition.taskId, status: 'queued' } }
-      : {}),
-  })
+  return respond({ deleted: true })
 }
