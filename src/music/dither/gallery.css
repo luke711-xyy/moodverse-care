@@ -1,0 +1,16 @@
+.dither-gallery { background: var(--dither-black); color: var(--dither-white); min-height: 100dvh; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 2rem 3vw; }
+.dither-gallery header { display: flex; justify-content: space-between; gap: 1rem; color: var(--dither-muted); font-size: .875rem; }
+.dither-gallery header span:first-child { color: var(--dither-white); font-weight: 700; letter-spacing: .08em; }
+.dither-gallery-main { display: grid; grid-template-columns: minmax(240px, .65fr) minmax(0, 1fr); max-width: 1300px; margin: 2rem auto; gap: 2rem; }
+.dither-gallery-controls { padding-top: 2rem; }
+.dither-gallery-controls h1 { font-size: 3rem; margin: 0 0 2.5rem; }
+.dither-gallery-controls fieldset { border: none; padding: 0; margin: 0 0 1.5rem; display: flex; flex-wrap: wrap; gap: .5rem; }
+.dither-gallery-controls legend { color: var(--dither-muted); padding: 0; margin-bottom: .75rem; font-size: .875rem; }
+.dither-gallery-modes { display: flex; flex-wrap: wrap; gap: .5rem; }
+.dither-gallery-scene { position: relative; height: min(65vw, 620px); min-height: 320px; }
+.dither-gallery-orbit { position: absolute; inset: 0; width: 100%; height: 100%; fill: none; stroke: var(--dither-violet); stroke-dasharray: 1 5; stroke-width: 1; opacity: .65; }
+.dither-gallery-assets { display: flex; flex-wrap: wrap; gap: 1rem; max-width: 1300px; margin: auto; }
+.dither-gallery-assets .dither-card { flex: 1 1 140px; max-width: 190px; text-align: center; background: transparent; padding: .75rem; }
+.dither-gallery-assets h2 { font-size: .875rem; font-weight: 400; margin: .5rem 0; }
+.dither-gallery .dither-loading { justify-content: flex-start; margin-top: 1.5rem; }
+@media(max-width:700px) { .dither-gallery { padding: 1rem; } .dither-gallery-main { grid-template-columns: minmax(0,1fr); gap: .5rem; } .dither-gallery-controls h1 { font-size: 2rem; margin-bottom: 1.5rem; } .dither-gallery-scene { height: 360px; } .dither-gallery-assets .dither-card { flex-basis: 100px; max-width: none; } }

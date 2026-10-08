@@ -1,0 +1,26 @@
+:root {
+  --dither-black: #08080d;
+  --dither-white: #f2eff8;
+  --dither-blue: #6c9dff;
+  --dither-violet: #8e6bff;
+  --dither-pink: #f279c5;
+  --dither-muted: #c0b8d0;
+  --dither-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4'%3E%3Cpath fill='%238e6bff' fill-opacity='.34' d='M0 0h1v1H0zm2 2h1v1H2z'/%3E%3C/svg%3E");
+}
+.dither-button { position: relative; display: inline-flex; align-items: center; justify-content: center; gap: .5rem; min-height: 42px; padding: .6rem 1rem; border: 1px solid var(--dither-violet); border-radius: 6px; background: var(--dither-black) var(--dither-pattern); color: var(--dither-white); cursor: pointer; font: inherit; transition: background-color 180ms, border-color 180ms, transform 180ms; }
+.dither-button:hover:not(:disabled) { background-color: #21192f; border-color: var(--dither-pink); transform: translateY(-1px); }
+.dither-button[aria-pressed=true], .dither-button.is-primary { background-color: #32234e; border-color: var(--dither-pink); }
+.dither-button:focus-visible { outline: 2px solid var(--dither-blue); outline-offset: 4px; }
+.dither-button:disabled { opacity: .5; cursor: default; }
+.dither-title { position: relative; color: var(--dither-white); letter-spacing: -.025em; line-height: 1.15; text-wrap: balance; font-weight: 600; }
+.dither-title::after { content: ''; display: block; width: 3rem; height: 4px; margin-top: .75rem; background-image: var(--dither-pattern); background-color: var(--dither-violet); }
+.dither-card { min-width: 0; padding: 1.25rem; border: 1px solid #4d425e; border-radius: 10px; background-color: #100d17; color: var(--dither-white); }
+.dither-loading { display: flex; align-items: center; justify-content: center; gap: .8rem; color: var(--dither-muted); font-size: .875rem; }
+.dither-loading-ring { width: 72px; height: 72px; flex: none; animation: dither-orbit 12s linear infinite; }
+.dither-loading-ring text { fill: var(--dither-violet); font: 8px ui-monospace, monospace; letter-spacing: 2px; }
+.dither-loading-ring circle { fill: var(--dither-pink); }
+.dither-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.dither-thumb { width: 100%; height: 100%; object-fit: contain; display: block; }
+.dither-orbit { fill: var(--dither-violet); }
+@keyframes dither-orbit { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .dither-loading-ring { animation: none; } .dither-button { transition: none; } .dither-button:hover:not(:disabled) { transform: none; } }
