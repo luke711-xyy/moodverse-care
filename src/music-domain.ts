@@ -8,6 +8,15 @@ export type TrackSelectionValidation =
 
 export type MomentVisibility = 'public' | 'private'
 
+/** Sourced metadata, never inferred from duration or an unauthorized audio stream. */
+export type MusicVisualFeatures = {
+  source: 'curated' | 'demo' | 'tag-derived' | 'unknown'
+  tempoBpm?: number | null
+  energy?: number
+  hardness?: number
+  acousticness?: number
+}
+
 export type MusicTrackSummary = {
   id: string
   title: string
@@ -21,6 +30,7 @@ export type MusicTrackSummary = {
   durationSeconds: number | null
   /** True only for fictional, non-playable catalog rows used in isolated staging. */
   isDemo?: boolean
+  visualFeatures?: MusicVisualFeatures
 }
 
 export function validateTrackSelection(trackIds: unknown, operation: TrackSelectionOperation): TrackSelectionValidation {
