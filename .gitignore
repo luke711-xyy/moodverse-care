@@ -6,3 +6,9 @@ output/
 .DS_Store
 __pycache__/
 *.py[cod]
+
+# Local reference assets and analysis caches are not application source.
+design/
+.tripo/
+graphify-out/
+functions/graphify-out/
