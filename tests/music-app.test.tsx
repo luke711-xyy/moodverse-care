@@ -24,6 +24,35 @@ const tracks = [
   { id: 'song-e', title: '月面信号', artistId: 'artist-e', artistName: '月面', versionLabel: '', genres: ['electronic'], moodTags: ['curious'], officialUrl: 'https://music.example/e', coverUrl: null, durationSeconds: 190 },
 ]
 
+test.each(['keyboard', 'drag', 'wheel'] as const)('Galaxy journey endpoint returns home with %s input', async (input) => {
+  vi.stubGlobal('PointerEvent', MouseEvent)
+  const owner = { id: 'journey-owner', displayName: '旅程的终点', tagline: '', visibility: 'public',
+    visualSchemaVersion: 3, visual: createDitherSpec({ planetId: 'journey-owner', tracks }), tracks: tracks.slice(0, 3) }
+  vi.stubGlobal('fetch', vi.fn(async (request: RequestInfo | URL) => {
+    const path = new URL(String(request), 'https://moodverse.test').pathname
+    if (path === '/api/music/catalog') return Response.json({ tracks })
+    if (path === '/api/me/music-planet') return Response.json({ planet: owner })
+    if (path === '/api/me/music-planet/moments') return Response.json({ moments: [] })
+    if (path === '/api/music/galaxy') return Response.json({ by: 'genre', groups: [{ key: 'ambient', label: 'ambient', planetCount: 1, planets: [] }] })
+    throw Error(path)
+  }))
+  render(<MusicApp />)
+  await screen.findByRole('button', { name: '编辑星球外观' })
+  fireEvent.click(screen.getByRole('button', { name: 'Galaxy' }))
+  await screen.findByRole('button', { name: '前往星系 ambient' })
+  const stage = screen.getByRole('region', { name: '二维音乐宇宙' })
+  expect(screen.queryByRole('button', { name: '编辑星球外观' })).toBeNull()
+  if (input === 'keyboard') for (let n = 0; n < 5; n++) fireEvent.keyDown(stage, { key: 'ArrowRight' })
+  if (input === 'drag') {
+    fireEvent.pointerDown(stage, { button: 0, clientX: 800, clientY: 300 })
+    fireEvent.pointerMove(stage, { clientX: 200, clientY: 300 })
+    fireEvent.pointerUp(stage, { clientX: 200, clientY: 300 })
+  }
+  if (input === 'wheel') for (let n = 0; n < 100; n++) fireEvent.wheel(stage, { deltaY: -10000 })
+  expect(await screen.findByRole('button', { name: '编辑星球外观' })).toBeTruthy()
+  expect(screen.queryByRole('button', { name: '前往星系 ambient' })).toBeNull()
+})
+
 test('appearance preview cancels locally; apply saves overrides with the confirmed revision', async () => {
   const spec = createDitherSpec({ planetId: 'editor-owner', tracks })
   let owner = { id: 'editor-owner', displayName: '参数星球', tagline: '', visibility: 'public', visualSchemaVersion: 3, appearanceRevision: 4, visual: spec, tracks: tracks.slice(0,3), createdAt: '', updatedAt: '' }

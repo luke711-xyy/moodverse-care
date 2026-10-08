@@ -1318,6 +1318,16 @@ function MusicApp() {
   }
   const changeViewRef = useRef(changeView)
   changeViewRef.current = changeView
+  const moveGalaxyJourney = (step: number) => {
+    if (!Number.isFinite(step) || !step) return
+    const progress = galaxyJourneyRef.current
+    const nextProgress = Math.max(0, Math.min(TOUR_END, progress + step))
+    galaxyJourneyRef.current = nextProgress
+    setGalaxyJourney(nextProgress)
+    if (reachesTourHomeEndpoint(progress, step)) changeViewRef.current('planet')
+  }
+  const moveGalaxyJourneyRef = useRef(moveGalaxyJourney)
+  moveGalaxyJourneyRef.current = moveGalaxyJourney
 
   const selectedGroupKeyForWheel = galaxy.status === 'ready' ? galaxy.selectedGroupKey : null
   useEffect(() => {
@@ -1333,14 +1343,7 @@ function MusicApp() {
       if (!step) return
       event.preventDefault()
       if (selectedGroupKeyForWheel) setGalaxyRotation((rotation) => rotation - step * 10)
-      else {
-        const progress = galaxyJourneyRef.current
-        const nextProgress = Math.max(0, Math.min(TOUR_END, progress + step))
-        galaxyJourneyRef.current = nextProgress
-        setGalaxyJourney(nextProgress)
-        if (!reachesTourHomeEndpoint(progress, step)) return
-        changeViewRef.current('planet')
-      }
+      else moveGalaxyJourneyRef.current(step)
     }
     window.addEventListener('wheel', onWheel, { passive: false })
     return () => window.removeEventListener('wheel', onWheel)
@@ -1469,7 +1472,7 @@ function MusicApp() {
       previewTracks={tracks.filter(track => selectedTrackIds.includes(track.id))}
       appearancePreview={appearancePreview}
       onMusicSelect={setFocusedTrackId}
-      onTourMove={(delta)=>setGalaxyJourney(value=>Math.max(0,Math.min(TOUR_END,value+delta)))}
+      onTourMove={moveGalaxyJourney}
       onFriendSelect={(id) => { const friend = home.friendSatellites.find(f => f.id === id); changeView('orbit'); if (friend) setSocialFeedback(friend.displayName) }}
       onRotate={(delta) => setGalaxyRotation((rotation) => rotation + delta)}
     />
