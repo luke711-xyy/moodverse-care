@@ -69,8 +69,7 @@
 .cockpit-appearance-editor .dither-editor input { min-height: 44px; accent-color: #d5ae68; }
 .cockpit-appearance-editor .dither-editor output { color: var(--phosphor); }
 .cockpit-appearance-editor .dither-editor footer { position: sticky; bottom: -24px; background: #13110c; padding-block: 16px; }
-.cockpit .cockpit-appearance-editor .dither-editor :is(header,footer) button { color: #111; text-shadow: none; }
-.cockpit-appearance-editor .dither-editor > header button { flex: 0 0 44px; width: 44px; }
+.cockpit .cockpit-appearance-editor .dither-editor footer button { color: #111; text-shadow: none; }
 /* Explicit width prevents auto margins + absolutely positioned canvases from
    collapsing the flex item to a zero-width line. Both views use the same scale. */
 .cockpit-appearance-preview { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); flex-shrink: 0; width: 100%; max-width: 960px; margin: 16px auto 24px; }

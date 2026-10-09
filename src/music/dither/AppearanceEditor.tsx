@@ -15,7 +15,7 @@ export function AppearanceEditor({ spec, busy, error, onPreview, onApply, onClos
     if (event.key === 'Escape' && !busy) { event.stopPropagation(); onClose() }
     if (event.key === 'Tab') { const controls = Array.from(panel.current!.querySelectorAll<HTMLElement>('button:not(:disabled),select:not(:disabled),input:not(:disabled)')); const first = controls[0], last = controls.at(-1); if (event.shiftKey && (document.activeElement === first || document.activeElement === panel.current)) { event.preventDefault(); last?.focus() } else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() } }
   }}>
-    <header><DitherTitle level={2}>星球外观</DitherTitle><DitherButton disabled={busy} onClick={onClose} aria-label="关闭外观编辑">×</DitherButton></header>
+    <header><DitherTitle level={2}>星球外观</DitherTitle></header>
     <p>实时预览。应用后保留手动参数；换歌只更新未调整的部分。</p>
     {embedded && active && <div className="cockpit-appearance-preview">
       {[{ label: '当前外观', visual: spec }, { label: '调整后', visual: { ...spec, overrides: draft } }].map(({ label, visual }) => <figure key={label} role="img" aria-label={label}>
