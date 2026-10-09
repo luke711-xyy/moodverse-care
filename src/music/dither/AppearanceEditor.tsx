@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react'
 import { DITHER_ALGORITHMS, DITHER_FORMS, DITHER_FORM_LABELS, DITHER_MOTIFS, DITHER_MOTIF_LABELS, DITHER_LIMITS, validateDitherOverrides, type DitherNumericKey, type DitherOverrides, type DitherPlanetSpec } from './appearance'
 import { DitherButton, DitherTitle } from './components'
 import { DitherCanvas } from './DitherCanvas'
-import { buildDitherStageFrame } from './stage-layout'
 const labels: Record<DitherNumericKey, string> = { size: '星球大小', textureScale: '纹理尺度', disturbance: '扰动', density: '密度', pixelSize: '像素粒度', exposure: '亮度', contrast: '对比度', gamma: '中间调', blue: '蓝色比重', violet: '紫色比重', pink: '粉色比重', glow: '光晕', speed: '变化速度', pulse: '脉冲幅度', seedOffset: '纹理种子' }
 export function AppearanceEditor({ spec, busy, error, onPreview, onApply, onClose, onReload, embedded = false, active = true, reducedMotion = false }: { spec: DitherPlanetSpec; busy: boolean; error: string; onPreview: (spec: DitherPlanetSpec)=>void; onApply: (overrides: DitherOverrides)=>void; onClose: ()=>void; onReload?: ()=>void; embedded?: boolean; active?: boolean; reducedMotion?: boolean }) {
   const [draft, setDraft] = useState<DitherOverrides>({ ...spec.overrides })
@@ -18,7 +17,12 @@ export function AppearanceEditor({ spec, busy, error, onPreview, onApply, onClos
   }}>
     <header><DitherTitle level={2}>星球外观</DitherTitle><DitherButton disabled={busy} onClick={onClose} aria-label="关闭外观编辑">×</DitherButton></header>
     <p>实时预览。应用后保留手动参数；换歌只更新未调整的部分。</p>
-    {embedded && active && <div className="cockpit-appearance-preview" role="img" aria-label="实时参数预览"><DitherCanvas forceFallback reducedMotion={reducedMotion} getFrame={(width,height,phase)=>buildDitherStageFrame({ width,height,phase,owner:{ ...spec,overrides:draft },systems:[],home:1,journey:0,rotation:0,friends:[],music:[] })} /></div>}
+    {embedded && active && <div className="cockpit-appearance-preview">
+      {[{ label: '当前外观', visual: spec }, { label: '调整后', visual: { ...spec, overrides: draft } }].map(({ label, visual }) => <figure key={label} role="img" aria-label={label}>
+        <figcaption>{label}</figcaption>
+        <div className="cockpit-appearance-preview-planet"><DitherCanvas forceFallback reducedMotion={reducedMotion} getFrame={(width,height,phase)=>({ width,height,phase,assets:[{ id:label,spec:visual,x:width / 2,y:height / 2,radius:Math.min(width,height) * .28 }] })} /></div>
+      </figure>)}
+    </div>}
     <div className="dither-editor-fields">
       <label>形态<select aria-label="形态" value={parameters.form} disabled={busy} onChange={e=>update({ ...draft, form: e.target.value as typeof parameters.form })}>{DITHER_FORMS.map(value=><option key={value} value={value}>{DITHER_FORM_LABELS[value]}</option>)}</select></label>
       <label>纹理<select aria-label="纹理" value={parameters.motif} disabled={busy} onChange={e=>update({ ...draft, motif: e.target.value as typeof parameters.motif })}>{DITHER_MOTIFS.map(value=><option key={value} value={value}>{DITHER_MOTIF_LABELS[value]}</option>)}</select></label>
