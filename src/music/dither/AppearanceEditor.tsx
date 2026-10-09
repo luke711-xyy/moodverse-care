@@ -20,7 +20,7 @@ export function AppearanceEditor({ spec, busy, error, onPreview, onApply, onClos
     {embedded && active && <div className="cockpit-appearance-preview">
       {[{ label: '当前外观', visual: spec }, { label: '调整后', visual: { ...spec, overrides: draft } }].map(({ label, visual }) => <figure key={label} role="img" aria-label={label}>
         <figcaption>{label}</figcaption>
-        <div className="cockpit-appearance-preview-planet"><DitherCanvas forceFallback reducedMotion={reducedMotion} getFrame={(width,height,phase)=>({ width,height,phase,assets:[{ id:label,spec:visual,x:width / 2,y:height / 2,radius:Math.min(width,height) * .28 }] })} /></div>
+        <div className="cockpit-appearance-preview-planet"><DitherCanvas reducedMotion={reducedMotion} getFrame={(width,height,phase)=>({ width,height,phase,assets:[{ id:label,spec:visual,x:width / 2,y:height / 2,radius:Math.min(width,height) * .28 }] })} /></div>
       </figure>)}
     </div>}
     <div className="dither-editor-fields">

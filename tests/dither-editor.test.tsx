@@ -6,7 +6,7 @@ import { AppearanceEditor } from '../src/music/dither/AppearanceEditor'
 import { createDitherSpec, DITHER_LIMITS } from '../src/music/dither/appearance'
 import type { DitherFrame } from '../src/music/dither/renderer'
 vi.mock('../src/music/dither/DitherCanvas', () => ({
-  DitherCanvas: ({ getFrame }: { getFrame: (width: number, height: number, phase: number) => DitherFrame }) => <canvas data-frame={JSON.stringify(getFrame(320,240,0))} />,
+  DitherCanvas: ({ getFrame, forceFallback, reducedMotion }: { getFrame: (width: number, height: number, phase: number) => DitherFrame; forceFallback?: boolean; reducedMotion?: boolean }) => <canvas data-frame={JSON.stringify(getFrame(480,432,0))} data-static={String(Boolean(forceFallback))} data-reduced-motion={String(Boolean(reducedMotion))} />,
 }))
 afterEach(cleanup)
 test('controls preview without saving; reset and cancel are explicit', () => {
@@ -33,6 +33,11 @@ test('embedded previews compare saved appearance with only the current draft', (
   render(<AppearanceEditor embedded spec={spec} onPreview={vi.fn()} onApply={apply} onClose={vi.fn()} busy={false} error="" />)
   expect(screen.queryByRole('button', { name: '关闭外观编辑' })).toBeNull()
   const frame = (label: string): DitherFrame => JSON.parse(screen.getByRole('img', { name: label }).querySelector('canvas')!.dataset.frame!)
+  for (const label of ['当前外观', '调整后']) {
+    const canvas = screen.getByRole('img', { name: label }).querySelector('canvas')!
+    expect(canvas.dataset.static).toBe('false')
+    expect(frame(label).assets[0].radius).toBeCloseTo(240 * .28 * 1.8)
+  }
   expect(frame('当前外观').assets[0].spec).toEqual(frame('调整后').assets[0].spec)
   fireEvent.change(screen.getByLabelText('纹理'), { target: { value: 'score' } })
   expect(frame('当前外观').assets[0].spec.overrides).toEqual({ motif: 'flower' })
@@ -42,4 +47,11 @@ test('embedded previews compare saved appearance with only the current draft', (
   expect(frame('当前外观').assets[0].spec.overrides).toEqual({ motif: 'flower' })
   expect(frame('调整后').assets[0].spec.overrides).toEqual({})
   expect(apply).not.toHaveBeenCalled()
+})
+
+test('both animated previews honor reduced motion', () => {
+  render(<AppearanceEditor embedded reducedMotion spec={createDitherSpec({ planetId: 'owner', tracks: [] })} onPreview={vi.fn()} onApply={vi.fn()} onClose={vi.fn()} busy={false} error="" />)
+  for (const label of ['当前外观', '调整后']) {
+    expect(screen.getByRole('img', { name: label }).querySelector('canvas')!.dataset.reducedMotion).toBe('true')
+  }
 })

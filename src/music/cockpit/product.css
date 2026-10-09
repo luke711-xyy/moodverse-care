@@ -76,7 +76,9 @@
 .cockpit-appearance-preview figure { min-width: 0; margin: 0; text-align: center; }
 .cockpit-appearance-preview figure + figure { border-left: 1px dotted var(--phosphor-muted); }
 .cockpit-appearance-preview figcaption { color: var(--phosphor); font-size: 14px; }
-.cockpit-appearance-preview-planet { position: relative; width: 100%; height: 240px; overflow: hidden; }
+/* 240px × 1.8 enlarges both planets equally; min(width,height) in the renderer
+   keeps even the largest editable size inside a narrower preview. */
+.cockpit-appearance-preview-planet { position: relative; width: 100%; height: 432px; overflow: hidden; }
 .cockpit-appearance-preview canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
 .cockpit .music-galaxy-dimensions { display: none; }
 @container music-viewport (max-width:760px) {
