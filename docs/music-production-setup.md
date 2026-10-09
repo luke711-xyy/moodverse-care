@@ -34,3 +34,9 @@ npx wrangler pages deploy dist --cwd "$taskReleaseDir" \
 本次发布前的旧版 Production 部署为
 `2cdecfc3-ef00-4da9-8948-aa35545057d0`，不可变地址
 <https://2cdecfc3.moodverse-care.pages.dev>；旧数据库完整保留，可用于回退。
+
+当前正式部署：源码 `053e5f1`，不可变地址
+<https://a41275a0.moodverse-care.pages.dev>。构建通过，匿名身份隔离相关的
+14 项接口检查通过；未重跑全量测试。正式根页面、主 JS/CSS 均 HTTP 200，
+曲库正常返回 6 首示例曲目；真实浏览器可见 Galaxy、扩大后的屏幕及跃迁/
+航速仪表，无页面 error。代码已推送音乐分支。
