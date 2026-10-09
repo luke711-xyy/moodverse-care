@@ -1,4 +1,5 @@
 import { safeHttpsUrl, type Env } from './_shared'
+import { isManagedMomentPhoto } from '../src/music/moment-photo'
 
 export type MomentInput = {
   trackId?: unknown
@@ -76,7 +77,7 @@ export function mapMoment(row: MomentRow) {
       durationSeconds: row.duration_seconds,
     },
     contentText: row.content_text,
-    photoUrl: safeHttpsUrl(row.photo_url),
+    photoUrl: isManagedMomentPhoto(row.photo_url) ? row.photo_url : safeHttpsUrl(row.photo_url),
     visibility: row.visibility,
     publishedAt: row.published_at,
     createdAt: row.created_at,

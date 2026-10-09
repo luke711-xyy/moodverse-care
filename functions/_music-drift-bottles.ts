@@ -1,5 +1,6 @@
 import { pairIsBlocked, isSocialRecord, socialResponse } from './_music-social'
 import { safeHttpsUrl, type Env } from './_shared'
+import { isManagedMomentPhoto } from '../src/music/moment-photo'
 
 const MAX_BOTTLE_TEXT = 500
 const MAX_BOTTLE_COMMENTS_PER_MINUTE = 30
@@ -574,11 +575,11 @@ async function detailsForRecipient(env: Env, bottle: BottleRow, delivery: Delive
     topic = { type: 'info', title: bottle.info_title, url: bottle.info_url, summary: bottle.info_summary }
   } else {
     const moment = await env.DB.prepare(`
-      SELECT m.id, m.content_text, c.id AS track_id, c.title AS track_title, c.artist_name, c.official_url, c.cover_url
+      SELECT m.id, m.content_text, m.photo_url, c.id AS track_id, c.title AS track_title, c.artist_name, c.official_url, c.cover_url
       FROM music_moments m JOIN music_planets p ON p.id = m.planet_id JOIN music_track_catalog c ON c.id = m.track_id
       WHERE m.id = ?1 AND p.owner_user_id = ?2 AND m.visibility = 'public' AND m.published_at IS NOT NULL
     `).bind(bottle.moment_id, bottle.sender_user_id).first<Record<string, unknown>>()
-    topic = { type: 'moment', momentId: bottle.moment_id, contentText: moment?.content_text ?? '', track: moment ? {
+    topic = { type: 'moment', momentId: bottle.moment_id, contentText: moment?.content_text ?? '', photoUrl: isManagedMomentPhoto(moment?.photo_url) ? moment.photo_url : safeHttpsUrl(moment?.photo_url), track: moment ? {
       id: moment.track_id, title: moment.track_title, artistName: moment.artist_name,
       officialUrl: moment.official_url, coverUrl: moment.cover_url,
     } : null }

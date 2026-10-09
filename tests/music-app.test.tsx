@@ -50,6 +50,46 @@ const tracks = [
   { id: 'song-e', title: '月面信号', artistId: 'artist-e', artistName: '月面', versionLabel: '', genres: ['electronic'], moodTags: ['curious'], officialUrl: 'https://music.example/e', coverUrl: null, durationSeconds: 190 },
 ]
 
+test('photo Moment publishing preserves the selected file on failure and clears it only after confirmation', async () => {
+  const NativeURL = URL
+  vi.stubGlobal('URL',class extends NativeURL {
+    static createObjectURL = vi.fn(() => 'blob:moment-test')
+    static revokeObjectURL = vi.fn()
+  })
+  const owner = { id:'photo-owner',displayName:'照片测试',tagline:'',visibility:'public',visualSchemaVersion:3,
+    visual:createDitherSpec({planetId:'photo-owner',tracks}),tracks:tracks.slice(0,3) }
+  let fail = true
+  const submissions: FormData[] = []
+  vi.stubGlobal('fetch',vi.fn(async (input:RequestInfo|URL,init?:RequestInit) => {
+    const path = new URL(String(input),'https://moodverse.test').pathname
+    if(path==='/api/music/catalog') return Response.json({tracks})
+    if(path==='/api/me/music-planet') return Response.json({planet:owner})
+    if(path==='/api/me/music-planet/moments' && init?.method==='POST') {
+      submissions.push(init.body as FormData)
+      if(fail) return Response.json({error:'PHOTO_STORAGE_UNAVAILABLE'},{status:503})
+      return Response.json({moment:{id:'photo-saved',trackId:'song-a',track:tracks[0],contentText:'照片记忆',photoUrl:'/api/music/moment-photos/00000000-0000-4000-8000-000000000000',visibility:'public',publishedAt:'2026-10-09',createdAt:'2026-10-09',updatedAt:'2026-10-09'}})
+    }
+    if(path==='/api/me/music-planet/moments') return Response.json({moments:[]})
+    return Response.json({groups:[],incoming:[],outgoing:[]})
+  }))
+  await renderCockpit()
+  fireEvent.click(screen.getByRole('button',{name:'Moment'}))
+  fireEvent.change(screen.getByRole('textbox',{name:'Moment 内容'}),{target:{value:'照片记忆'}})
+  const file = new File(['image'],'memory.png',{type:'image/png'})
+  fireEvent.change(screen.getByLabelText(/照片 · 最多/),{target:{files:[file]}})
+  fireEvent.click(screen.getByRole('button',{name:/保存 Moment/}))
+  await screen.findByText('照片暂时无法上传，已保留所选照片，请稍后重试。')
+  expect(screen.getByAltText('待发布照片预览')).toBeTruthy()
+  expect((screen.getByRole('textbox',{name:'Moment 内容'}) as HTMLTextAreaElement).value).toBe('照片记忆')
+  fail = false
+  fireEvent.click(screen.getByRole('button',{name:/保存 Moment/}))
+  await screen.findByText('Moment 已公开。')
+  expect(screen.queryByAltText('待发布照片预览')).toBeNull()
+  expect(screen.getByAltText('Moment 照片')).toBeTruthy()
+  expect(submissions).toHaveLength(2)
+  expect((submissions[1].get('photo') as File).name).toBe('memory.png')
+})
+
 test('jump lever switches the persistent windshield between Galaxy and home without opening a terminal', async () => {
   const owner = { id:'jump-owner', displayName:'跃迁测试', tagline:'', visibility:'public', visualSchemaVersion:3,
     visual:createDitherSpec({planetId:'jump-owner',tracks}), tracks:tracks.slice(0,3) }

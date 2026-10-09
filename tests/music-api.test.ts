@@ -7,6 +7,20 @@ const track = {
 }
 
 describe('music API client', () => {
+  test('photo Moments use one multipart file without overriding its browser-generated boundary', async () => {
+    const photo = new File(['photo'],'a.jpg',{type:'image/jpeg'})
+    const api = createMusicApi(async (_input, init) => {
+      expect(init?.body).toBeInstanceOf(FormData)
+      expect(new Headers(init?.headers).has('content-type')).toBe(false)
+      const form = init?.body as FormData
+      expect(form.getAll('photo')).toHaveLength(1)
+      expect((form.get('photo') as File).name).toBe('a.jpg')
+      expect(form.get('contentText')).toBe('带照片的片刻')
+      expect(init?.credentials).toBe('same-origin')
+      return Response.json({moment:{id:'photo-moment'}},{status:201})
+    })
+    await expect(api.createMoment({trackId:'track-a',contentText:'带照片的片刻',visibility:'private',photo})).resolves.toEqual({moment:{id:'photo-moment'}})
+  })
   test('loads the controlled catalog and the anonymous owner planet as separate resources', async () => {
     const api = createMusicApi(async (input) => {
       const path = new URL(input.toString(), 'https://moodverse.test').pathname

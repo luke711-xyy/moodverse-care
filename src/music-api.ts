@@ -175,7 +175,7 @@ export type MusicDriftBottleTopicInput =
 export type MusicDriftBottleTopic =
   | { type: 'song'; track: { id: string; title: string; artistName: string; officialUrl: string | null; coverUrl: string | null; versionLabel: string } | null }
   | { type: 'info'; title: string; url: string; summary: string }
-  | { type: 'moment'; momentId: string | null; contentText: string; track: { id: string; title: string; artistName: string; officialUrl: string | null; coverUrl: string | null } | null }
+  | { type: 'moment'; momentId: string | null; contentText: string; photoUrl?: string | null; track: { id: string; title: string; artistName: string; officialUrl: string | null; coverUrl: string | null } | null }
 
 export type MusicDriftBottleComment = {
   id: string
@@ -297,7 +297,7 @@ export function createMusicApi(fetcher: typeof fetch = fetch) {
       cache: 'no-store',
       headers: {
         accept: 'application/json',
-        ...(init?.body ? { 'content-type': 'application/json' } : {}),
+        ...(init?.body && !(init.body instanceof FormData) ? { 'content-type': 'application/json' } : {}),
         ...init?.headers,
       },
     })
@@ -467,7 +467,13 @@ export function createMusicApi(fetcher: typeof fetch = fetch) {
         method: 'POST', body: JSON.stringify(draft),
       })
     },
-    createMoment(draft: MusicMomentDraft) {
+    createMoment(draft: MusicMomentDraft & { photo?: File }) {
+      if (draft.photo) {
+        const body = new FormData()
+        body.set('trackId', draft.trackId); body.set('contentText', draft.contentText); body.set('visibility', draft.visibility)
+        body.set('photo', draft.photo)
+        return request<{ moment: MusicMoment | null }>('/api/me/music-planet/moments', { method: 'POST', body })
+      }
       return request<{ moment: MusicMoment | null; compositionTask?: PlanetComposerTask }>('/api/me/music-planet/moments', {
         method: 'POST', body: JSON.stringify(draft),
       })

@@ -3,6 +3,7 @@ import { defaultFriendSatelliteStatements } from './_music-friend-satellites'
 
 export type Env = {
   DB: D1Database
+  MUSIC_MEDIA?: R2Bucket
   CF_ACCESS_TEAM_DOMAIN?: string
   CF_ACCESS_AUD?: string
   MUSIC_ALLOW_LEGACY_ACCESS_AUTH?: string

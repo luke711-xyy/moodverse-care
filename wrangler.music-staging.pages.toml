@@ -4,6 +4,15 @@ name = "moodverse-music-staging"
 compatibility_date = "2026-09-22"
 pages_build_output_dir = "./dist"
 
+# Like the music D1 data, Moment photos are shared with the music production site.
+[[r2_buckets]]
+binding = "MUSIC_MEDIA"
+bucket_name = "moodverse-music-media"
+
+[[env.production.r2_buckets]]
+binding = "MUSIC_MEDIA"
+bucket_name = "moodverse-music-media"
+
 [[d1_databases]]
 binding = "DB"
 database_name = "moodverse-music-staging-db"

@@ -1,4 +1,5 @@
 import { authenticatedMusicUser, json, type Env } from '../../../../_shared'
+import { isManagedMomentPhoto } from '../../../../../src/music/moment-photo'
 import {
   contentText,
   isRecord,
@@ -92,11 +93,11 @@ export const onRequestDelete: PagesFunction<Env> = async (context) => {
   if (!momentId) return respond({ error: 'MOMENT_NOT_FOUND' }, 404)
 
   const existing = await env.DB.prepare(`
-    SELECT m.visibility
+    SELECT m.visibility, m.photo_url
     FROM music_moments m
     JOIN music_planets p ON p.id = m.planet_id
     WHERE m.id = ?1 AND p.owner_user_id = ?2
-  `).bind(momentId, identity.userId).first<{ visibility: 'public' | 'private' }>()
+  `).bind(momentId, identity.userId).first<{ visibility: 'public' | 'private'; photo_url: string | null }>()
   if (!existing) return respond({ error: 'MOMENT_NOT_FOUND' }, 404)
 
   const [, , deleted] = await env.DB.batch([
@@ -118,5 +119,6 @@ export const onRequestDelete: PagesFunction<Env> = async (context) => {
     `).bind(momentId, identity.userId),
   ])
   if (deleted.meta.changes !== 1) return respond({ error: 'MOMENT_NOT_FOUND' }, 404)
+  if (isManagedMomentPhoto(existing.photo_url)) await env.MUSIC_MEDIA?.delete(`moment-photos/${momentId}`).catch(() => {})
   return respond({ deleted: true })
 }

@@ -17,6 +17,8 @@ import { getFlightSpeed, useCockpitFlight } from './cockpit/flight'
 import { logicalSize } from './viewport'
 import { DEFAULT_TRACK_ID } from './default-track'
 import { useMusicPlayer } from './useMusicPlayer'
+import { MomentPhoto, MomentPhotoPicker } from './MomentPhoto'
+import { momentPhotoError } from './moment-photo'
 import './music-app.css'
 import './dither/product.css'
 import './cockpit/product.css'
@@ -187,6 +189,7 @@ function errorMessage(error: unknown) {
   if (!(error instanceof MusicApiError)) return '暂时无法连接星际档案库。请稍后再试。'
   if (error.code === 'PLANET_ALREADY_EXISTS') return '你的星球已经创建好了。正在重新读取它。'
   if (error.code === 'UNKNOWN_OR_INACTIVE_TRACK') return '有歌曲已从曲库下架，请重新选择仍可用的曲目。'
+  if (['PHOTO_TOO_LARGE','TOO_MANY_PHOTOS','UNSUPPORTED_PHOTO_TYPE','INVALID_PHOTO','PHOTO_STORAGE_UNAVAILABLE'].includes(error.code)) return momentPhotoError(error.code)
   if (error.status === 401) return '本机匿名身份暂不可用，请刷新页面后重试。'
   return '保存没有完成，已保留当前填写内容。请检查连接后重试。'
 }
@@ -427,7 +430,7 @@ function DriftBottlePanel({ api, tracks, moments, onVisitPlanet }: {
         {detail.bottle.topic.track?.officialUrl && <a href={detail.bottle.topic.track.officialUrl} target="_blank" rel="noreferrer">在官方平台打开 ↗</a>}
       </div>}
       {detail.bottle.topic.type === 'info' && <div className="music-bottle-topic-card"><strong>{detail.bottle.topic.title}</strong><p>{detail.bottle.topic.summary}</p><a href={detail.bottle.topic.url} target="_blank" rel="noreferrer">查看来源 ↗</a></div>}
-      {detail.bottle.topic.type === 'moment' && <div className="music-bottle-topic-card"><strong>{detail.bottle.topic.track?.title ?? 'Moment'}</strong><span>{detail.bottle.topic.track?.artistName}</span><p>{detail.bottle.topic.contentText}</p></div>}
+      {detail.bottle.topic.type === 'moment' && <div className="music-bottle-topic-card"><strong>{detail.bottle.topic.track?.title ?? 'Moment'}</strong><span>{detail.bottle.topic.track?.artistName}</span><p>{detail.bottle.topic.contentText}</p>{detail.bottle.topic.photoUrl && <MomentPhoto src={detail.bottle.topic.photoUrl} />}</div>}
       {detail.bottle.messageText && <blockquote>{detail.bottle.messageText}</blockquote>}
       {detail.bottle.sender && <DitherButton className="music-text-button" type="button" onClick={() => onVisitPlanet(detail.bottle.sender!.planetId, detail.bottle.sender!.displayName)}>访问瓶主星球 · {detail.bottle.sender.displayName} ↗</DitherButton>}
       <ReportControl api={api} target={{ type: 'drift_bottle', id: detail.bottle.id }} ariaLabel="举报这只漂流瓶" />
@@ -486,6 +489,8 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
   const [focusedTrackId, setFocusedTrackId] = useState<string>()
   const [momentTrackId, setMomentTrackId] = useState('')
   const [momentText, setMomentText] = useState('')
+  const [momentPhoto, setMomentPhoto] = useState<File | null>(null)
+  const [momentPhotoFeedback, setMomentPhotoFeedback] = useState('')
   const [momentPrivate, setMomentPrivate] = useState(false)
   const [savingMoment, setSavingMoment] = useState(false)
   const [momentFeedback, setMomentFeedback] = useState('')
@@ -585,6 +590,8 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
     setAppearanceBusy(false)
     setMomentTrackId('')
     setMomentText('')
+    setMomentPhoto(null)
+    setMomentPhotoFeedback('')
     setMomentPrivate(false)
     setSavingMoment(false)
     setMomentFeedback('')
@@ -1424,7 +1431,7 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
 
   const addMoment = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (!planet || !momentTrackId || savingMoment) return
+    if (!planet || !momentTrackId || savingMoment || momentPhotoFeedback) return
     const epoch = accountEpoch.current
     setSavingMoment(true)
     setMomentFeedback('')
@@ -1433,12 +1440,16 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
         trackId: momentTrackId,
         contentText: momentText.trim(),
         visibility: momentPrivate ? 'private' : 'public',
+        ...(momentPhoto ? { photo: momentPhoto } : {}),
       })
       if (epoch !== accountEpoch.current) return
-      if (result.moment) setHome((current) => current.status === 'ready'
+      if (!result.moment) throw new Error('Moment save was not confirmed')
+      setHome((current) => current.status === 'ready'
         ? { ...current, moments: [result.moment!, ...current.moments] }
         : current)
       setMomentText('')
+      setMomentPhoto(null)
+      setMomentPhotoFeedback('')
       setMomentFeedback(momentPrivate ? '已保存为仅自己可见。' : 'Moment 已公开。')
     } catch (error) {
       if (epoch !== accountEpoch.current) return
@@ -1780,7 +1791,7 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
             : visitedPlanet.moments.map((moment) => <article className="music-moment-item" key={moment.id}>
                 <div><strong>{moment.track.title}</strong><span>{new Date(moment.publishedAt ?? moment.createdAt).toLocaleDateString('zh-CN')}</span></div>
                 {moment.contentText && <p>{moment.contentText}</p>}
-                {moment.photoUrl && <img className="music-public-moment-photo" src={moment.photoUrl} alt="Moment 配图" loading="lazy" />}
+                {moment.photoUrl && <MomentPhoto src={moment.photoUrl} />}
                 <ReportControl api={api} target={{ type: 'moment', id: moment.id }} ariaLabel="举报这条 Moment" />
               </article>)}
         </section>
@@ -1840,9 +1851,10 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
             {planet.tracks.map((track) => <option key={track.id} value={track.id}>{track.title} · {track.artistName}</option>)}
           </select>
           <textarea value={momentText} onChange={(event) => setMomentText(event.target.value)} maxLength={500} placeholder="这首歌让你想起了什么？" aria-label="Moment 内容" />
+          <MomentPhotoPicker file={momentPhoto} error={momentPhotoFeedback} busy={savingMoment} onChange={(file,error) => { setMomentPhoto(file); setMomentPhotoFeedback(error); setMomentFeedback('') }} />
           <div className="music-moment-actions"><label className="music-moment-privacy"><input type="checkbox" checked={momentPrivate} onChange={(event) => setMomentPrivate(event.target.checked)} /><span>{momentPrivate ? '仅自己可见' : '公开给访客'}</span></label><span>{momentText.length}/500</span></div>
           {momentFeedback && <p className="music-feedback" aria-live="polite">{momentFeedback}</p>}
-          <DitherButton className="music-secondary-button" type="submit" disabled={savingMoment || !momentTrackId}>{savingMoment ? '正在保存…' : '保存 Moment'} <span aria-hidden="true">↗</span></DitherButton>
+          <DitherButton className="music-secondary-button" type="submit" disabled={savingMoment || !momentTrackId || Boolean(momentPhotoFeedback)}>{savingMoment ? '正在保存…' : '保存 Moment'} <span aria-hidden="true">↗</span></DitherButton>
         </form>}
 
         {view !== 'collision' && <section className="music-moments" aria-label="我的 Moments">
@@ -1850,6 +1862,7 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
           {!moments.length ? <p className="music-moments-empty">还没有 Moment。留下一段片刻吧。</p> : moments.map((moment) => <article className="music-moment-item" key={moment.id}>
             <div><strong>{moment.track.title}</strong><span>{moment.visibility === 'public' ? '公开' : '仅自己'} · {new Date(moment.createdAt).toLocaleDateString('zh-CN')}</span></div>
             {moment.contentText && <p>{moment.contentText}</p>}
+            {moment.photoUrl && <MomentPhoto src={moment.photoUrl} />}
             {momentManagement.status === 'editing' && momentManagement.momentId === moment.id
               ? <form className="music-moment-editor" onSubmit={(event) => { void saveMomentEdit(event) }}>
                   <label htmlFor={`music-moment-edit-${moment.id}`}>修改 Moment 内容</label>
