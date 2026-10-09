@@ -56,6 +56,9 @@
 .cockpit .music-visit-incognito { margin-block: 24px; }
 .cockpit .music-galaxy-axis,.cockpit .music-galaxy-footer { position: relative; bottom: auto; left: auto; transform: none; margin: auto; background: transparent; }
 .cockpit .music-galaxy-axis { width: min(620px,calc(100% - 32px)); }
+/* Match the 44px cockpit buttons and keep their glow/focus rings inside the scrollport. */
+.cockpit .music-galaxy-axis-scroll { padding-block: 12px; }
+.cockpit .music-galaxy-axis-track { height: 44px; }
 .cockpit .music-galaxy-footer { width: fit-content; text-align: center; }
 .cockpit-appearance-editor .dither-editor { position: static; width: 100%; max-width: none; border: 0; padding: 0; background: transparent; }
 .cockpit-appearance-editor .dither-editor-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); overflow: visible; gap: 24px 32px; }
