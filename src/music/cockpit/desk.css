@@ -119,7 +119,6 @@
   .cockpit-radar-preview > i { left: 6px; top: calc(50% - 16px); width: 32px; height: 32px; }
   .cockpit-radar-preview small { display: none; }
   .cockpit-window-nav { bottom: 26px; }
-  .cockpit-window-label { top: 9px; left: 12px; }
   .cockpit-terminal-header { flex-wrap: nowrap; padding: 2px 4px 7px; gap: 8px; }
   .cockpit-terminal-header nav { order: initial; width: auto; flex: 1; }
   .cockpit-terminal-header nav button { flex: 1; min-width: 60px; }

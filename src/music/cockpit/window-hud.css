@@ -1,0 +1,66 @@
+/* Window projections stay click-through; only the existing navigation axis is
+   interactive. The navigation grid is a measurement overlay, not a backdrop. */
+.cockpit-window-hud { position: absolute; inset: 0; z-index: 1; pointer-events: none; color: #ead29a; font: 11px/1.6 var(--cockpit-label); font-variant-numeric: tabular-nums; }
+.cockpit-window-hud * { pointer-events: none; }
+.window-hud-grid { position: absolute; inset: 0; width: 100%; height: 100%; fill: none; stroke: #efd79f; stroke-width: 1; stroke-dasharray: 2 7; opacity: .2; filter: url(#moodverse-ink-dither); }
+.window-hud-grid path { vector-effect: non-scaling-stroke; }
+.window-hud-grid .window-hud-reticle { stroke-dasharray: none; stroke-width: 1.5; }
+.window-hud-top { position: absolute; inset: 12px 24px auto; height: 34px; display: flex; align-items: center; gap: 24px; border-bottom: 1px solid #dbc69b45; filter: url(#moodverse-ink-dither); }
+.window-hud-brand { font: italic 900 26px/1 'Avenir Next','Arial Black',var(--cockpit-body); letter-spacing: .13em; color: #f4dfb2; text-shadow: 1px 1px #33261b,0 0 6px #d4b57340; }
+.window-hud-sector { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.window-hud-link { margin-left: auto; display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+.window-hud-link i { width: 4px; height: 4px; background: currentColor; box-shadow: 0 0 4px currentColor; }
+.window-hud-clock { display: flex; align-items: baseline; gap: 8px; white-space: nowrap; }
+.window-hud-clock small { font-size: 9px; color: #baa982; }
+.window-hud-navigation,.window-hud-terminal { position: absolute; top: 68px; padding: 12px; background: #100f16c9; border-block: 1px solid #dbc69b66; filter: url(#moodverse-ink-dither); }
+.window-hud-navigation { left: 24px; width: clamp(128px,14%,176px); }
+.window-hud-terminal { right: 24px; width: clamp(184px,19%,256px); }
+.window-hud-instrument-label { display: flex; justify-content: space-between; gap: 8px; color: #d5bc83; font-size: 10px; white-space: nowrap; }
+.window-hud-compass { display: block; width: 112px; max-width: 100%; height: 94px; margin: 8px auto; fill: none; stroke: #bca478; stroke-width: .8; }
+.window-hud-compass text { fill: #d8c294; stroke: none; font: 8px var(--cockpit-label); }
+.window-hud-compass .window-hud-course { fill: #e3c482; stroke: #e3c482; }
+.window-hud-navigation dl { margin: 8px 0 0; display: grid; gap: 8px; }
+.window-hud-navigation dl > div { display: flex; justify-content: space-between; gap: 8px; }
+.window-hud-navigation dt { color: #baa982; font-size: 9px; }
+.window-hud-navigation dd { margin: 0; white-space: nowrap; }
+.window-hud-count-note { display: block; text-align: right; color: #baa982; font-size: 8px; margin-top: 4px; }
+.window-hud-grouping { margin-top: 12px; padding-top: 8px; border-top: 1px dotted #dbc69b45; font-size: 9px; }
+.window-hud-terminal ol { list-style: none; margin: 12px 0; padding: 0; display: grid; gap: 8px; }
+.window-hud-terminal li { display: grid; grid-template-columns: 48px minmax(0,1fr); align-items: baseline; gap: 8px; }
+.window-hud-terminal li time { font-size: 8px; color: #baa982; }
+.window-hud-terminal li span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.window-hud-command { display: flex; align-items: center; gap: 8px; color: #f2dbab; font-size: 10px; }
+.window-hud-command > span:nth-child(2) { min-width: 0; overflow-wrap: anywhere; }
+.window-hud-command i { flex: none; width: 5px; height: 10px; background: #dec48b; }
+.window-hud-flight-track { height: 2px; margin-top: 8px; background: #dbc69b30; }
+.window-hud-flight-track span { display: block; height: 100%; width: 100%; transform-origin: left; background: #e3c482; }
+.window-hud-hint { margin: 12px 0 0; padding-top: 8px; border-top: 1px dotted #dbc69b45; color: #e4cc99; font: 10px/1.7 var(--cockpit-body); overflow-wrap: anywhere; }
+.cockpit-window-hud[data-link=error] .window-hud-link { color: #efb89c; }
+.cockpit.is-focused .cockpit-window-hud { visibility: hidden; }
+@container music-viewport (max-width:900px) {
+  .window-hud-top { inset-inline: 16px; gap: 16px; font-size: 10px; }
+  .window-hud-brand { font-size: 22px; }
+  .window-hud-navigation { left: 16px; width: 128px; }
+  .window-hud-terminal { right: 16px; width: 184px; font-size: 10px; }
+}
+@container music-viewport (max-height:650px) {
+  .window-hud-top { top: 8px; height: 28px; }
+  .window-hud-navigation,.window-hud-terminal { top: 48px; padding: 8px; }
+  .window-hud-compass { height: 50px; margin-block: 4px; }
+  .window-hud-navigation dl { gap: 4px; }
+  .window-hud-terminal ol { margin-block: 8px; gap: 4px; }
+  .window-hud-terminal li:not(:nth-last-child(-n+3)) { display: none; }
+  .window-hud-grouping { margin-top: 8px; padding-top: 4px; }
+  .window-hud-hint { margin-top: 8px; padding-top: 4px; }
+}
+@container music-viewport (max-width:700px) and (max-height:600px) {
+  .window-hud-brand { font-size: 20px; }
+  .window-hud-top { gap: 12px; }
+  .window-hud-link { font-size: 9px; }
+  .window-hud-navigation { width: 112px; }
+  .window-hud-terminal { width: 152px; }
+  .window-hud-compass,.window-hud-grouping { display: none; }
+  .window-hud-terminal li { grid-template-columns: minmax(0,1fr); }
+  .window-hud-terminal li time { display: none; }
+  .window-hud-terminal li:not(:nth-last-child(-n+2)) { display: none; }
+}

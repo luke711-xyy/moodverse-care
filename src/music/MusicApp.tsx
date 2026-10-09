@@ -775,6 +775,10 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
   const focusedGalaxyKey = selectedGalaxyGroup?.key
   const focusedGalaxyId = focusedGalaxyKey && galaxySceneResponse ? `${galaxySceneResponse.by}:${focusedGalaxyKey}` : undefined
   const focusedGalaxySystem = focusedGalaxyId ? galaxySceneSystems.find((system) => system.id === focusedGalaxyId) : undefined
+  const hudTour = galaxyTourPosition(galaxyJourney / TOUR_END, galaxySceneSystems.length)
+  const hudSystemIndex = focusedGalaxySystem ? galaxySceneSystems.indexOf(focusedGalaxySystem) : hudTour.currentIndex
+  const hudSystem = galaxySceneSystems[hudSystemIndex]
+  const hudGroup = galaxySceneResponse?.groups.find(group => group.key === hudSystem?.key)
 
   const openSongPortal = async (track: MusicTrackSummary) => {
     const epoch = accountEpoch.current
@@ -1532,6 +1536,13 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
     <CockpitShell state={cockpit} reducedMotion={reducedMotion} crtEnabled={crtEnabled} signal={signal} musicPlayer={musicPlayer}
       planetName={planet?.displayName ?? '待命星球'} heading={Math.min(1, galaxyJourney / TOUR_END)}
       flightSpeed={getFlightSpeed(flightController.flight)}
+      flight={flightController.flight}
+      telemetry={{ ownerId: planet?.id ?? null, systemCount: galaxySceneResponse ? galaxySceneSystems.length : null, sectorPosition: focusedGalaxySystem ? hudSystemIndex : hudTour.systemIndex,
+        grouping: galaxySceneResponse?.by ?? 'genre',
+        sector: hudSystem && hudGroup ? { id: hudSystem.id, label: hudSystem.label, index: hudSystemIndex, visiblePlanets: hudSystem.planets.length, totalPlanets: hudGroup.planetCount } : null,
+        orbitRotation: focusedGalaxySystem ? galaxyRotation : null,
+        visitor: visitedPlanet ? { id: visitedPlanet.id, name: visitedPlanet.displayName } : null,
+        targetName: flightController.flight?.targetVisitor?.displayName ?? (flightController.flight?.to === 'visitor' ? pendingVisit?.displayName ?? null : null) }}
       by={galaxy.status === 'idle' ? 'genre' : galaxy.by} onClassify={by => { void regroupGalaxy(by) }}
       classifying={galaxy.status === 'loading' || galaxyRegrouping}
       onOpen={changeView} onOverview={() => dispatchCockpit({ type: 'overview' })} onBack={() => dispatchCockpit({ type: 'back' })}

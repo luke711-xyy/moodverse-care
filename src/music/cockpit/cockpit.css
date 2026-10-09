@@ -20,7 +20,6 @@
   border-radius: 24px 24px 16px 16px; box-shadow: inset 0 0 0 2px var(--case-shadow), inset 0 0 0 5px #000; }
 .cockpit-window-frame::before,.cockpit-window-frame::after { content: ''; position: absolute; top: -6px; width: 11px; height: 11px; border-radius: 50%; background: #171511; box-shadow: inset 1px 1px 2px #000,0 1px var(--case-light); }
 .cockpit-window-frame::before { left: 3px; } .cockpit-window-frame::after { right: 3px; }
-.cockpit-window-label { position: absolute; left: var(--space-xl); top: var(--space-lg); color: var(--dither-muted); font: .75rem var(--cockpit-label); pointer-events: none; }
 .cockpit-window-nav { position: absolute; bottom: 32px; left: 0; right: 0; pointer-events: none; }
 .cockpit-window-nav > * { pointer-events: auto; }
 .cockpit-console-scroll { position: absolute; left: 0; right: 0; bottom: 0; height: var(--console-height); z-index: var(--z-hardware); overflow: visible; }
@@ -119,8 +118,7 @@
 .cockpit-window-frame { inset: 0 0 calc(var(--console-height) - 58px); border: 16px solid #c4a66d; border-top-color: #e7ca87; border-right-color: #857248; border-bottom-color: #796944; border-bottom-width: 23px; border-radius: 5% 5% 3% 3%;
   box-shadow: inset 0 0 0 3px #30291d,inset 0 0 0 6px #d9b97b,0 8px 0 #1b1710,0 15px 18px #000; filter: url(#moodverse-hardware-dither); }
 .cockpit-window-frame::before,.cockpit-window-frame::after { background: linear-gradient(45deg,#272116 45%,#efcf8a 47% 54%,#7f6b42 56%); border: 1px solid #baa16c; }
-.cockpit-window-label,.cockpit-window-nav,.cockpit-pan-nav { filter: url(#moodverse-ink-dither); }
-.cockpit-window-label { color: var(--case-ink); }
+.cockpit-window-nav,.cockpit-pan-nav { filter: url(#moodverse-ink-dither); }
 .cockpit-deck { position: absolute; inset: -38px 0 0; width: 100%; height: calc(100% + 38px); pointer-events: none; filter: url(#moodverse-hardware-dither); }
 .cockpit-console { position: relative; padding: 0 6% 22px; grid-template-columns: minmax(225px,1fr) 105px minmax(280px,1.2fr) 100px minmax(215px,.85fr); gap: 9px; perspective: 850px; }
 .cockpit-wing,.cockpit-center,.cockpit-gauge-bay { background: linear-gradient(130deg,#f0d596,#ceb27a 28%,#ad9463 64%,#7f6d49 85%,#514631);

@@ -6,6 +6,8 @@ import { DitherSurfaceDefinitions } from './surface'
 import { CrtScreen } from './CrtScreen'
 import { DeskObjects, DeskSignals, RetroRadio } from './DeskObjects'
 import './desk.css'
+import { WindowHud, type WindowTelemetry } from './WindowHud'
+import type { CockpitFlight } from './flight'
 
 export type CockpitSignal = 'idle' | 'loading' | 'traveling' | 'error'
 type Props = {
@@ -15,6 +17,8 @@ type Props = {
   signal: CockpitSignal
   heading: number
   flightSpeed?: number
+  flight?: CockpitFlight | null
+  telemetry?: WindowTelemetry
   planetName: string
   scene: ReactNode
   children: ReactNode
@@ -143,7 +147,7 @@ export function CockpitShell(props: Props) {
     <div className="cockpit-viewport" inert={focused || undefined} aria-hidden={focused || undefined}>
       {props.scene}
       <div className="cockpit-window-nav">{props.windowNavigation}</div>
-      <div className="cockpit-window-label" aria-live="polite">{props.connected === false ? '连接中' : traveling ? '穿过星云' : props.state.exterior === 'galaxy' ? props.signal === 'loading' ? 'Galaxy · 搜索中' : props.signal === 'error' ? 'Galaxy · 暂不可用' : 'Galaxy' : props.state.exterior === 'visitor' ? '访客星球' : props.planetName}</div>
+      <WindowHud state={props.state} connected={props.connected !== false} signal={props.signal} telemetry={props.telemetry} flight={props.flight} />
     </div>
     <div className="cockpit-pan-nav" hidden={focused} aria-label="控制台区域">
       {(['personal', 'exploration', 'controls'] as const).map((zone, i) => <button key={zone} aria-pressed={pan === zone} onClick={() => {
