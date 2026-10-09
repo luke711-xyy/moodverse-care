@@ -105,3 +105,5 @@ Wrangler 4.149.0 的 Pages 不接受自定义配置路径。因此将已检查�
 - 新增跃迁双向组件和应用回归、标签移除与名单入口、航速曲线回归。最新完整测试 **61 个文件、402 项全部通过**；TypeScript/Vite 生产构建、隔离 staging 预检查及差异空白检查通过。
 - 本地真实 Chrome 双向往返：航速峰值约 0.999997，后半程下降，两次抵达均回到 0，外部目的地分别为 home 与 galaxy，且不打开终端。临时读数观察器检查后已移除，没有发信或写入用户内容。
 - 390×844 和 320×568 模拟视口继续横屏呈现：两个仪表均可见且在窗口内；主屏中心偏差小于 0.01px，侧翼近远边关系、中央灯带边界、咖啡热气绘制边界及页面/按键无横向溢出检查通过。检查完恢复浏览器视口。
+- 实现提交 `df45d4a` 已推送到 `origin/codex/music-cockpit-ui`，并部署到隔离音乐 Pages 的 `main`；不可变地址 <https://1408c82b.moodverse-music-staging.pages.dev>，根地址 <https://moodverse-music-staging.pages.dev>。根页面及 `index-DXSHijZv.js`、`index-Cfuk3BdK.css`、`MusicApp-ChVYWskU.js`、`MusicApp-B9h-zLiW.css` 均 HTTP 200。没有合并旧 Git `main`、修改 D1 或旧站点。
+- 线上真实 Chrome：设备可见文字已移除，两个 CRT 扩大且航向下有航速；实际往返抵达 home/galaxy 时均为 overview、无过场标志、航速为 0。回家过场采样 46 次，峰值约 0.999584，抵达为 0；页面没有 warning/error。一次可见状态等待遇到浏览器工具超时，但随后直接读取到已抵达的 home 状态；未当作产品加载失败，也未重复点击。检查过程只读取现有账号并进行视图切换，没有修改资料或发布内容。线上截图另存 `/tmp/moodverse-cockpit-jump-live.png`，不加入仓库。
