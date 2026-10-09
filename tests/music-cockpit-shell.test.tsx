@@ -26,13 +26,23 @@ test('physical monitors approach to a straight-on terminal and return without lo
   fireEvent.click(screen.getByRole('button', { name: '打开个人终端' }))
   expect((screen.getByRole('textbox') as HTMLInputElement).value).toBe('保留这段声音')
 })
-test('settings and escape restore the originating personal channel', () => {
-  render(<Harness />)
-  fireEvent.click(screen.getByRole('button', { name: '打开个人终端' }))
-  fireEvent.click(screen.getByRole('button', { name: '设置' }))
+test('settings are available only on the main console and escape returns to the cockpit', () => {
+  const { container } = render(<Harness reduced />)
+  expect(container.querySelectorAll('button[aria-label="设置"]').length).toBe(1)
+  for (const name of ['打开个人终端', '打开探索终端', '查看 Galaxy 星球列表']) {
+    fireEvent.click(screen.getByRole('button', { name }))
+    expect(screen.queryByRole('button', { name: '设置' })).toBeNull()
+    expect(container.querySelector('.cockpit-terminal-header button[aria-label="设置"]')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '返回驾驶舱' }))
+  }
+  const settings = screen.getByRole('button', { name: '设置' })
+  expect(settings.className).toBe('cockpit-settings-key')
+  fireEvent.click(settings)
   expect(screen.getByRole('region', { name: '探索终端' }).dataset.page).toBe('settings')
+  expect(screen.queryByRole('button', { name: '设置' })).toBeNull()
   fireEvent.keyDown(screen.getByRole('region', { name: '探索终端' }), { key: 'Escape' })
-  expect(screen.getByRole('region', { name: '个人终端' }).dataset.page).toBe('planet')
+  expect(screen.queryByRole('region')).toBeNull()
+  expect(document.activeElement).toBe(settings)
 })
 test('monitors always enter their first channel and exiting releases all six physical keys', () => {
   const { container } = render(<Harness reduced />)

@@ -83,7 +83,7 @@
 .cockpit-terminal-name { font: 700 1.5rem var(--cockpit-label); white-space: nowrap; }
 .cockpit-terminal-header nav { display: flex; gap: var(--space-sm); }
 .cockpit-terminal-header nav button { min-width: 88px; min-height: 44px; }
-.cockpit-terminal-header > .cockpit-terminal-settings { margin-left: auto; flex: none; min-width: 44px; min-height: 44px; }
+.cockpit-terminal-header > .cockpit-lamp { margin-left: auto; }
 .cockpit-terminal-glass { position: relative; flex: 1; min-height: 0; overflow: hidden; border: 10px solid #29251e; border-radius: 12px; background: var(--crt); box-shadow: inset 0 0 0 1px #a3864c; }
 .cockpit-terminal-content { height: 100%; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding: var(--space-xl); position: relative; }
 .cockpit-terminal-footer { display: flex; align-items: center; gap: var(--space-md); padding: var(--space-md) var(--space-sm) var(--space-xs); color: var(--case-ink); }

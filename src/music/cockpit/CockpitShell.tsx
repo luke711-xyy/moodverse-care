@@ -201,7 +201,7 @@ export function CockpitShell(props: Props) {
       onBlurCapture={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setTyping(false) }}>
       <header className="cockpit-terminal-header">
         <nav aria-label={personal ? '个人频道' : '探索频道'}>{(personal ? personalPages : explorationPages).map(([page, label]) => <button key={page} aria-pressed={props.state.console.page === page} onClick={() => open(page)}>{label}</button>)}</nav>
-        <button className="cockpit-terminal-settings" aria-label="设置" onClick={() => open('settings')}>⚙</button><i className="cockpit-lamp" data-lit="true" />
+        <i className="cockpit-lamp" data-lit="true" />
       </header>
       <div className="cockpit-terminal-glass"><CrtScreen active={focused} motion={!props.reducedMotion} enabled={props.crtEnabled}><div ref={content} className="cockpit-terminal-content">{props.children}</div></CrtScreen></div>
       <footer className="cockpit-terminal-footer"><button aria-label="返回驾驶舱" onClick={props.onOverview}>← 返回驾驶舱</button>{props.state.history.length > 1 && <button onClick={props.onBack}>← 返回</button>}<span>{pageNames[props.state.console.page]} <small>匿名体验账号</small></span></footer>

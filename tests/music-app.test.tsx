@@ -19,6 +19,11 @@ afterEach(() => {
 async function openPersonal() {
   fireEvent.click(await screen.findByRole('button', { name: '打开个人终端' }))
 }
+function openSettings() {
+  const back = screen.queryByRole('button', { name: '返回驾驶舱' })
+  if (back) fireEvent.click(back)
+  fireEvent.click(screen.getByRole('button', { name: '设置' }))
+}
 async function renderCockpit() {
   render(<MusicApp />)
   await waitFor(() => expect(document.querySelector('.cockpit[data-focus="overview"]') || screen.queryByRole('heading', { name: /暂时连接不上/ })).toBeTruthy())
@@ -264,7 +269,7 @@ test('clearly labels the automatically created anonymous account', async () => {
 
   await renderCockpit()
   expect(await screen.findByRole('heading', { name: '为你的星球选三首歌' })).toBeTruthy()
-  fireEvent.click(screen.getByRole('button', { name: '设置' }))
+  openSettings()
   expect(await screen.findByRole('heading', { name: '匿名体验身份' })).toBeTruthy()
   expect(screen.queryByRole('button', { name: '退出登录' })).toBeNull()
 })
@@ -504,7 +509,7 @@ test('settings load server privacy preferences and only show confirmed planet an
 
   await renderCockpit()
   await screen.findByRole('button', { name: '我的星球' })
-  fireEvent.click(screen.getByRole('button', { name: '设置' }))
+  openSettings()
   await screen.findByRole('heading', { name: '账户与隐私设置' })
 
   const friendRequests = screen.getByRole('checkbox', { name: /接收好友请求/ }) as HTMLInputElement
@@ -561,7 +566,7 @@ test('a moderator can review report metadata from settings without exposing targ
 
   await renderCockpit()
   await screen.findByRole('button', { name: '我的星球' })
-  fireEvent.click(screen.getByRole('button', { name: '设置' }))
+  openSettings()
   await screen.findByRole('heading', { name: '账户与隐私设置' })
   const openReviewEntry = await screen.findByRole('button', { name: '打开审核队列' })
   fireEvent.click(openReviewEntry)
@@ -586,7 +591,7 @@ test('a non-moderator does not see an internal report-review entry in settings',
 
   await renderCockpit()
   await screen.findByRole('button', { name: '我的星球' })
-  fireEvent.click(screen.getByRole('button', { name: '设置' }))
+  openSettings()
   await screen.findByRole('heading', { name: '账户与隐私设置' })
   await waitFor(() => expect(screen.queryByRole('button', { name: '打开审核队列' })).toBeNull())
 })
@@ -698,7 +703,7 @@ test('settings explain the anonymous browser identity and omit email account con
 
   await renderCockpit()
   await screen.findByRole('button', { name: '我的星球' })
-  fireEvent.click(screen.getByRole('button', { name: '设置' }))
+  openSettings()
   await screen.findByRole('heading', { name: '账户与隐私设置' })
   expect(screen.getByText(/账号已保存在这个浏览器中/)).toBeTruthy()
   expect(screen.getByText(/换浏览器或清除本站点数据后，会生成新的随机账号/)).toBeTruthy()
@@ -790,7 +795,7 @@ test('settings distinguish a failed Moment read from an empty Moment list and al
 
   await renderCockpit()
   await screen.findByRole('button', { name: '我的星球' })
-  fireEvent.click(screen.getByRole('button', { name: '设置' }))
+  openSettings()
   await screen.findByRole('heading', { name: '账户与隐私设置' })
   expect((await screen.findByRole('alert')).textContent).toContain('当前显示的内容不代表没有记录')
   expect(screen.queryByText('还没有 Moment。写下之后，你可以在这里决定每条内容是否公开。')).toBeNull()
@@ -1224,8 +1229,7 @@ test('settings can remove a virtual friend satellite without treating it as a re
   }))
 
   await renderCockpit()
-  await screen.findByRole('button', { name: '设置' })
-  fireEvent.click(screen.getByRole('button', { name: '设置' }))
+  openSettings()
   await screen.findByText('真实好友')
   expect(screen.getByText('真实好友').parentElement?.parentElement?.querySelector('button')).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: '移除好友卫星 小满' }))
