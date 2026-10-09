@@ -5,6 +5,7 @@ import { togglePlanetTrack, validatePlanetDraft } from '../music-app-domain'
 import type { MusicTrackSummary } from '../music-domain'
 import { buildMusicGalaxySceneSystems } from './galaxy-scene'
 import { galaxyTourPosition } from './galaxy-navigation'
+import { useGalaxyJourney } from './useGalaxyJourney'
 import { getTourAnchorProgress, normalizeWheelDelta, reachesTourHomeEndpoint, TOUR_END } from '../universe'
 import { Stage } from './dither/Stage'
 import { AppearanceEditor } from './dither/AppearanceEditor'
@@ -513,9 +514,9 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
   const profileInitialized = useRef(false)
   const [blockConfirm, setBlockConfirm] = useState(false)
   const [galaxy, setGalaxy] = useState<GalaxyState>({ status: 'idle' })
-  const [galaxyJourney, setGalaxyJourney] = useState(0)
-  const galaxyJourneyRef = useRef(galaxyJourney)
-  galaxyJourneyRef.current = galaxyJourney
+  const { journey: galaxyJourney, journeyRef: galaxyJourneyRef, setJourney: setGalaxyJourney, animateTo: animateGalaxyJourney } = useGalaxyJourney(
+    reducedMotion, cockpit.exterior === 'galaxy' && cockpit.console.focus === 'overview' && cockpit.travel.status === 'idle' && galaxy.status === 'ready' && !galaxy.selectedGroupKey,
+  )
   const [galaxyRotation, setGalaxyRotation] = useState(0)
   const [galaxyRegrouping, setGalaxyRegrouping] = useState(false)
   const [discovery, setDiscovery] = useState<DiscoveryState>({ status: 'idle' })
@@ -1372,7 +1373,6 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
     if (!Number.isFinite(step) || !step) return
     const progress = galaxyJourneyRef.current
     const nextProgress = Math.max(0, Math.min(TOUR_END, progress + step))
-    galaxyJourneyRef.current = nextProgress
     setGalaxyJourney(nextProgress)
     if (reachesTourHomeEndpoint(progress, step)) goHomeRef.current()
   }
@@ -1566,7 +1566,7 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
     />}
       windowNavigation={<>{cockpit.exterior === 'galaxy' && galaxy.status === 'ready' && !galaxy.selectedGroupKey && <MusicGalaxyAxis
       systems={galaxySceneSystems} journey={galaxyJourney}
-      onSelect={(index) => setGalaxyJourney(getTourAnchorProgress(index, galaxySceneSystems.length) * TOUR_END)}
+      onSelect={(index) => animateGalaxyJourney(getTourAnchorProgress(index, galaxySceneSystems.length) * TOUR_END, galaxySceneSystems.length)}
       onHome={goHome}
     />}
     {cockpit.exterior === 'galaxy' && focusedGalaxySystem && <MusicGalaxyFooter
