@@ -28,7 +28,6 @@ type Props = {
   onBack: () => void
   onGalaxy: () => void
   onHome: () => void
-  onCancelTravel?: () => void
   connected?: boolean
   classifying?: boolean
   musicPlayer?: { playing: boolean; blocked: boolean; toggle: () => void }
@@ -145,7 +144,6 @@ export function CockpitShell(props: Props) {
       {props.scene}
       <div className="cockpit-window-nav">{props.windowNavigation}</div>
       <div className="cockpit-window-label" aria-live="polite">{props.connected === false ? '连接中' : traveling ? '穿过星云' : props.state.exterior === 'galaxy' ? props.signal === 'loading' ? 'Galaxy · 搜索中' : props.signal === 'error' ? 'Galaxy · 暂不可用' : 'Galaxy' : props.state.exterior === 'visitor' ? '访客星球' : props.planetName}</div>
-      {traveling && props.onCancelTravel && <button className="cockpit-flight-cancel" onClick={props.onCancelTravel}>取消航行</button>}
     </div>
     <div className="cockpit-pan-nav" hidden={focused} aria-label="控制台区域">
       {(['personal', 'exploration', 'controls'] as const).map((zone, i) => <button key={zone} aria-pressed={pan === zone} onClick={() => {

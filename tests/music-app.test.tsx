@@ -1310,7 +1310,7 @@ test('terminal wheel scrolling never advances the exterior Galaxy journey', asyn
   expect(document.querySelector('.cockpit.is-in-flight')).toBeNull()
 })
 
-test('a slow visit holds in the nebula, double confirmation posts once, and stale cancelled responses cannot redirect a new flight', async () => {
+test('a slow visit holds in the nebula without a cancel button, double confirmation posts once, and arrival resumes when ready', async () => {
   const responses: Array<(value: Response) => void> = []
   let posts = 0
   const owner = installCockpitFixture(async () => { posts++; return new Promise<Response>(resolve => responses.push(resolve)) })
@@ -1323,19 +1323,13 @@ test('a slow visit holds in the nebula, double confirmation posts once, and stal
   await waitFor(() => expect(document.querySelector('.dither-stage')?.getAttribute('data-flight-progress')).toBe('0.5'))
   expect(posts).toBe(1)
   expect(document.querySelector('.cockpit')?.getAttribute('data-exterior')).toBe('galaxy')
-  fireEvent.click(screen.getByRole('button', { name: '取消航行' }))
-  fireEvent.click(await screen.findByRole('button', { name: '访问星球 下一站' }))
-  fireEvent.click(screen.getByRole('button', { name: '继续访问' }))
-  await waitFor(() => expect(responses).toHaveLength(2))
-  responses[0](Response.json({ planet: { ...owner, id: 'cockpit-target', displayName: '过期结果', moments: [] } }))
-  await waitFor(() => expect(document.querySelector('.dither-stage')?.getAttribute('data-flight-progress')).toBe('0.5'))
-  expect(document.querySelector('.cockpit')?.getAttribute('data-exterior')).toBe('galaxy')
-  responses[1](Response.json({ planet: { ...owner, id: 'cockpit-target', displayName: '当前结果', moments: [] } }))
+  expect(screen.queryByRole('button', { name: '取消航行' })).toBeNull()
+  expect(responses).toHaveLength(1)
+  responses[0](Response.json({ planet: { ...owner, id: 'cockpit-target', displayName: '当前结果', moments: [] } }))
   await waitFor(() => expect(document.querySelector('.cockpit[data-exterior="visitor"]:not(.is-in-flight)')).toBeTruthy(), { onTimeout: () => new Error(JSON.stringify({ page: document.querySelector('.cockpit')?.outerHTML.slice(0,400), progress: { ...document.querySelector<HTMLElement>('.dither-stage')?.dataset }, alerts: [...document.querySelectorAll('[role=alert]')].map(e=>e.textContent) })) })
-  fireEvent.click(screen.getByRole('button', { name: '打开探索终端' }))
+  fireEvent.click(screen.getByRole('button', { name: '查看星球：当前结果' }))
   expect(await screen.findByRole('heading', { name: '当前结果' })).toBeTruthy()
-  expect(screen.queryByRole('heading', { name: '过期结果' })).toBeNull()
-  expect(posts).toBe(2)
+  expect(posts).toBe(1)
 })
 
 test('Escape inside visit confirmation returns only one channel and never records a visit', async () => {

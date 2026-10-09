@@ -1518,15 +1518,6 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
   const goHome = () => startHomeFlight(cockpit.exterior === 'visitor')
   const jumpHome = () => startHomeFlight(false)
   goHomeRef.current = goHome
-  const cancelFlight = () => {
-    const token = flightController.cancel()
-    if (token !== undefined) dispatchCockpit({ type: 'cancel', token })
-    visitRequestId.current += 1
-    visitLock.current = false
-    setVisitingPlanetId('')
-    setPendingVisit(null)
-    setVisitError('航行已取消。已确认的访问可能已留下足迹；取消不会撤销服务器记录。')
-  }
   const signal = cockpit.travel.status !== 'idle' ? 'traveling' : visitError || galaxy.status === 'error' ? 'error' : songPortal.status === 'loading' || galaxy.status === 'loading' || discovery.status === 'loading' ? 'loading' : 'idle'
 
   return <main className={`music-app${planet ? ' has-planet' : ' is-onboarding'}`}>
@@ -1536,7 +1527,7 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
       by={galaxy.status === 'idle' ? 'genre' : galaxy.by} onClassify={by => { void regroupGalaxy(by) }}
       classifying={galaxy.status === 'loading' || galaxyRegrouping}
       onOpen={changeView} onOverview={() => dispatchCockpit({ type: 'overview' })} onBack={() => dispatchCockpit({ type: 'back' })}
-      onGalaxy={() => { void goGalaxy() }} onHome={jumpHome} onCancelTravel={cancelFlight}
+      onGalaxy={() => { void goGalaxy() }} onHome={jumpHome}
       personalPreview={<span className="cockpit-personal-preview"><DitherPlanetMark planetId={planet?.id ?? null} visual={planet?.visual} /><strong>{planet?.displayName ?? '创建我的星球'}</strong><small>{planet ? `${planet.tracks.length} 首歌 · ${moments.length} Moments` : '选择三首歌'}</small></span>}
       explorationPreview={<span className="cockpit-radar-preview"><i /><span>{cockpit.exterior === 'visitor' ? visitedPlanet?.displayName : selectedGalaxyGroup?.label ?? '扫描待命'}</span><small>{songPortal.status === 'ready' ? `${songPortal.response.matches.length} 同歌信号` : discovery.status === 'ready' ? `${discovery.response.recommendations.length} 漫游信号` : '撞歌 / 漫游 / 漂流瓶'}</small></span>}
       scene={<Stage
