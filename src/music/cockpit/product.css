@@ -56,6 +56,8 @@
 .cockpit .music-visit-incognito { margin-block: 24px; }
 .cockpit .music-galaxy-axis,.cockpit .music-galaxy-footer { position: relative; bottom: auto; left: auto; transform: none; margin: auto; background: transparent; }
 .cockpit .music-galaxy-axis { width: min(620px,calc(100% - 32px)); }
+/* Lower the axis toward the console, retaining clearance in short viewports. */
+.cockpit .cockpit-window-nav:has(.music-galaxy-axis) { bottom: clamp(16px,5cqh,48px); }
 /* Match the 44px cockpit buttons and keep their glow/focus rings inside the scrollport. */
 .cockpit .music-galaxy-axis-scroll { padding-block: 12px; }
 .cockpit .music-galaxy-axis-track { height: 44px; }
