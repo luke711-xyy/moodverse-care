@@ -30,8 +30,8 @@ test('pixel grids are deterministic, bounded and do not change on a redraw', () 
   expect([...a.homes].every(Number.isFinite)).toBe(true)
 })
 
-test('the temporary 80 BPM tide travels through the shell rather than scaling it uniformly', () => {
-  expect(DEFAULT_TIDE_BPM).toBe(80)
+test('the temporary 80 BPM song drives a half-time tide through the shell rather than scaling it uniformly', () => {
+  expect(DEFAULT_TIDE_BPM).toBe(40)
   const north = particleTide(.4, -.6, .7, .14, .5), south = particleTide(.4, .6, .7, .14, .5)
   expect(north.x / .4).not.toBeCloseTo(south.x / .4, 3)
   expect(north).toEqual(particleTide(.4, -.6, .7, .14 + 60 / DEFAULT_TIDE_BPM, .5))

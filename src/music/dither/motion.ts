@@ -1,10 +1,10 @@
 import { createDitherSpec, effectiveDitherParameters, stableHash, type DitherPlanetSpec } from './appearance'
 import type { DitherAsset, DitherFrame } from './renderer'
-import type { MusicBeatClock } from '../audio-clock'
+import { MUSIC_TIDE_BEATS_PER_CYCLE, type MusicBeatClock } from '../audio-clock'
 
 // A preview oscillator, NOT a measured song BPM. Replace the clock input with
 // actual beat events when an authorized audio source is available.
-export const DEFAULT_TIDE_BPM = 80
+export const DEFAULT_TIDE_BPM = 80 / MUSIC_TIDE_BEATS_PER_CYCLE
 const TAU = Math.PI * 2, STEP = 1 / 120
 export const PARTICLE_STRIDE = 6 // projected xy, material-home xy, CSS size, alpha
 export const MAX_DITHER_CELLS = 65536
