@@ -2,6 +2,8 @@ import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type 
 import type { GalaxyGroupBy } from '../../music-api'
 import { pageTerminal, type CockpitPage, type CockpitState } from './state'
 import './cockpit.css'
+import { DitherSurfaceDefinitions } from './surface'
+import { CrtScreen } from './CrtScreen'
 
 export type CockpitSignal = 'idle' | 'loading' | 'traveling' | 'error'
 type Props = {
@@ -55,6 +57,26 @@ function Gauge({ label, value, state }: { label: string; value: number; state?: 
 }
 
 function Vent() { return <span className="cockpit-vent" aria-hidden="true">{Array.from({ length: 5 }, (_, i) => <i key={i} />)}</span> }
+
+function CaseDetails({ serial }: { serial: string }) {
+  return <span className="case-details" aria-hidden="true"><span className="case-serial">{serial}</span>
+    {['tl','tr','bl','br'].map(corner => <i key={corner} className={`case-screw screw-${corner}`} />)}
+    <span className="case-wear" /><span className="case-seam" /></span>
+}
+function ConsoleDeck() {
+  return <svg className="cockpit-deck" viewBox="0 0 1800 360" preserveAspectRatio="none" aria-hidden="true">
+    <defs><linearGradient id="deck-metal" x2=".25" y2="1"><stop stopColor="#efd293" /><stop offset=".2" stopColor="#c6a971" /><stop offset=".55" stopColor="#8a744b" /><stop offset="1" stopColor="#302718" /></linearGradient>
+      <linearGradient id="deck-ivory" x2="0" y2="1"><stop stopColor="#f5d99a" /><stop offset=".24" stopColor="#d0ac70" /><stop offset=".55" stopColor="#897048" /><stop offset="1" stopColor="#382b1a" /></linearGradient></defs>
+    <path d="M0 0 Q200 50 420 116 L650 150 Q900 185 1150 150 L1380 116 Q1600 50 1800 0 L1800 360 L0 360Z" fill="url(#deck-metal)" stroke="#e2c085" strokeWidth="3" />
+    <path d="M0 20 Q240 95 430 139 Q900 260 1370 139 Q1600 90 1800 20" fill="none" stroke="#050b10" strokeWidth="22" />
+    <path d="M0 15 Q240 90 430 134 Q900 255 1370 134 Q1600 85 1800 15" fill="none" stroke="url(#deck-ivory)" strokeWidth="13" />
+    <path d="M0 190 L420 238 Q900 355 1380 238 L1800 190 L1800 360 L0 360Z" fill="url(#deck-ivory)" stroke="#201c15" strokeWidth="7" />
+    {[90,350,570,1230,1450,1710].map((x,i)=><g key={x} transform={`translate(${x} ${210+i%2*35})`}><path d="M-35 0 L35 0 L27 62 L-27 62Z" fill="#3b352a" stroke="#908470" strokeWidth="2" />{Array.from({length:5},(_,j)=><path key={j} d={`M-20 ${j*9+8} L20 ${j*9+8}`} stroke="#19150f" strokeWidth="4" />)}</g>)}
+    <path d="M140 305 C190 194 330 198 490 275 S630 318 690 205 M1660 305 C1610 194 1470 198 1310 275 S1170 318 1110 205" fill="none" stroke="#010508" strokeWidth="16" />
+    <path d="M140 302 C190 191 330 195 490 272 S630 315 690 202 M1660 302 C1610 191 1470 195 1310 272 S1170 315 1110 202" fill="none" stroke="#8c806b" strokeWidth="6" strokeDasharray="2 6" />
+    {Array.from({length:16},(_,i)=><g key={i} transform={`translate(${30+i*116} 335)`}><circle r="6" fill="#070b0e" stroke="#685742" strokeWidth="2" /><path d="M-3 -2 L3 2" stroke="#bec0a8" /></g>)}
+  </svg>
+}
 
 /** A persistent world behind two physical monitors; opening a channel is not a flight. */
 export function CockpitShell(props: Props) {
@@ -114,12 +136,13 @@ export function CockpitShell(props: Props) {
   const signalValue = props.signal === 'idle' ? .7 : props.signal === 'loading' ? .4 : props.signal === 'traveling' ? .95 : .08
   return <div className={`cockpit${focused ? ' is-focused' : ''}${traveling ? ' is-in-flight' : ''}`}
     data-focus={props.state.console.focus} data-page={props.state.console.page} data-exterior={props.state.exterior}
-    data-crt={props.crtEnabled && !props.reducedMotion ? 'on' : 'off'} data-typing={typing} data-reduced-motion={props.reducedMotion}>
+    data-crt={props.crtEnabled ? 'on' : 'off'} data-crt-motion={props.crtEnabled && !props.reducedMotion} data-typing={typing} data-reduced-motion={props.reducedMotion}>
+    <DitherSurfaceDefinitions />
     <div className="cockpit-window-frame" aria-hidden="true" />
     <div className="cockpit-viewport" inert={focused || undefined} aria-hidden={focused || undefined}>
       {props.scene}
       <div className="cockpit-window-nav">{props.windowNavigation}</div>
-      <div className="cockpit-window-label" aria-live="polite">{props.connected === false ? '连接中' : traveling ? '穿过星云' : props.state.exterior === 'galaxy' ? 'Galaxy' : props.state.exterior === 'visitor' ? '访客星球' : props.planetName}</div>
+      <div className="cockpit-window-label" aria-live="polite">{props.connected === false ? '连接中' : traveling ? '穿过星云' : props.state.exterior === 'galaxy' ? props.signal === 'loading' ? 'Galaxy · 搜索中' : props.signal === 'error' ? 'Galaxy · 暂不可用' : 'Galaxy' : props.state.exterior === 'visitor' ? '访客星球' : props.planetName}</div>
       {traveling && props.onCancelTravel && <button className="cockpit-flight-cancel" onClick={props.onCancelTravel}>取消航行</button>}
     </div>
     <div className="cockpit-pan-nav" hidden={focused} aria-label="控制台区域">
@@ -128,21 +151,24 @@ export function CockpitShell(props: Props) {
       }}>{['个人', '探索', '控制'][i]}</button>)}
     </div>
     <div ref={overview} className="cockpit-console-scroll" inert={focused || undefined} aria-hidden={focused || undefined}>
+      <ConsoleDeck />
       <div className="cockpit-console">
         <section id="cockpit-personal" className="cockpit-wing cockpit-wing-left">
+          <CaseDetails serial="PERSONAL / 01" />
           <div className="cockpit-hardware-label">个人终端</div>
           <button className="cockpit-monitor cockpit-personal-monitor" aria-label="打开个人终端" disabled={traveling} onClick={event => open(activePersonal, event)}>
-            <span className="cockpit-monitor-content">{props.personalPreview ?? <span className="cockpit-mini-caption">{props.planetName}</span>}</span>
+            <CrtScreen mini active={!focused} motion={!props.reducedMotion} enabled={props.crtEnabled}><span className="cockpit-monitor-content">{props.personalPreview ?? <span className="cockpit-mini-caption">{props.planetName}</span>}</span></CrtScreen>
             <span className="cockpit-monitor-channel">{pageNames[activePersonal]}</span>
           </button>
           <div className="cockpit-keys">{personalPages.map(([page, label]) => <button key={page} disabled={traveling} aria-pressed={personal && props.state.console.page === page} onClick={event => open(page, event)}>{label}</button>)}</div>
           <Vent />
         </section>
-        <div className="cockpit-gauge-bay"><i className="cockpit-lamp" data-lit={props.connected !== false} /><Gauge label="航向" value={props.heading} /><button className="cockpit-flight-lever" disabled={traveling} aria-label={props.state.exterior === 'home' ? 'Galaxy' : '回到我的星球'} onClick={props.state.exterior === 'home' ? props.onGalaxy : props.onHome}><span aria-hidden="true" /><small>{props.state.exterior === 'home' ? 'Galaxy' : '返回'}</small></button></div>
+        <div className="cockpit-gauge-bay"><i className="cockpit-lamp" data-lit={props.connected !== false} /><Gauge label="航向" value={props.heading} /><button className="cockpit-flight-lever" disabled={traveling} aria-label={props.state.exterior === 'visitor' ? '返回出发地' : 'Galaxy'} onClick={event => props.state.exterior === 'visitor' ? props.onHome() : props.state.exterior === 'home' ? props.onGalaxy() : open('galaxy', event)}><span aria-hidden="true" /><small>{props.state.exterior === 'visitor' ? '返回' : 'Galaxy'}</small></button></div>
         <section id="cockpit-exploration" className="cockpit-center">
+          <CaseDetails serial="TRANSMISSION / 02" />
           <div className="cockpit-hardware-label">探索终端 <span className="cockpit-signal" data-signal={props.signal}>{signalNames[props.signal]}</span></div>
           <button className="cockpit-monitor cockpit-exploration-monitor" aria-label="打开探索终端" disabled={traveling} onClick={event => open(activeExploration, event)}>
-            <span className="cockpit-monitor-content">{props.explorationPreview ?? <span className="cockpit-mini-caption">{signalNames[props.signal]}</span>}</span>
+            <CrtScreen mini active={!focused} motion={!props.reducedMotion} enabled={props.crtEnabled}><span className="cockpit-monitor-content">{props.explorationPreview ?? <span className="cockpit-mini-caption">{signalNames[props.signal]}</span>}</span></CrtScreen>
             <span className="cockpit-monitor-channel">{pageNames[activeExploration]}</span>
           </button>
           <div className="cockpit-keys">{explorationPages.map(([page, label]) => <button key={page} disabled={traveling} aria-pressed={!personal && props.state.console.page === page} onClick={event => open(page, event)}>{label}</button>)}</div>
@@ -150,6 +176,7 @@ export function CockpitShell(props: Props) {
         </section>
         <div className="cockpit-gauge-bay cockpit-signal-bay"><i className="cockpit-lamp" data-lit={props.signal !== 'error'} /><Gauge label="信号" value={signalValue} state={signalNames[props.signal]} /><span className="cockpit-signal-legend">{signalNames[props.signal]}</span></div>
         <section id="cockpit-controls" className="cockpit-wing cockpit-wing-right">
+          <CaseDetails serial="NAVIGATION / 03" />
           <div className="cockpit-hardware-label">Galaxy 分类</div>
           <div className="cockpit-knob" role="group" aria-label="Galaxy 分类旋钮" style={{ '--knob-angle': `${props.by === 'song' ? -55 : props.by === 'artist' ? 0 : 55}deg` } as CSSProperties}>
             {(['song', 'artist', 'genre'] as const).map((by, i) => <button key={by} className={`cockpit-knob-label knob-${by}`} disabled={traveling || props.classifying} aria-pressed={props.by === by} onClick={() => props.onClassify(by)}>{['歌曲', '艺人', '曲风'][i]}</button>)}
@@ -168,7 +195,7 @@ export function CockpitShell(props: Props) {
         <nav aria-label={personal ? '个人频道' : '探索频道'}>{(personal ? personalPages : explorationPages).map(([page, label]) => <button key={page} aria-pressed={props.state.console.page === page} onClick={() => open(page)}>{label}</button>)}</nav>
         <button className="cockpit-terminal-settings" aria-label="设置" onClick={() => open('settings')}>⚙</button><i className="cockpit-lamp" data-lit="true" />
       </header>
-      <div className="cockpit-terminal-glass"><div ref={content} className="cockpit-terminal-content">{props.children}</div></div>
+      <div className="cockpit-terminal-glass"><CrtScreen active={focused} motion={!props.reducedMotion} enabled={props.crtEnabled}><div ref={content} className="cockpit-terminal-content">{props.children}</div></CrtScreen></div>
       <footer className="cockpit-terminal-footer"><button aria-label="返回驾驶舱" onClick={props.onOverview}>← 返回驾驶舱</button>{props.state.history.length > 1 && <button onClick={props.onBack}>← 返回</button>}<span>{pageNames[props.state.console.page]} <small>匿名体验账号</small></span></footer>
     </div>
   </div>

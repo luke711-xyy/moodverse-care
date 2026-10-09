@@ -19,7 +19,7 @@ export type CockpitAction =
   | { type: 'ready' | 'arrive' | 'cancel' | 'return'; token: number }
 
 export const initialCockpitState: CockpitState = {
-  exterior: 'home', console: { focus: 'overview', page: 'planet' }, history: [], travel: { status: 'idle' }, origins: [],
+  exterior: 'galaxy', console: { focus: 'overview', page: 'planet' }, history: [], travel: { status: 'idle' }, origins: [],
   channels: { personal: 'planet', exploration: 'collision' },
 }
 export function pageTerminal(page: CockpitPage): 'personal' | 'exploration' {

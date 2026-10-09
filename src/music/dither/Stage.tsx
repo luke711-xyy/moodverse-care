@@ -91,7 +91,7 @@ export function Stage(props: Props & { exteriorView?: 'home' | 'galaxy'; interac
     <div className="dither-stage-accessible" aria-label="场景对象">
       {inGalaxy && !visitor && (props.focusedGalaxy ? props.galaxySystems.filter(s=>s.id===props.focusedGalaxy).flatMap(s=>s.planets.map(p=><button disabled={busy || props.interactive === false} key={p.id} onClick={()=>props.onOpenPlanet(p,s.id)}>场景星球：{p.alias}</button>)) : props.galaxySystems.map(s=><button disabled={busy || props.interactive === false} key={s.id} onClick={()=>props.onSelectGalaxy(s.id)}>场景星系：{s.label}</button>))}
       {home===1 && !visitor && props.friendSatellites.map(f=><button disabled={busy || props.interactive === false} key={f.id} onClick={()=>props.onFriendSelect(f.id)}>好友卫星 {f.displayName}</button>)}
-      {(props.visitedPlanet ?? props.planet)?.tracks.map(t=><button disabled={busy || props.interactive === false} key={t.id} onClick={()=>props.onMusicSelect(t.id)}>音乐卫星 {t.title}</button>)}
+      {(!inGalaxy || visitor) && (props.visitedPlanet ?? props.planet)?.tracks.map(t=><button disabled={busy || props.interactive === false} key={t.id} onClick={()=>props.onMusicSelect(t.id)}>音乐卫星 {t.title}</button>)}
     </div>
   </div>
 }

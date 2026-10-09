@@ -83,6 +83,13 @@ test('an open personal terminal cannot change the Galaxy exterior or its control
   }
   render(<Stage {...props} />)
   expect(capture.frame!.assets.some(asset => asset.id.startsWith('home:'))).toBe(false)
+  expect(capture.frame!.ambience).toBe(1)
   fireEvent.keyDown(screen.getByRole('region', { name: '二维音乐宇宙' }), { key: 'ArrowRight' })
   expect(props.onTourMove).toHaveBeenCalledWith(.15)
+})
+
+test('live nebula ambience is retained behind an own or visited planet', () => {
+  const input = {width:1000,height:700,phase:0,owner:createDitherSpec({planetId:'owner',tracks:[]}),systems:[],home:1,journey:0,rotation:0,friends:[],music:[]}
+  expect(buildDitherStageFrame(input).ambience).toBeCloseTo(.65)
+  expect(buildDitherStageFrame({...input,visitor:createDitherSpec({planetId:'visitor',tracks:[]})}).ambience).toBeCloseTo(.65)
 })

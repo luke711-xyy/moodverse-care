@@ -28,7 +28,7 @@ async function openGalaxyList() {
   if (screen.queryByRole('button', { name: '返回驾驶舱' })) fireEvent.click(screen.getByRole('button', { name: '返回驾驶舱' }))
   fireEvent.click(screen.getByRole('button', { name: 'Galaxy' }))
   await waitFor(() => expect(document.querySelector('.cockpit[data-exterior="galaxy"]:not(.is-in-flight)')).toBeTruthy())
-  fireEvent.click(screen.getByRole('button', { name: '打开探索终端' }))
+  if (screen.queryByRole('button', { name: '打开探索终端' })) fireEvent.click(screen.getByRole('button', { name: '打开探索终端' }))
 }
 async function openExploration(page: '漫游' | '漂流瓶') {
   if (screen.queryByRole('button', { name: '返回驾驶舱' })) fireEvent.click(screen.getByRole('button', { name: '返回驾驶舱' }))
@@ -1191,6 +1191,21 @@ function installCockpitFixture(onVisit?: (init?: RequestInit) => Promise<Respons
   return owner
 }
 
+test('the cockpit boots directly into Galaxy; opening my planet never replaces its windshield', async () => {
+  installCockpitFixture()
+  render(<MusicApp />)
+  await screen.findByRole('button', {name:'场景星系：ambient'})
+  expect(document.querySelector('.cockpit')?.getAttribute('data-exterior')).toBe('galaxy')
+  expect(screen.queryByRole('button', {name:'音乐卫星 夜航'})).toBeNull()
+  const renderer = document.querySelector('.cockpit-viewport [data-dither-renderer]')
+  await openPersonal()
+  expect(await screen.findByRole('button', {name:'编辑星球外观'})).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', {name:'返回驾驶舱'}))
+  expect(document.querySelector('.cockpit')?.getAttribute('data-exterior')).toBe('galaxy')
+  expect(document.querySelector('.cockpit-viewport [data-dither-renderer]')).toBe(renderer)
+  expect(screen.getByRole('button', {name:'场景星系：ambient'})).toBeTruthy()
+})
+
 test('cockpit channels keep the same world renderer and preserve a Moment draft across Orbit and overview', async () => {
   installCockpitFixture()
   await renderCockpit()
@@ -1205,7 +1220,7 @@ test('cockpit channels keep the same world renderer and preserve a Moment draft 
   expect((screen.getByRole('textbox', { name: 'Moment 内容' }) as HTMLTextAreaElement).value).toBe('还没发送的片刻')
   expect((screen.getByLabelText('这段 Moment 属于哪首歌') as HTMLSelectElement).value).toBe('song-b')
   expect(document.querySelector('.cockpit-viewport [data-dither-renderer]')).toBe(renderer)
-  expect(document.querySelector('.cockpit')?.getAttribute('data-exterior')).toBe('home')
+  expect(document.querySelector('.cockpit')?.getAttribute('data-exterior')).toBe('galaxy')
 })
 
 test('terminal wheel scrolling never advances the exterior Galaxy journey', async () => {
@@ -1231,14 +1246,14 @@ test('a slow visit holds in the nebula, double confirmation posts once, and stal
   fireEvent.click(confirm)
   await waitFor(() => expect(document.querySelector('.dither-stage')?.getAttribute('data-flight-progress')).toBe('0.5'))
   expect(posts).toBe(1)
-  expect(document.querySelector('.cockpit')?.getAttribute('data-exterior')).toBe('home')
+  expect(document.querySelector('.cockpit')?.getAttribute('data-exterior')).toBe('galaxy')
   fireEvent.click(screen.getByRole('button', { name: '取消航行' }))
   fireEvent.click(await screen.findByRole('button', { name: '访问星球 下一站' }))
   fireEvent.click(screen.getByRole('button', { name: '继续访问' }))
   await waitFor(() => expect(responses).toHaveLength(2))
   responses[0](Response.json({ planet: { ...owner, id: 'cockpit-target', displayName: '过期结果', moments: [] } }))
   await waitFor(() => expect(document.querySelector('.dither-stage')?.getAttribute('data-flight-progress')).toBe('0.5'))
-  expect(document.querySelector('.cockpit')?.getAttribute('data-exterior')).toBe('home')
+  expect(document.querySelector('.cockpit')?.getAttribute('data-exterior')).toBe('galaxy')
   responses[1](Response.json({ planet: { ...owner, id: 'cockpit-target', displayName: '当前结果', moments: [] } }))
   await waitFor(() => expect(document.querySelector('.cockpit[data-exterior="visitor"]:not(.is-in-flight)')).toBeTruthy(), { onTimeout: () => new Error(JSON.stringify({ page: document.querySelector('.cockpit')?.outerHTML.slice(0,400), progress: { ...document.querySelector<HTMLElement>('.dither-stage')?.dataset }, alerts: [...document.querySelectorAll('[role=alert]')].map(e=>e.textContent) })) })
   fireEvent.click(screen.getByRole('button', { name: '打开探索终端' }))

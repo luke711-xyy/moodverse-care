@@ -1,14 +1,14 @@
-/* Hardware is amber. The world keeps its own purple/pink/blue dither palette. */
+/* Full-coverage color dithering preserves solid hardware alpha. */
 .cockpit {
-  --case: oklch(.76 .043 83); --case-light: oklch(.87 .043 85); --case-shadow: oklch(.31 .029 71);
-  --case-ink: oklch(.19 .014 70); --crt: oklch(.105 .013 77); --phosphor: oklch(.88 .091 82);
-  --phosphor-muted: oklch(.72 .065 82); --lamp: oklch(.78 .155 67); --hardware-line: oklch(.42 .048 73);
+  --case: #c5aa73; --case-light: #f0d596; --case-shadow: #393225;
+  --case-ink: #edce8e; --crt: #12110d; --phosphor: #efd79f;
+  --phosphor-muted: #bba77e; --lamp: #ffe4a2; --hardware-line: #b6985b;
   --space-xs: 4px; --space-sm: 8px; --space-md: 12px; --space-lg: 16px; --space-xl: 24px;
   --cockpit-body: -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;
   --cockpit-label: var(--pixel,ui-monospace,monospace); --z-world: 0; --z-window: 1; --z-hardware: 2; --z-terminal: 3;
   position: relative; isolation: isolate; width: 100%; height: 100dvh; min-height: 0;
   overflow: clip; background: var(--dither-black); color: var(--phosphor); font-family: var(--cockpit-body); font-size: 16px;
-  --console-height: max(25%,190px);
+  --console-height: max(29%,225px);
 }
 .cockpit [hidden] { display: none !important; }
 .cockpit button { cursor: pointer; font-family: var(--cockpit-body); font-weight: 650; }
@@ -90,9 +90,6 @@
 .cockpit-terminal-content { height: 100%; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding: var(--space-xl); position: relative; }
 .cockpit-terminal-footer { display: flex; align-items: center; gap: var(--space-md); padding: var(--space-md) var(--space-sm) var(--space-xs); color: var(--case-ink); }
 .cockpit .cockpit-terminal-footer button { flex: 0 0 auto; min-height: 44px; }.cockpit-terminal-footer span { margin-left: auto; font: .75rem var(--cockpit-label); }
-.cockpit-terminal-glass::after,.cockpit-monitor::after { content: ''; position: absolute; inset: 0; pointer-events: none; opacity: .065; background-image: var(--dither-pattern); z-index: 1; }
-.cockpit[data-crt=on]:not([data-typing=true]) .cockpit-terminal-glass::after { animation: cockpit-retrace 18s linear infinite; }
-.cockpit[data-crt=off] .cockpit-terminal-glass::after { animation: none; }
 .cockpit.is-focused .cockpit-console-scroll { opacity: 0; pointer-events: none; }
 .cockpit.is-focused .cockpit-viewport { pointer-events: none; }
 @keyframes cockpit-approach { from { transform: scale(.25) perspective(1100px) rotateY(9deg); opacity: .3; } to { transform: none; opacity: 1; } }
@@ -117,3 +114,95 @@
 .cockpit[data-reduced-motion=true] *, .cockpit[data-crt=off] .cockpit-terminal-glass::after { animation: none !important; }
 .cockpit[data-reduced-motion=true] * { transition: none !important; }
 @media (prefers-reduced-motion:reduce) { .cockpit * { animation: none !important; transition: none !important; } }
+
+/* The shell is a continuous U-deck, not three flat cards. Side faces, bevels,
+   screws and cast shadows all go through the same material dither filter. */
+.cockpit-filter-definitions { position: absolute; pointer-events: none; }
+.cockpit-viewport { inset: 12px 16px calc(var(--console-height) - 42px); border-radius: 5% 5% 2% 2%; }
+.cockpit-window-frame { inset: 0 0 calc(var(--console-height) - 58px); border: 16px solid #c4a66d; border-top-color: #e7ca87; border-right-color: #857248; border-bottom-color: #796944; border-bottom-width: 23px; border-radius: 5% 5% 3% 3%;
+  box-shadow: inset 0 0 0 3px #30291d,inset 0 0 0 6px #d9b97b,0 8px 0 #1b1710,0 15px 18px #000; filter: url(#moodverse-hardware-dither); }
+.cockpit-window-frame::before,.cockpit-window-frame::after { background: linear-gradient(45deg,#272116 45%,#efcf8a 47% 54%,#7f6b42 56%); border: 1px solid #baa16c; }
+.cockpit-window-label,.cockpit-window-nav,.cockpit-flight-cancel,.cockpit-pan-nav { filter: url(#moodverse-ink-dither); }
+.cockpit-window-label { color: var(--case-ink); }
+.cockpit-deck { position: absolute; inset: -38px 0 0; width: 100%; height: calc(100% + 38px); pointer-events: none; filter: url(#moodverse-hardware-dither); }
+.cockpit-console { position: relative; padding: 0 6% 22px; grid-template-columns: minmax(225px,1fr) 105px minmax(280px,1.2fr) 100px minmax(215px,.85fr); gap: 9px; perspective: 850px; }
+.cockpit-wing,.cockpit-center,.cockpit-gauge-bay { background: linear-gradient(130deg,#f0d596,#ceb27a 28%,#ad9463 64%,#7f6d49 85%,#514631);
+  border: 5px solid #514630; border-top-color: #f7dca0; border-left-color: #debd7e; border-right-color: #4b402d; border-radius: 10px 13px 4px 5px;
+  box-shadow: inset 0 0 0 2px #e4c485,inset 0 0 12px 5px #0008,5px 2px 0 #9d8356,10px 7px 0 #453a29,14px 15px 0 #2e281c,16px 25px 18px #000c;
+  filter: url(#moodverse-hardware-dither); }
+.cockpit-wing { height: 104%; padding: 18px 18px 22px; }
+.cockpit-wing-left { transform: rotateY(23deg) rotateX(-9deg) rotateZ(-5deg); }
+.cockpit-wing-right { transform: rotateY(-24deg) rotateX(-10deg) rotateZ(5deg); }
+.cockpit-center { height: 95%; padding: 18px 18px 22px; transform: translateY(8px) rotateX(-7deg); }
+.cockpit-wing::before,.cockpit-wing::after,.cockpit-center::before,.cockpit-center::after { display: none; }
+.case-details { position: absolute; inset: 0; pointer-events: none; overflow: hidden; border-radius: inherit; }
+.case-screw { position: absolute; width: 8px; height: 8px; border-radius: 50%; background: linear-gradient(130deg,#e1c083 0 20%,#221c13 38% 49%,#b39868 51% 59%,#55472f 62%); box-shadow: 0 1px 1px #000; }
+.screw-tl { top: 4px; left: 4px; }.screw-tr { top: 4px; right: 4px; }.screw-bl { bottom: 4px; left: 4px; }.screw-br { bottom: 4px; right: 4px; }
+.case-serial { position: absolute; bottom: 6px; left: 12px; font: 7px var(--cockpit-label); color: #c7b69b; letter-spacing: 1px; opacity: .6; }
+.case-wear { position: absolute; inset: 0; opacity: .4; background: repeating-linear-gradient(173deg,transparent 0 37px,#dec09340 38px,transparent 39px 51px),repeating-linear-gradient(82deg,transparent 0 127px,#050b1080 129px,transparent 131px 145px); mask-image: linear-gradient(100deg,#000,transparent 25% 77%,#000); }
+.case-seam { position: absolute; inset: 8px; border: 1px solid #4a463d; border-top-color: #fff7e345; border-radius: 4px; }
+.cockpit-hardware-label { position: relative; color: #30281c; text-shadow: 0 1px #f2d493; }
+.cockpit-monitor { height: calc(100% - 91px); min-height: 68px; border: 8px solid #4c4941; border-top-color: #777266; border-left-color: #aaa08b; border-radius: 12px 13px 11px 11px;
+  box-shadow: 0 0 0 2px #edce8e,0 4px 0 #30281c,inset 0 0 15px #000; }
+.cockpit-keys { gap: 7px; margin-top: 12px; }
+.cockpit-keys button,.cockpit-settings-key,.cockpit-terminal :is(header,footer) button { color: #362a18; background: linear-gradient(140deg,#fbe0a0,#e0bd79 44%,#b39864);
+  border: 2px solid #59472e; border-top-color: #ffe6ab; border-left-color: #ebcc8b; border-radius: 5px 5px 3px 3px; box-shadow: inset -2px -3px 0 #93764a,0 5px 0 #423522,2px 7px 0 #2a2116,0 8px 8px #0009; }
+.cockpit-keys button[aria-pressed=true],.cockpit-terminal header button[aria-pressed=true] { background: linear-gradient(145deg,#ffe8ac,#f0ce88 40%,#d4ad69); box-shadow: inset 0 0 4px #ffeeb6,0 3px 0 #5b472c,0 7px 14px #f7d38a33; color: #302516; }
+.cockpit-vent { left: 48%; right: 15%; }.cockpit-vent i { background: #25221d; border-bottom-color: #c4baa3; }
+.cockpit-gauge-bay { height: 89%; padding: 13px 4px; border-radius: 22px 22px 6px 6px; box-shadow: inset 1px 0 2px #fff8e65a,5px 9px 0 #3c3830,8px 15px 10px #000; }
+.cockpit-gauge svg { filter: drop-shadow(2px 5px 2px #000a); }.gauge-case { fill: #b49a65; stroke: #edce8e; }.gauge-face { fill: #29251d; stroke: #19150f; stroke-width: 3px; }
+.gauge-tick { stroke: #b29b70; }.gauge-tick.major { stroke: #f1d293; }.gauge-needle { fill: #f4d898; filter: drop-shadow(0 0 2px #ffe3a0); }.gauge-needle circle { fill: #c5a56e; }.cockpit-gauge text { font-size: 15px; fill: #e7c88e; }
+.cockpit-lamp[data-lit=true] { background: radial-gradient(circle at 30% 25%,#ffeeb6,#efcb88 48%,#b5975d); box-shadow: 0 0 10px #ffe3a0a0,0 1px 3px #000; }
+.cockpit-flight-lever { color: var(--case-ink); }.cockpit-flight-lever > span { width: 22px; border-color: #30271a; border-radius: 6px; background: repeating-linear-gradient(0deg,transparent 0 4px,#30271a40 5px 6px),linear-gradient(90deg,#f1d293,#c9a66e 25%,#8c744c 65%,#51422d); box-shadow: inset 2px 0 0 #ffe3a0,5px 4px 0 #302719,8px 7px 5px #0008; }
+.cockpit-flight-lever small { margin-top: 9px; }.cockpit-signal-legend { color: #39362e; }.cockpit-signal[data-signal=error] { color: #4b3022; }
+.cockpit-knob-label { color: #302718; }.cockpit-knob-body { border: 5px solid #50422c; background: repeating-conic-gradient(#665336 0deg 5deg,#b69a65 6deg 10deg); box-shadow: inset 0 0 0 3px #e5c589,3px 5px 0 #433522,6px 8px 7px #0009; }
+.cockpit-knob-body::before { content: ''; position: absolute; inset: 7px; border-radius: 50%; background: linear-gradient(125deg,#f3d797,#cbaa72 48%,#82704b); border: 1px solid #dcc18a; }.cockpit-knob-body i { top: 8px; background: #41321d; box-shadow: 0 1px 1px #ffdfa0; }
+.cockpit-settings-key { bottom: 26px; }
+.cockpit-terminal { border-width: 6px; border-radius: 22px;
+  box-shadow: inset 0 0 0 2px #efd196,inset 0 0 0 5px #706041,0 0 0 9px #302718,0 12px 28px #000; padding: 10px; }
+.cockpit-terminal-header,.cockpit-terminal-footer { filter: url(#moodverse-hardware-dither); color: #29261f; }
+.cockpit-terminal-glass { border: 13px solid #403522; border-top-color: #6c5937; border-left-color: #9f824f; border-right-color: #2d2519; border-radius: 9% / 12%; box-shadow: 0 0 0 2px #edcf8d,0 3px 0 #dfbc7855,inset 0 0 0 2px #c0a16a; }
+.cockpit-terminal-content { padding: 34px 48px; }
+/* Actual phosphor image and pointer coordinates share a curved-glass map. */
+.crt-screen { position: relative; height: 100%; width: 100%; overflow: hidden; border-radius: 8% / 11%; background: radial-gradient(ellipse at 42% 30%,#2d2b25,#10100e 75%,#050503); isolation: isolate; }
+.crt-image { position: absolute; inset: 0; overflow: hidden; }
+.crt-snow,.crt-scanlines,.crt-scan-bar,.crt-lens { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.crt-snow { opacity: .065; image-rendering: pixelated; mix-blend-mode: screen; }
+.crt-scanlines { background: repeating-linear-gradient(0deg,#0008 0 1px,transparent 1px 3px); opacity: .4; }
+.crt-scan-bar { inset: -30% 0 auto; height: 24%; background: linear-gradient(transparent,#e9e0ce0c 45%,#fff7e41c 51%,#e5dbc508 60%,transparent); opacity: 0; }
+.crt-lens { background: radial-gradient(ellipse at 50% 45%,transparent 32%,#0003 68%,#000c 100%),radial-gradient(ellipse at 38% -18%,#eee7d329,transparent 57%); box-shadow: inset 0 0 15px 4px #0c0b08,inset 0 1px 4px #e8dec650; border-radius: inherit; }
+.crt-screen[data-crt-motion=true] .crt-scan-bar { opacity: 1; animation: crt-scan 7s linear infinite; }.crt-screen[data-crt-motion=true] .crt-scanlines { animation: crt-lines 4s steps(12) infinite; }
+.crt-screen[data-crt-enabled=false] :is(.crt-snow,.crt-scanlines,.crt-scan-bar) { display: none; }.crt-screen[data-crt-enabled=false] .crt-lens { opacity: .35; }
+.crt-mini { border-radius: 12% / 15%; }.crt-mini .crt-snow { opacity: .08; }.crt-mini .crt-lens { box-shadow: inset 0 0 9px 2px #01060a; }
+@keyframes crt-scan { to { transform: translateY(560%); } }
+@keyframes crt-lines { 0%,100% { transform: translateY(0); opacity: .38; } 50% { transform: translateY(2px); opacity: .43; } }
+@media (max-width:1200px) { .cockpit-console { padding-inline: 3%; grid-template-columns: minmax(210px,1fr) 85px minmax(245px,1.1fr) 85px minmax(190px,.8fr); gap: 5px; }.cockpit-wing,.cockpit-center { padding-inline: 12px; } }
+@media (max-width:1000px) {
+  .cockpit { --console-height: 235px; }.cockpit-console-scroll { overflow-x: auto; overflow-y: hidden; overscroll-behavior: contain; height: calc(var(--console-height) + 35px); padding-top: 35px; }
+  .cockpit-console { width: 1060px; padding: 0 40px 22px; grid-template-columns: 235px 85px 280px 85px 230px; }.cockpit-deck { width: 1060px; top: 0; height: 100%; }
+  .cockpit-window-nav { bottom: 64px; }.cockpit-pan-nav { display: flex; bottom: calc(var(--console-height) + 20px); }.cockpit-pan-nav button { background: #343027; border-color: #d0c4aa; }.cockpit-pan-nav button[aria-pressed=true] { background: #e5dac2; color: #25221b; }
+  .cockpit-terminal { inset: 5px; padding: 5px; border-width: 4px; border-radius: 13px; }.cockpit-terminal-header { gap: 8px; flex-wrap: wrap; padding: 4px 4px 10px; }.cockpit-terminal-name { font-size: 1rem; }.cockpit-terminal-header nav { order: 2; width: 100%; gap: 4px; }.cockpit-terminal-header nav button { min-width: 0; flex: 1; }
+  .cockpit-terminal-content { padding: 24px 22px; }.cockpit-terminal-glass { border-width: 7px; border-radius: 12% / 7%; }.cockpit-terminal-footer { padding: 10px 4px 4px; gap: 4px; }.cockpit-terminal-footer button { font-size: .75rem; padding-inline: 8px; }.cockpit-terminal-footer span { font-size: .625rem; }.cockpit-terminal-footer small { display: none; }
+}
+@media (max-height:600px) and (min-width:640px) {
+  .cockpit { --console-height: 175px; }.cockpit-wing,.cockpit-center { padding: 10px 12px 18px; }.cockpit-hardware-label { margin-bottom: 4px; }.cockpit-keys { margin-top: 8px; }.cockpit-monitor { min-height: 46px; height: 46px; }.cockpit-gauge-bay { padding-top: 5px; }.cockpit-knob { height: 72px; }.cockpit-knob-body { width: 48px; height: 48px; left: calc(50% - 24px); }.cockpit-settings-key { bottom: 21px; }.cockpit-terminal-content { padding-block: 20px; }
+}
+
+/* Keep the animated CRT out of the case's color-quantization pass: the case can be
+   cached, while snow and the living Galaxy stay independent compositor layers. */
+.cockpit-wing,.cockpit-center,.cockpit-gauge-bay { isolation: isolate; filter: none; background: none; border-color: transparent; }
+.cockpit-wing::before,.cockpit-center::before,.cockpit-gauge-bay::before { content: ''; display: block; position: absolute; inset: -5px; width: auto; height: auto; z-index: -2; pointer-events: none; border-radius: inherit;
+  border: 5px solid #514630; border-top-color: #f7dca0; border-left-color: #debd7e; border-right-color: #4b402d;
+  background: radial-gradient(ellipse at 0 0,#ffe3a060,transparent 55%),linear-gradient(130deg,#f0d596,#ceb27a 28%,#ad9463 64%,#7f6d49 85%,#514631);
+  box-shadow: inset 0 0 0 2px #e4c485,inset 0 0 12px 5px #0008; filter: url(#moodverse-hardware-dither); }
+.cockpit-gauge-bay::before { background: linear-gradient(100deg,#d9b87c,#b49963 60%,#7b6846); }
+.case-details { z-index: -1; filter: url(#moodverse-hardware-dither); }
+.cockpit :is(.cockpit-hardware-label,.cockpit-keys,.cockpit-gauge,.cockpit-lamp,.cockpit-flight-lever,.cockpit-knob,.cockpit-settings-key,.cockpit-vent,.cockpit-signal-legend) { filter: url(#moodverse-hardware-dither); }
+.cockpit-terminal { background: none; border-color: transparent; isolation: isolate; }
+.cockpit-terminal::before { content: ''; position: absolute; inset: -6px; z-index: -1; pointer-events: none; border: 6px solid #846c43; border-top-color: #f3d798; border-left-color: #dfbc7b; border-radius: inherit;
+  background: linear-gradient(130deg,#f0d596,#d6b87d 35%,#b49a63 85%,#837047); filter: url(#moodverse-hardware-dither); }
+.crt-snow { opacity: .035; }
+/* Terminal controls share the ivory casing, without recoloring the live world. */
+.cockpit .cockpit-terminal :is(.music-primary-button,.music-secondary-button,.music-track-portal-button) {
+  color: #302718; border-color: #c9a86c; background: linear-gradient(140deg,#f7dca0,#d1ad70); box-shadow: inset 0 1px #ffe6ab,0 2px 0 #564326;
+}

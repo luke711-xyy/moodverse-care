@@ -24,7 +24,7 @@ test('travel retains its source and ignores cancelled or stale arrival results',
   expect(cockpitReducer(state, { type: 'arrive', token: 9 })).toBe(state)
   state = cockpitReducer(state, { type: 'cancel', token: 10 })
   expect(state.console).toEqual({ focus: 'exploration', page: 'roam' })
-  expect(state.exterior).toBe('home')
+  expect(state.exterior).toBe('galaxy')
   expect(cockpitReducer(state, { type: 'arrive', token: 10 })).toBe(state)
 })
 
@@ -36,7 +36,7 @@ test('arrival stays in overview and visitor return restores the originating term
   expect(state.console).toEqual({ focus: 'overview', page: 'visitor' })
   state = cockpitReducer(state, { type: 'return', token: 2 })
   state = cockpitReducer(state, { type: 'arrive', token: 2 })
-  expect(state.exterior).toBe('home')
+  expect(state.exterior).toBe('galaxy')
   expect(state.console).toEqual({ focus: 'exploration', page: 'collision' })
 })
 

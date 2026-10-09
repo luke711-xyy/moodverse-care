@@ -852,6 +852,7 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
     setGalaxy({ status: 'loading', by, ...(previous ? { previous } : {}) })
     try {
       const response = await api.loadGalaxy(by)
+      if (!Array.isArray(response.groups)) throw new Error('Invalid Galaxy response')
       if (epoch !== accountEpoch.current || requestId !== galaxyRequestId.current) return false
       setGalaxy({ status: 'ready', by, response, selectedGroupKey: null })
       setGalaxyJourney(0)
@@ -893,6 +894,13 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
       if (epoch === accountEpoch.current && requestId === galaxyRequestId.current) setGalaxyRegrouping(false)
     }
   }
+
+  // The windshield is the public universe, not the personal terminal's page.
+  // Fetch once after identity is ready; failures remain retryable, and the
+  // existing account/request guards prevent a stale universe crossing accounts.
+  useEffect(() => {
+    if (home.status === 'ready' && galaxy.status === 'idle') void loadGalaxy('genre')
+  }, [home.status, galaxy.status])
 
   const focusGalaxyGroup = (groupKey: string) => {
     if (galaxy.status !== 'ready') return
@@ -1488,7 +1496,7 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
     setPendingVisit(null)
     setVisitError('航行已取消。已确认的访问可能已留下足迹；取消不会撤销服务器记录。')
   }
-  const signal = cockpit.travel.status !== 'idle' ? 'traveling' : visitError ? 'error' : songPortal.status === 'loading' || galaxy.status === 'loading' || discovery.status === 'loading' ? 'loading' : 'idle'
+  const signal = cockpit.travel.status !== 'idle' ? 'traveling' : visitError || galaxy.status === 'error' ? 'error' : songPortal.status === 'loading' || galaxy.status === 'loading' || discovery.status === 'loading' ? 'loading' : 'idle'
 
   return <main className={`music-app${planet ? ' has-planet' : ' is-onboarding'}`}>
     <CockpitShell state={cockpit} reducedMotion={reducedMotion} crtEnabled={crtEnabled} signal={signal}

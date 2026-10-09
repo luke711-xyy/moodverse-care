@@ -36,7 +36,9 @@ test('settings and escape restore the originating personal channel', () => {
 })
 test('reduced motion disables CRT motion without hiding functional controls', () => {
   const { container } = render(<Harness reduced />)
-  expect(container.querySelector('[data-crt="off"]')).toBeTruthy()
+  expect(container.querySelector('[data-crt="on"][data-crt-motion="false"]')).toBeTruthy()
+  expect(container.querySelector('#moodverse-hardware-dither feComponentTransfer')).toBeTruthy()
+  expect(container.querySelector('.crt-screen[data-crt-motion="true"]')).toBeNull()
   expect(screen.getByRole('button', { name: 'Galaxy' })).toBeTruthy()
   expect(screen.getByRole('group', { name: 'Galaxy 分类旋钮' })).toBeTruthy()
 })
