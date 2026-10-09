@@ -1555,7 +1555,7 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
     <div className="cockpit-pages">
       {view === 'planet' && <section className="cockpit-personal-heading"><DitherTitle level={2}>{planet?.displayName ?? '创建我的星球'}</DitherTitle>{planet?.tagline && <p>{planet.tagline}</p>}
         {planet && <div className="cockpit-page-actions"><DitherButton onClick={() => changeView('manage')}>星球资料与歌曲</DitherButton><DitherButton aria-label="编辑星球外观" onClick={() => { setAppearanceError(''); setAppearanceOpen(true); changeView('appearance') }}>调整外观</DitherButton></div>}
-        <SongWall tracks={planet?.tracks ?? tracks.filter(t=>selectedTrackIds.includes(t.id))} selectedId={focusedTrackId} onSelect={setFocusedTrackId} player={musicPlayer} />
+        <SongWall tracks={planet?.tracks ?? tracks.filter(t=>selectedTrackIds.includes(t.id))} selectedId={focusedTrackId ?? planet?.tracks.find(track=>track.isPrimary)?.id} onSelect={setFocusedTrackId} player={musicPlayer} />
       </section>}
       {appearanceOpen && activeVisual && <div hidden={view !== 'appearance'}><AppearanceEditor embedded active={view === 'appearance' && cockpit.console.focus !== 'overview'} reducedMotion={reducedMotion} spec={activeVisual} busy={appearanceBusy} error={appearanceError} onPreview={setAppearancePreview} onApply={(overrides)=>{void applyAppearance(overrides)}} onClose={() => { closeAppearance(); changeView('planet') }} onReload={()=>{void reloadAppearance()}} /></div>}
 
@@ -1566,8 +1566,8 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
           <p>添加曲目后，你就可以开始创建星球。我们只展示可控曲库中的歌曲，并跳转到官方平台播放。</p>
         </div> : <form onSubmit={createPlanet}>
           <div className="music-panel-head"><div><span className="music-kicker">第一步 · 选择声音</span><DitherTitle level={2}>为你的星球选三首歌</DitherTitle></div><span className="music-count" aria-live="polite">{selectedTrackIds.length}<i>/3</i></span></div>
-          <p className="music-panel-note">你的星球默认公开，可随时改为仅自己可见。完整音频不会嵌入 Moodverse。</p>
-          {tracks.some(isDemoTrack) && <p className="music-demo-catalog-note" role="note">演示曲库：曲名、艺人与曲风均为虚构示例，不提供播放或官方链接，也不代表已获版权授权。</p>}
+          <p className="music-panel-note">星球默认公开，可随时关闭。Cosmos 可在电台直接播放。</p>
+          {tracks.some(isDemoTrack) && <p className="music-demo-catalog-note" role="note">标注“演示曲目”的歌曲为虚构示例，不提供音源；Cosmos 是你提供的真实录音。</p>}
           <label className="music-search-label" htmlFor="music-track-search">搜索曲名或艺人</label>
           <input id="music-track-search" className="music-search" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="曲名、艺人、曲风" />
           <div className="music-track-list" role="group" aria-label="曲库">
@@ -1764,7 +1764,7 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
             {visitedPlanet.tracks.map((track) => <article className="music-owned-track" key={track.id}>
               <DitherTrackMark track={track} />
               <div className="music-track-label"><strong>{track.title}</strong><small>{track.artistName}{track.isPrimary ? ' · 星球主旋律' : ''}{isDemoTrack(track) ? ' · 演示曲目（不可播放）' : ''}</small></div>
-              {track.officialUrl
+              {track.audioUrl ? <DitherButton data-music-toggle type="button" onClick={musicPlayer.toggle} aria-label={musicPlayer.playing ? '暂停 Cosmos' : '播放 Cosmos'}>{musicPlayer.playing ? 'Ⅱ' : '▶'}</DitherButton> : track.officialUrl
                 ? <a href={track.officialUrl} target="_blank" rel="noreferrer" aria-label={`${track.title} · ${track.artistName} · 在官方平台打开`}>↗</a>
                 : <span className="music-link-unavailable" title="暂无官方播放链接">—</span>}
               {canOpenSongPortal(track.id) && <DitherButton className="music-track-portal-button" type="button" onClick={() => { void openSongPortal(track) }}>继续寻找</DitherButton>}
@@ -1794,7 +1794,7 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
           {planet.tracks.map((track) => <article className="music-owned-track" key={track.id}>
             <DitherTrackMark track={track} />
             <div className="music-track-label"><strong>{track.title}</strong><small>{track.artistName}{track.isPrimary ? ' · 星球主旋律' : ''}{isDemoTrack(track) ? ' · 演示曲目（不可播放）' : ''}</small></div>
-            {track.officialUrl
+            {track.audioUrl ? <DitherButton data-music-toggle type="button" onClick={musicPlayer.toggle} aria-label={musicPlayer.playing ? '暂停 Cosmos' : '播放 Cosmos'}>{musicPlayer.playing ? 'Ⅱ' : '▶'}</DitherButton> : track.officialUrl
               ? <a href={track.officialUrl} target="_blank" rel="noreferrer" aria-label={`${track.title} · ${track.artistName} · 在官方平台打开`}>↗</a>
               : <span className="music-link-unavailable" title="暂无官方播放链接">—</span>}
             <DitherButton className="music-track-portal-button" type="button" aria-label={`寻找与《${track.title}》同歌的星球`} onClick={() => { void openSongPortal(track) }}>撞歌 ↗</DitherButton>
