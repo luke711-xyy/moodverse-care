@@ -14,7 +14,7 @@ import { clientPoint, logicalSize } from '../viewport'
 import type { DitherFrame } from './renderer'
 
 type Props = { planet: MusicPlanet | null; friendSatellites: MusicFriendSatellite[]; visitedPlanet: PublicMusicPlanet | null; previewSeed: string; previewTracks?: MusicTrackSummary[]; appearancePreview?: DitherPlanetSpec | null; reducedMotion: boolean; productView: string; focusedGalaxy?: string; galaxySystems: MusicGalaxySceneSystem[]; galaxyRotation: number; routeJourney: number; regrouping: boolean; onSelectGalaxy: (id: string)=>void; onOpenPlanet: (planet: MusicScenePlanet, galaxyId: string)=>void; onRotate: (delta: number)=>void; onTourMove: (delta: number)=>void; onMusicSelect: (id: string)=>void; onFriendSelect: (id: string)=>void }
-export function Stage(props: Props & { exteriorView?: 'home' | 'galaxy'; interactive?: boolean; flight?: CockpitFlight | null; managedTravel?: boolean }) {
+export function Stage(props: Props & { exteriorView?: 'home' | 'galaxy'; interactive?: boolean; flight?: CockpitFlight | null; managedTravel?: boolean; onPlanetSelect?: (kind: 'home' | 'visitor') => void }) {
   const inGalaxy = props.exteriorView ? props.exteriorView === 'galaxy' : props.productView === 'galaxy'
   const desiredHome = inGalaxy ? 0 : 1
   const [home, setHome] = useState(desiredHome), [traveling, setTraveling] = useState(false)
@@ -67,10 +67,13 @@ export function Stage(props: Props & { exteriorView?: 'home' | 'galaxy'; interac
     const { x, y }=clientPoint(wrap.current!,clientX,clientY), frame=latestFrame.current!
     const canvas=wrap.current!.querySelector<HTMLCanvasElement>('[data-dither-renderer]')
     const hit=hitTestDitherAssets(frame.assets.filter(a=>a.id !== 'nebula'),x,y,{mode:renderMode,pointer:frame.pointer,bodyTargets:true,pixelRatio:canvas ? canvas.width/logicalSize(wrap.current!).width : 1})
+    if (hit?.id.startsWith('home:')) { props.onPlanetSelect?.('home'); return }
+    if (hit?.id.startsWith('visitor:')) { props.onPlanetSelect?.('visitor'); return }
     if (hit?.id.startsWith('music:')) { props.onMusicSelect(hit.id.slice(6)); return }
     if (hit?.id.startsWith('friend:')) { props.onFriendSelect(hit.id.slice(7)); return }
-    if (hit?.id.startsWith('planet:') && props.focusedGalaxy) {
-      const system=props.galaxySystems.find(s=>s.id===props.focusedGalaxy), planet=system?.planets.find(p=>p.id===hit.id.slice(7))
+    if (hit?.id.startsWith('planet:')) {
+      const planetId = hit.id.slice(7)
+      const system=props.galaxySystems.find(s=>(!props.focusedGalaxy || s.id===props.focusedGalaxy) && s.planets.some(p=>p.id===planetId)), planet=system?.planets.find(p=>p.id===planetId)
       if (planet && system) props.onOpenPlanet(planet,system.id)
       return
     }
@@ -92,6 +95,7 @@ export function Stage(props: Props & { exteriorView?: 'home' | 'galaxy'; interac
     <DitherCanvas getFrame={getFrame} onFrame={rememberFrame} reducedMotion={props.reducedMotion} paused={props.interactive === false && !busy} interactive={props.interactive !== false && !busy} onModeChange={setRenderMode} />
     {busy && <div className="dither-travel-caption" style={{opacity:cloud}} aria-live="polite">穿过星云 · {props.flight?.to === 'visitor' ? '下一颗星球' : desiredHome===0 ? 'Galaxy' : '我的星球'}</div>}
     <div className="dither-stage-accessible" aria-label="场景对象">
+      {(home===1 || visitor) && props.onPlanetSelect && <button disabled={busy || props.interactive === false} onClick={()=>props.onPlanetSelect?.(visitor ? 'visitor' : 'home')}>{visitor ? `查看星球：${props.visitedPlanet!.displayName}` : '查看我的星球'}</button>}
       {inGalaxy && !visitor && (props.focusedGalaxy ? props.galaxySystems.filter(s=>s.id===props.focusedGalaxy).flatMap(s=>s.planets.map(p=><button disabled={busy || props.interactive === false} key={p.id} onClick={()=>props.onOpenPlanet(p,s.id)}>场景星球：{p.alias}</button>)) : props.galaxySystems.map(s=><button disabled={busy || props.interactive === false} key={s.id} onClick={()=>props.onSelectGalaxy(s.id)}>场景星系：{s.label}</button>))}
       {home===1 && !visitor && props.friendSatellites.map(f=><button disabled={busy || props.interactive === false} key={f.id} onClick={()=>props.onFriendSelect(f.id)}>好友卫星 {f.displayName}</button>)}
       {(!inGalaxy || visitor) && (props.visitedPlanet ?? props.planet)?.tracks.map(t=><button disabled={busy || props.interactive === false} key={t.id} onClick={()=>props.onMusicSelect(t.id)}>音乐卫星 {t.title}</button>)}

@@ -1534,10 +1534,11 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
       productView={view} focusedGalaxy={focusedGalaxyId} galaxySystems={galaxySceneSystems}
       galaxyRotation={galaxyRotation} routeJourney={galaxyJourney} regrouping={galaxyRegrouping}
       onSelectGalaxy={focusGalaxyById}
+      onPlanetSelect={kind => changeView(kind === 'home' ? 'planet' : 'visitor')}
       onOpenPlanet={(scenePlanet, _galaxyId) => requestPublicPlanetVisit(scenePlanet.id, scenePlanet.alias, 'galaxy')}
       previewTracks={tracks.filter(track => selectedTrackIds.includes(track.id))}
       appearancePreview={appearancePreview}
-      onMusicSelect={id => { setFocusedTrackId(id); changeView(cockpit.exterior === 'visitor' ? 'visitor' : 'planet') }}
+      onMusicSelect={id => { setFocusedTrackId(id); changeView(cockpit.exterior === 'visitor' ? 'visitor' : 'orbit') }}
       onTourMove={moveGalaxyJourney}
       onFriendSelect={(id) => { const friend = home.friendSatellites.find(f => f.id === id); changeView('orbit'); if (friend) setSocialFeedback(friend.displayName) }}
       onRotate={(delta) => setGalaxyRotation((rotation) => rotation + delta)}

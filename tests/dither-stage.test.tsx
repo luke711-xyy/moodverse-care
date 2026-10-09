@@ -158,15 +158,34 @@ test('a visible satellite is picked at its rotated screen location', () => {
   expect(picking.mock.results.at(-1)?.value?.id).toBe('music:front')
   expect(onMusicSelect).toHaveBeenCalledWith('front')
 })
-test('clicking a visible galaxy planet opens the visitor flow, rather than just disturbing pixels', () => {
+test.each(['g', undefined])('clicking a visible galaxy planet opens the visitor flow with focused galaxy %s', focusedGalaxy => {
   vi.stubGlobal('PointerEvent', MouseEvent)
   const onOpenPlanet=vi.fn()
   render(<Stage planet={null} friendSatellites={[]} visitedPlanet={null} previewSeed="owner" reducedMotion productView="galaxy"
-    focusedGalaxy="g" galaxySystems={[{id:'g',key:'g',label:'test',color:'#ddd',planets:[{id:'p',alias:'visitor',tagline:'',spec:createDitherSpec({planetId:'p',tracks:[],overrides:{size:1}})}]}]} galaxyRotation={0} routeJourney={0} regrouping={false}
+    focusedGalaxy={focusedGalaxy} galaxySystems={[{id:'g',key:'g',label:'test',color:'#ddd',planets:[{id:'p',alias:'visitor',tagline:'',spec:createDitherSpec({planetId:'p',tracks:[],overrides:{size:1}})}]}]} galaxyRotation={0} routeJourney={0} regrouping={false}
     onSelectGalaxy={vi.fn()} onOpenPlanet={onOpenPlanet} onRotate={vi.fn()} onTourMove={vi.fn()} onMusicSelect={vi.fn()} onFriendSelect={vi.fn()} />)
   const body=capture.frame!.assets.find(a=>a.id==='planet:p')!
   const region=screen.getByRole('region',{name:'二维音乐宇宙'})
   const event={button:0,clientX:body.x,clientY:body.y}
   fireEvent.pointerDown(region,event);fireEvent.pointerUp(region,event)
   expect(onOpenPlanet).toHaveBeenCalledWith(expect.objectContaining({id:'p'}),'g')
+})
+
+test.each(['home', 'visitor'] as const)('clicking the %s planet body opens its terminal, while dragging does not', kind => {
+  vi.stubGlobal('PointerEvent', MouseEvent)
+  const onPlanetSelect = vi.fn()
+  const planet = { id: kind, displayName: kind, tracks: [], visual: createDitherSpec({ planetId: kind, tracks: [], overrides: { size: 1 } }) }
+  render(<Stage planet={planet as React.ComponentProps<typeof Stage>['planet']} visitedPlanet={kind === 'visitor' ? planet as React.ComponentProps<typeof Stage>['visitedPlanet'] : null}
+    friendSatellites={[]} previewSeed="owner" reducedMotion productView="planet" galaxySystems={[]} galaxyRotation={0} routeJourney={0} regrouping={false}
+    onSelectGalaxy={vi.fn()} onOpenPlanet={vi.fn()} onPlanetSelect={onPlanetSelect} onRotate={vi.fn()} onTourMove={vi.fn()} onMusicSelect={vi.fn()} onFriendSelect={vi.fn()} />)
+  const body = capture.frame!.assets.find(asset => asset.id.startsWith(kind + ':'))!
+  const region = screen.getByRole('region', { name: '二维音乐宇宙' })
+  const event = { button: 0, clientX: body.x, clientY: body.y }
+  fireEvent.pointerDown(region, event); fireEvent.pointerUp(region, event)
+  expect(onPlanetSelect).toHaveBeenCalledWith(kind)
+  onPlanetSelect.mockClear()
+  fireEvent.pointerDown(region, event)
+  fireEvent.pointerMove(region, { ...event, clientX: body.x + 30 })
+  fireEvent.pointerUp(region, { ...event, clientX: body.x + 30 })
+  expect(onPlanetSelect).not.toHaveBeenCalled()
 })
