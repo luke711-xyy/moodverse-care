@@ -12,6 +12,18 @@ const capture = vi.hoisted(() => ({ frame: null as DitherFrame | null }))
 vi.mock('../src/music/dither/DitherCanvas', () => ({ DitherCanvas: (props: { getFrame: (w: number, h: number, phase: number) => DitherFrame; onFrame?: (frame: DitherFrame) => void }) => { capture.frame = props.getFrame(1000, 700, 0); props.onFrame?.(capture.frame); return <canvas /> } }))
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
+test('the own planet and its orbit are 85% of the unchanged visitor display scale', () => {
+  const owner = createDitherSpec({ planetId: 'owner', tracks: [] })
+  const input = { width: 1000, height: 700, phase: 0, owner, systems: [], home: 1, journey: 0, rotation: 0, friends: [], music: [] }
+  const own = buildDitherStageFrame(input)
+  const visitor = buildDitherStageFrame({ ...input, visitor: owner })
+  expect(own.assets[0].radius).toBeCloseTo(visitor.assets[0].radius * .85)
+  expect(own.assets[0].x).toBe(visitor.assets[0].x)
+  expect(own.assets[0].y).toBe(visitor.assets[0].y)
+  expect(own.orbits[0].rx).toBeCloseTo(visitor.orbits[0].rx * .85)
+  expect(own.orbits[0].ry).toBeCloseTo(visitor.orbits[0].ry * .85)
+})
+
 test('rear satellites are painted and picked behind the owner; front satellites stay visible', () => {
   const frame = buildDitherStageFrame({ width: 1000, height: 700, phase: 0, owner: createDitherSpec({ planetId: 'owner', tracks: [], overrides: { form: 'particles', size: 1, pulse: 0, pointer: 'off' } }), systems: [], home: 1, journey: 0, rotation: 0, friends: [], music: [{ id: 'right' }, { id: 'front' }, { id: 'left' }, { id: 'rear' }] })
   const ownerIndex = frame.assets.findIndex(a => a.id.startsWith('home:'))

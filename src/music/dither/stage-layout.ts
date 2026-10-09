@@ -37,7 +37,7 @@ export function buildDitherStageFrame(input: StageLayoutInput): StageFrame {
     assets.push(...depthOrderedAssets([center, ...bodies]))
   }
   if (input.home > 0 || visitor) {
-    const spec = visitor ?? owner, k = visitor ? 1 : home.homeScale, opacity = visitor ? 1 : home.homeOpacity
+    const spec = visitor ?? owner, k = visitor ? 1 : home.homeScale * .85, opacity = visitor ? 1 : home.homeOpacity
     const bodies: DitherAsset[] = [{ id: visitor ? 'visitor:' + spec.seed : 'home:' + spec.seed, spec, x, y, radius: radius * k, opacity, rotation: rotation * .25, depth: 0 }]
     const orbit = { x, y, rx: radius * 1.32 * k, ry: radius * .63 * k, tilt: -.33 }
     orbits.push(orbit)
