@@ -7,10 +7,30 @@ import { MOMENT_PHOTO_MAX_BYTES, validateMomentPhoto, momentPhotoContentType } f
 
 beforeEach(() => {
   vi.stubGlobal('React',React)
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
   URL.createObjectURL = vi.fn(() => 'blob:photo-preview')
   URL.revokeObjectURL = vi.fn()
 })
-afterEach(() => { cleanup(); vi.unstubAllGlobals() })
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
+
+test('Moment rows put artwork and song details before copy and photo, with a record fallback for unavailable covers', () => {
+  const track = { id: 'cosmos', title: 'Cosmos', artistId: 'the-mountain', artistName: 'The_mountain', versionLabel: '',
+    genres: ['ambient'], moodTags: [], officialUrl: null, coverUrl: '/cover.png', durationSeconds: null }
+  const { container, rerender } = render(<MomentContent track={track} contentText="星际记忆" photoUrl="/photo.png" />)
+  const body = container.querySelector('.music-moment-body')!
+  expect(Array.from(body.children, child => child.className)).toEqual(['music-moment-song', 'music-moment-copy', 'music-moment-photo'])
+  const song = body.querySelector('.music-moment-song')!
+  expect(within(song as HTMLElement).getByText('Cosmos')).toBeTruthy()
+  expect(within(song as HTMLElement).getByText('The_mountain')).toBeTruthy()
+  const cover = screen.getByAltText('《Cosmos》封面')
+  expect(cover.getAttribute('src')).toBe('/cover.png')
+  expect(cover.closest('figure')?.dataset.photoFilter).toBe('ordered-dither-crt')
+  fireEvent.error(cover)
+  expect(screen.getByRole('img', { name: '《Cosmos》唱片图案' })).toBeTruthy()
+  rerender(<MomentContent track={{ ...track, coverUrl: null }} contentText="星际记忆" />)
+  expect(screen.getByRole('img', { name: '《Cosmos》唱片图案' })).toBeTruthy()
+  expect(screen.queryByRole('button', { name: '放大查看Moment 照片' })).toBeNull()
+})
 
 test('one file control validates formats and inclusive 10 MB limit', () => {
   const change = vi.fn()

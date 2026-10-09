@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState, type SyntheticEvent } from 'react'
+import { useEffect, useRef, useState, type ReactNode, type SyntheticEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { DitherButton } from './dither/components'
+import type { MusicTrackSummary } from '../music-domain'
+import { DitherButton, DitherTrackMark } from './dither/components'
 import { ditherThreshold } from './dither/sampler'
 import { MOMENT_PHOTO_ACCEPT, momentPhotoError, validateMomentPhoto } from './moment-photo'
 
@@ -20,7 +21,7 @@ export function ditherMomentPhoto(data: Uint8ClampedArray, width: number) {
 
 /** Photos stay inside the shared CRT glass: curvature, scanlines, grain and lens
  * are inherited from the terminal, with this layer adding real image dithering. */
-function FilteredPhoto({ src, alt, enlarged = false }: { src: string; alt: string; enlarged?: boolean }) {
+function FilteredPhoto({ src, alt, enlarged = false, fallback }: { src: string; alt: string; enlarged?: boolean; fallback?: ReactNode }) {
   const canvas = useRef<HTMLCanvasElement>(null)
   const [rendered, setRendered] = useState(false)
   const [failed, setFailed] = useState(false)
@@ -44,7 +45,7 @@ function FilteredPhoto({ src, alt, enlarged = false }: { src: string; alt: strin
   return <>
     {!failed && <img src={src} alt={alt} loading={enlarged ? 'eager' : 'lazy'} hidden={rendered} onLoad={filter} onError={() => setFailed(true)} />}
     <canvas ref={canvas} hidden={!rendered} role="img" aria-label={alt} />
-    {failed && <span role="status">照片暂时无法显示。</span>}
+    {failed && (fallback ?? <span role="status">照片暂时无法显示。</span>)}
   </>
 }
 
@@ -88,8 +89,15 @@ export function MomentPhoto({ src, alt = 'Moment 照片' }: { src: string; alt?:
   </figure>
 }
 
-export function MomentContent({ contentText, photoUrl }: { contentText: string | null; photoUrl?: string | null }) {
+export function MomentContent({ contentText, photoUrl, track }: { contentText: string | null; photoUrl?: string | null; track?: MusicTrackSummary }) {
+  const record = track && <span role="img" aria-label={`《${track.title}》唱片图案`}><DitherTrackMark track={track} /></span>
   return <div className="music-moment-body">
+    {track && <div className="music-moment-song">
+      <figure className="music-moment-cover" data-photo-filter="ordered-dither-crt">
+        {track.coverUrl ? <FilteredPhoto key={track.coverUrl} src={track.coverUrl} alt={`《${track.title}》封面`} fallback={record} /> : record}
+      </figure>
+      <div className="music-moment-song-label"><strong>{track.title}</strong><small>{track.artistName}</small></div>
+    </div>}
     <div className="music-moment-copy">{contentText && <p>{contentText}</p>}</div>
     {photoUrl && <MomentPhoto src={photoUrl} />}
   </div>

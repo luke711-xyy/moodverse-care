@@ -55,6 +55,35 @@ const tracks = [
   { id: 'song-e', title: '月面信号', artistId: 'artist-e', artistName: '月面', versionLabel: '', genres: ['electronic'], moodTags: ['curious'], officialUrl: 'https://music.example/e', coverUrl: null, durationSeconds: 190 },
 ]
 
+test.each([0, 1])('Moment heading always has a quick publish shortcut with %i existing Moments', async (count) => {
+  const owner = { id: 'moment-shortcut-owner', displayName: '夜航者', tagline: '', visibility: 'public', visualSchemaVersion: 3,
+    visual: createDitherSpec({ planetId: 'moment-shortcut-owner', tracks }), tracks: tracks.slice(0, 3) }
+  const moments = Array.from({ length: count }, (_, index) => ({ id: `shortcut-${index}`, trackId: 'song-a', track: tracks[0],
+    contentText: '一段音乐记忆', photoUrl: null, visibility: 'public', publishedAt: '2026-10-09', createdAt: '2026-10-09', updatedAt: '2026-10-09' }))
+  vi.stubGlobal('fetch', vi.fn(async (request: RequestInfo | URL) => {
+    const path = new URL(String(request), 'https://moodverse.test').pathname
+    if (path === '/api/music/catalog') return Response.json({ tracks })
+    if (path === '/api/me/music-planet') return Response.json({ planet: owner })
+    if (path === '/api/me/music-planet/moments') return Response.json({ moments })
+    return Response.json({ groups: [], incoming: [], outgoing: [] })
+  }))
+  await renderCockpit()
+  const shortcut = screen.getByRole('button', { name: '发布 Moment' })
+  expect(shortcut.closest('.music-section-heading')?.textContent).toContain('沿途留下的 Moment')
+  if (count) {
+    const row = document.querySelector('.music-moment-item')!
+    expect(row.querySelector('.music-moment-song strong')?.textContent).toBe('夜航')
+    expect(row.querySelector('.music-moment-song small')?.textContent).toBe('星际旅人')
+  }
+  fireEvent.click(shortcut)
+  await screen.findByRole('heading', { name: '留下一个 Moment' })
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'Moment 内容' })))
+  expect(document.querySelector('.cockpit')?.getAttribute('data-page')).toBe('moment')
+  expect((screen.getByLabelText('这段 Moment 属于哪首歌') as HTMLSelectElement).value).toBe('song-a')
+  fireEvent.click(screen.getByRole('button', { name: '发布 Moment' }))
+  expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'Moment 内容' }))
+})
+
 test('photo Moment publishing preserves the selected file on failure and clears it only after confirmation', async () => {
   const NativeURL = URL
   vi.stubGlobal('URL',class extends NativeURL {

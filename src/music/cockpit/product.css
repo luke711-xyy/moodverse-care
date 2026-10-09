@@ -36,6 +36,25 @@
 .cockpit .music-section-heading { margin-block: 24px 12px; }
 .cockpit .music-form-error { color: #ffc4b0; }
 .cockpit .music-feedback,.cockpit .music-social-feedback { color: #f4d59b; }
+.music-moments { container: moment-list / inline-size; }
+.cockpit .music-moments > .music-section-heading { padding-inline: var(--space-lg); align-items: center; }
+.music-moments-heading-title { display: flex; align-items: center; gap: var(--space-md); min-width: 0; }
+.cockpit .music-moment-add { flex: none; width: 44px; padding: 0; font-size: 24px; line-height: 1; }
+.cockpit .music-moment-item { padding: var(--space-lg) var(--space-xl); }
+.cockpit .music-moment-item > .music-moment-meta { justify-content: flex-end; }
+.music-moment-song { flex: none; width: clamp(144px,22cqw,224px); display: grid; grid-template-columns: 72px minmax(0,1fr); align-items: center; gap: var(--space-md); }
+.music-moment-cover { width: 72px; height: 72px; margin: 0; overflow: hidden; background: #11100d; }
+.music-moment-cover :is(img,canvas),.music-moment-cover > span,.music-moment-cover .music-cover-fallback { display: block; width: 100%; height: 100%; object-fit: cover; image-rendering: pixelated; }
+.music-moment-cover .music-cover-fallback { border: 0; border-radius: 0; }
+.music-moment-song-label { display: grid; gap: var(--space-xs); min-width: 0; overflow-wrap: anywhere; }
+.cockpit .music-moment-song-label strong { color: var(--ink); font-size: 16px; font-weight: 650; line-height: 1.4; }
+.music-moment-song-label small { color: var(--phosphor-muted); font-size: 13px; line-height: 1.5; }
+@container moment-list (max-width:600px) {
+  .music-moment-song { grid-template-columns: 56px minmax(0,1fr); }
+  .music-moment-cover { width: 56px; height: 56px; }
+  .cockpit .music-moment-body { gap: var(--space-lg); }
+  .cockpit .music-moment-item { padding-inline: var(--space-lg); }
+}
 .music-moment-photo-picker { display: grid; gap: 12px; margin-block: 16px; }
 .music-moment-photo-controls { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .music-moment-photo-controls span { overflow-wrap: anywhere; }
@@ -45,8 +64,8 @@
 .music-moment-photo-button { display: block; width: 100%; height: 100%; padding: 0; border: 0; border-radius: 4px; overflow: hidden; background: transparent; cursor: zoom-in; }
 .cockpit .music-moment-photo-button { cursor: zoom-in; }
 .music-moment-photo :is(img,canvas) { display: block; width: 100%; height: 100%; object-fit: cover; image-rendering: pixelated; }
-:is(.music-moment-photo,.music-moment-photo-full) :is(img,canvas)[hidden] { display: none; }
-:is(.music-moment-photo,.music-moment-photo-full) img { filter: sepia(.18) saturate(.85) contrast(1.04); }
+:is(.music-moment-photo,.music-moment-photo-full,.music-moment-cover) :is(img,canvas)[hidden] { display: none; }
+:is(.music-moment-photo,.music-moment-photo-full,.music-moment-cover) img { filter: sepia(.18) saturate(.85) contrast(1.04); }
 .music-moment-photo-viewer { position: absolute; inset: 0; z-index: 1; display: grid; grid-template-rows: auto minmax(0,1fr); gap: var(--space-md,12px); padding: var(--space-xl,24px); background: #11100d; color: var(--phosphor,#efd79f); }
 .music-moment-photo-viewer[data-standalone=true] { position: fixed; }
 .music-moment-photo-close { justify-self: start; min-height: 44px; padding: 8px 16px; border: 1px solid #b99a5c; border-radius: 4px; color: inherit; background: #251f14; }

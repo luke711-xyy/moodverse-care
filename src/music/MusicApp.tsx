@@ -495,11 +495,19 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
   const [savingMoment, setSavingMoment] = useState(false)
   const [momentFeedback, setMomentFeedback] = useState('')
   const [momentManagement, setMomentManagement] = useState<MomentManagementState>({ status: 'idle' })
+  const momentComposer = useRef<HTMLFormElement>(null)
+  const [momentComposeRequested, setMomentComposeRequested] = useState(false)
   const [reducedMotion, setReducedMotion] = useState(false)
   const [songPortal, setSongPortal] = useState<SongPortalState>({ status: 'idle' })
   const [cockpit, dispatchCockpit] = useReducer(cockpitReducer, initialCockpitState)
   const view = cockpit.console.page
   const setView = useCallback((page: ProductView) => dispatchCockpit({ type: 'open', page }), [])
+  useEffect(() => {
+    if (view !== 'moment' || !momentComposeRequested) return
+    momentComposer.current?.scrollIntoView?.({ block: 'start', behavior: 'instant' })
+    momentComposer.current?.querySelector('textarea')?.focus({ preventScroll: true })
+    setMomentComposeRequested(false)
+  }, [view, momentComposeRequested])
   const [crtEnabled, setCrtEnabled] = useState(() => { try { return localStorage.getItem('moodverse-crt') !== 'off' } catch { return true } })
   const [bottlesMounted, setBottlesMounted] = useState(false)
   const profileInitialized = useRef(false)
@@ -1780,8 +1788,8 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
           {!visitedPlanet.moments.length
             ? <p className="music-moments-empty">这颗星球还没有公开 Moment。</p>
             : visitedPlanet.moments.map((moment) => <article className="music-moment-item" key={moment.id}>
-                <div><strong>{moment.track.title}</strong><span>{new Date(moment.publishedAt ?? moment.createdAt).toLocaleDateString('zh-CN')}</span></div>
-                <MomentContent contentText={moment.contentText} photoUrl={moment.photoUrl} />
+                <div className="music-moment-meta"><span>{new Date(moment.publishedAt ?? moment.createdAt).toLocaleDateString('zh-CN')}</span></div>
+                <MomentContent track={moment.track} contentText={moment.contentText} photoUrl={moment.photoUrl} />
                 <ReportControl api={api} target={{ type: 'moment', id: moment.id }} ariaLabel="举报这条 Moment" />
               </article>)}
         </section>
@@ -1834,7 +1842,7 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
           </>}
         </section>}
 
-        {view === 'moment' && <form className="music-moment-form" onSubmit={addMoment}>
+        {view === 'moment' && <form ref={momentComposer} className="music-moment-form" onSubmit={addMoment}>
           <div className="music-section-heading"><DitherTitle level={3}>留下一个 Moment</DitherTitle><span>最多 500 字</span></div>
           <label htmlFor="music-moment-track">这段 Moment 属于哪首歌</label>
           <select id="music-moment-track" value={momentTrackId} onChange={(event) => setMomentTrackId(event.target.value)}>
@@ -1848,10 +1856,10 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
         </form>}
 
         {view !== 'collision' && <section className="music-moments" aria-label="我的 Moments">
-          <div className="music-section-heading"><DitherTitle level={3}>沿途留下的 Moment</DitherTitle><span>{moments.length}</span></div>
+          <div className="music-section-heading"><div className="music-moments-heading-title"><DitherTitle level={3}>沿途留下的 Moment</DitherTitle><DitherButton className="music-moment-add" type="button" aria-label="发布 Moment" title="发布 Moment" onClick={() => { changeView('moment'); setMomentComposeRequested(true) }}>＋</DitherButton></div><span>{moments.length}</span></div>
           {!moments.length ? <p className="music-moments-empty">还没有 Moment。留下一段片刻吧。</p> : moments.map((moment) => <article className="music-moment-item" key={moment.id}>
-            <div><strong>{moment.track.title}</strong><span>{moment.visibility === 'public' ? '公开' : '仅自己'} · {new Date(moment.createdAt).toLocaleDateString('zh-CN')}</span></div>
-            <MomentContent contentText={moment.contentText} photoUrl={moment.photoUrl} />
+            <div className="music-moment-meta"><span>{moment.visibility === 'public' ? '公开' : '仅自己'} · {new Date(moment.createdAt).toLocaleDateString('zh-CN')}</span></div>
+            <MomentContent track={moment.track} contentText={moment.contentText} photoUrl={moment.photoUrl} />
             {momentManagement.status === 'editing' && momentManagement.momentId === moment.id
               ? <form className="music-moment-editor" onSubmit={(event) => { void saveMomentEdit(event) }}>
                   <label htmlFor={`music-moment-edit-${moment.id}`}>修改 Moment 内容</label>
