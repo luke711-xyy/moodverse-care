@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { GalaxyGroupBy } from '../../music-api'
 import type { CockpitFlight } from './flight'
 import type { CockpitState } from './state'
+import { gaugeNeedleAngle } from './instruments'
 import './window-hud.css'
 
 export type WindowTelemetry = {
@@ -18,6 +19,7 @@ type Props = {
   state: CockpitState
   connected: boolean
   signal: 'idle' | 'loading' | 'traveling' | 'error'
+  heading?: number
   telemetry?: WindowTelemetry
   flight?: CockpitFlight | null
 }
@@ -29,7 +31,7 @@ const destinations = { home: 'MY PLANET', galaxy: 'GALAXY', visitor: 'VISITOR PL
 /** Read-only bridge instruments. Coordinates are virtual sector units, not
  * real-world coordinates; every count and flight percentage comes from the app.
  * History is bounded to this cockpit session, never sent to a server or stored. */
-export function WindowHud({ state, connected, signal, telemetry, flight }: Props) {
+export function WindowHud({ state, connected, signal, heading = 0, telemetry, flight }: Props) {
   const [now, setNow] = useState(() => new Date())
   const [logs, setLogs] = useState<FlightLog[]>([])
   const lastEvent = useRef('')
@@ -80,7 +82,9 @@ export function WindowHud({ state, connected, signal, telemetry, flight }: Props
     <svg className="window-hud-grid" viewBox="0 0 1000 600" preserveAspectRatio="none" aria-hidden="true">
       {[100,300,500,700,900].map(x => <path key={`x${x}`} d={`M${x} 0 Q${x + (x - 500) * .035} 300 ${x} 600`} />)}
       {[120,240,360,480].map(y => <path key={`y${y}`} d={`M0 ${y} Q500 ${y - 12} 1000 ${y}`} />)}
-      <path className="window-hud-reticle" d="M494 294h8m16 0h8M510 278v8m0 16v8" />
+    </svg>
+    <svg className="window-hud-reticle" viewBox="0 0 40 40" aria-hidden="true">
+      <path d="M4 20h8m16 0h8M20 4v8m0 16v8" />
     </svg>
     <header className="window-hud-top">
       <strong className="window-hud-brand">MOSIC</strong>
@@ -94,7 +98,7 @@ export function WindowHud({ state, connected, signal, telemetry, flight }: Props
         <circle cx="60" cy="48" r="37" /><circle cx="60" cy="48" r="27" />
         <path d="M16 48h88M60 4v88" />
         {Array.from({length:12},(_,i) => <path key={i} d="M60 8v5" transform={`rotate(${i*30} 60 48)`} />)}
-        <g transform={`rotate(${yaw ?? (telemetry?.sectorPosition ?? 0)*30} 60 48)`}><path className="window-hud-course" d="M60 16 64 48 60 55 56 48Z" /><circle cx="60" cy="48" r="3" /></g>
+        <g className="window-hud-needle instrument-needle" style={{ transform: `rotate(${gaugeNeedleAngle(heading)}deg)` }}><path className="window-hud-course" d="M60 16 64 48 60 55 56 48Z" /><circle cx="60" cy="48" r="3" /></g>
         <text x="60" y="99" textAnchor="middle">{inGalaxy ? 'SECTOR VECTOR' : 'LOCAL LOCK'}</text>
       </svg>
       <dl>

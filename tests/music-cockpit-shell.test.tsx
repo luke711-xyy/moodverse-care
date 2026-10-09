@@ -6,15 +6,27 @@ import { CockpitShell } from '../src/music/cockpit/CockpitShell'
 import { cockpitReducer, initialCockpitState, type ExteriorDestination } from '../src/music/cockpit/state'
 afterEach(cleanup)
 
-function Harness({ reduced = false, exterior = 'galaxy' }: { reduced?: boolean; exterior?: ExteriorDestination }) {
+function Harness({ reduced = false, exterior = 'galaxy', heading = .5 }: { reduced?: boolean; exterior?: ExteriorDestination; heading?: number }) {
   const [state, dispatch] = useReducer(cockpitReducer, { ...initialCockpitState, exterior })
-  return <CockpitShell state={state} reducedMotion={reduced} crtEnabled signal="idle" heading={.5}
+  return <CockpitShell state={state} reducedMotion={reduced} crtEnabled signal="idle" heading={heading}
     planetName="夜航" scene={<div>真实宇宙</div>} onOpen={page => dispatch({ type: 'open', page })}
     onOverview={() => dispatch({ type: 'overview' })} onBack={() => dispatch({ type: 'back' })}
     onGalaxy={() => dispatch({type:'exterior',destination:'galaxy'})} onHome={() => dispatch({type:'exterior',destination:'home'})} by="genre" onClassify={vi.fn()}>
     <label>Moment 草稿<input aria-label="Moment 草稿" /></label>
   </CockpitShell>
 }
+test('windshield compass and console heading share the same angle and easing at every journey position', () => {
+  const { container, rerender } = render(<Harness heading={0} />)
+  for (const heading of [-.2, 0, .25, .5, .75, 1, 1.2]) {
+    rerender(<Harness heading={heading} />)
+    const compass = container.querySelector<SVGGElement>('.window-hud-needle')!
+    const dial = container.querySelector<SVGGElement>('[data-gauge="航向"] .gauge-needle')!
+    expect(compass.style.transform).toBe(`rotate(${-110 + Math.max(0, Math.min(1, heading)) * 220}deg)`)
+    expect(compass.style.transform).toBe(dial.style.transform)
+    expect(compass.classList.contains('instrument-needle')).toBe(true)
+    expect(dial.classList.contains('instrument-needle')).toBe(true)
+  }
+})
 test('physical monitors approach to a straight-on terminal and return without losing drafts', () => {
   render(<Harness />)
   expect(screen.queryByRole('textbox')).toBeNull()

@@ -25,7 +25,11 @@ test('window HUD keeps MOSIC fixed and shows real sector counts, coordinates and
   const before = clock.dateTime
   act(() => vi.advanceTimersByTime(1000))
   expect(clock.getAttribute('datetime')).not.toBe(before)
-  expect(container.querySelectorAll('.window-hud-grid path').length).toBe(10)
+  expect(container.querySelectorAll('.window-hud-grid path').length).toBe(9)
+  const reticle = container.querySelector('.window-hud-reticle')!
+  expect(reticle.tagName.toLowerCase()).toBe('svg')
+  expect(reticle.getAttribute('viewBox')).toBe('0 0 40 40')
+  expect(reticle.querySelector('path')?.getAttribute('d')).toBe('M4 20h8m16 0h8M20 4v8m0 16v8')
   expect(container.querySelectorAll('button,input,a,[tabindex]').length).toBe(0)
   rerender(<WindowHud state={{...initialCockpitState, exterior:'home'}} connected signal="idle" telemetry={telemetry} />)
   expect(screen.getByText('MOSIC')).toBeTruthy()

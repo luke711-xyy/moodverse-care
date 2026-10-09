@@ -54,7 +54,8 @@
 .cockpit-gauge svg { width: 100%; display: block; }
 .gauge-case { fill: #3c3428; stroke: #dfc590; stroke-width: 2px; }.gauge-face { fill: #bca67a; stroke: #090907; stroke-width: 2px; }
 .gauge-tick { stroke: #332a1e; stroke-width: 1px; }.gauge-tick.major { stroke-width: 2px; }
-.gauge-needle { transform-origin: 60px 60px; transition: transform 400ms cubic-bezier(.22,1,.36,1); fill: #473323; }.gauge-needle circle { fill: #c68137; }
+.instrument-needle { transition: transform 400ms cubic-bezier(.22,1,.36,1); }
+.gauge-needle { transform-origin: 60px 60px; fill: #473323; }.gauge-needle circle { fill: #c68137; }
 .cockpit-gauge text { font: 700 17px var(--cockpit-body); fill: #251e15; }
 .cockpit-lamp { display: block; flex: none; width: 11px; height: 11px; border: 2px solid #7c5a2e; border-radius: 50%; background: #624626; }
 .cockpit-lamp[data-lit=true] { background: #ffc057; box-shadow: 0 0 7px #ffc05780; }

@@ -8,6 +8,7 @@ import { DeskObjects, DeskSignals, RetroRadio } from './DeskObjects'
 import './desk.css'
 import { WindowHud, type WindowTelemetry } from './WindowHud'
 import type { CockpitFlight } from './flight'
+import { gaugeNeedleAngle } from './instruments'
 
 export type CockpitSignal = 'idle' | 'loading' | 'traveling' | 'error'
 type Props = {
@@ -46,7 +47,7 @@ const pageNames: Record<CockpitPage, string> = {
 const signalNames: Record<CockpitSignal, string> = { idle: '扫描待命', loading: '搜索中', traveling: '航行中', error: '暂不可用' }
 
 function Gauge({ label, value, state }: { label: string; value: number; state?: string }) {
-  const angle = -110 + Math.max(0, Math.min(1, value)) * 220
+  const angle = gaugeNeedleAngle(value)
   return <div className="cockpit-gauge" data-gauge={label} data-value={value} role="img" aria-label={`${label}：${state ?? Math.round(value * 360) + '°'}`}>
     <svg viewBox="0 0 120 120" aria-hidden="true">
       <circle className="gauge-case" cx="60" cy="60" r="55" />
@@ -57,7 +58,7 @@ function Gauge({ label, value, state }: { label: string; value: number; state?: 
           x1={60 + Math.cos(a) * 39} y1={60 + Math.sin(a) * 39}
           x2={60 + Math.cos(a) * (i % 3 === 0 ? 31 : 35)} y2={60 + Math.sin(a) * (i % 3 === 0 ? 31 : 35)} />
       })}
-      <g className="gauge-needle" style={{ transform: `rotate(${angle}deg)` }}><path d="M57 65 L60 22 L63 65 Z" /><circle cx="60" cy="60" r="5" /></g>
+      <g className="gauge-needle instrument-needle" style={{ transform: `rotate(${angle}deg)` }}><path d="M57 65 L60 22 L63 65 Z" /><circle cx="60" cy="60" r="5" /></g>
       <text x="60" y="87" textAnchor="middle">{label}</text>
     </svg>
   </div>
@@ -147,7 +148,7 @@ export function CockpitShell(props: Props) {
     <div className="cockpit-viewport" inert={focused || undefined} aria-hidden={focused || undefined}>
       {props.scene}
       <div className="cockpit-window-nav">{props.windowNavigation}</div>
-      <WindowHud state={props.state} connected={props.connected !== false} signal={props.signal} telemetry={props.telemetry} flight={props.flight} />
+      <WindowHud state={props.state} connected={props.connected !== false} signal={props.signal} heading={props.heading} telemetry={props.telemetry} flight={props.flight} />
     </div>
     <div className="cockpit-pan-nav" hidden={focused} aria-label="控制台区域">
       {(['personal', 'exploration', 'controls'] as const).map((zone, i) => <button key={zone} aria-pressed={pan === zone} onClick={() => {
