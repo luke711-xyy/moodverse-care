@@ -244,7 +244,9 @@ test('a new user can choose exactly three songs, create a public planet and see 
   fireEvent.click(screen.getByRole('button', { name: '夜航 · 星际旅人' }))
   fireEvent.click(screen.getByRole('button', { name: '潮汐之间 · 潮汐' }))
   fireEvent.click(screen.getByRole('button', { name: '雾灯 · 雨季' }))
-  expect((screen.getByRole('button', { name: '远岸 · 远岸' }) as HTMLButtonElement).disabled).toBe(true)
+  // A full rack blocks adding songs, not browsing the remaining artwork.
+  fireEvent.click(screen.getByRole('button', { name: '远岸 · 远岸' }))
+  expect((screen.getByRole('button', { name: 'CD 架已满' }) as HTMLButtonElement).disabled).toBe(true)
   fireEvent.click(screen.getByRole('button', { name: '生成我的星球' }))
 
   expect(await screen.findByRole('heading', { name: /夜航者/ })).toBeTruthy()
@@ -783,8 +785,8 @@ test('an owner can edit planet details, manage one to five selected songs, and c
 
   fireEvent.change(screen.getByLabelText('星球名称'), { target: { value: '新的名字' } })
   fireEvent.change(screen.getByLabelText('星球简介'), { target: { value: '新的简介' } })
-  fireEvent.click(screen.getByRole('checkbox', { name: '星球歌曲：远岸 · 远岸' }))
-  fireEvent.click(screen.getByRole('checkbox', { name: '星球歌曲：月面信号 · 月面' }))
+  fireEvent.click(screen.getByRole('button', { name: '远岸 · 远岸' }))
+  fireEvent.click(screen.getByRole('button', { name: '月面信号 · 月面' }))
   fireEvent.click(screen.getByRole('radio', { name: '星球主旋律：远岸 · 远岸' }))
   fireEvent.click(screen.getByRole('button', { name: '保存星球资料' }))
 
@@ -793,13 +795,12 @@ test('an owner can edit planet details, manage one to five selected songs, and c
     displayName: '新的名字', tagline: '新的简介',
     trackIds: ['song-a', 'song-b', 'song-c', 'song-d', 'song-e'], primaryTrackId: 'song-d',
   })
-  expect((screen.getByLabelText('星球歌曲：远岸 · 远岸') as HTMLInputElement).checked).toBe(true)
+  expect(screen.getByRole('button', { name: '远岸 · 远岸' }).getAttribute('aria-pressed')).toBe('true')
   expect((screen.getByLabelText('星球主旋律：远岸 · 远岸') as HTMLInputElement).checked).toBe(true)
   for (const track of tracks.slice(1)) {
-    fireEvent.click(screen.getByRole('checkbox', { name: `星球歌曲：${track.title} · ${track.artistName}` }))
+    fireEvent.click(screen.getByRole('button', { name: `取消选择《${track.title}》` }))
   }
-  const lastSong = screen.getByRole('checkbox', { name: '星球歌曲：夜航 · 星际旅人' }) as HTMLInputElement
-  expect(lastSong.checked).toBe(true)
+  const lastSong = screen.getByRole('button', { name: '取消选择《夜航》' }) as HTMLButtonElement
   expect(lastSong.disabled).toBe(true)
 })
 

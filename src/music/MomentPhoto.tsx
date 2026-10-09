@@ -21,7 +21,7 @@ export function ditherMomentPhoto(data: Uint8ClampedArray, width: number) {
 
 /** Photos stay inside the shared CRT glass: curvature, scanlines, grain and lens
  * are inherited from the terminal, with this layer adding real image dithering. */
-function FilteredPhoto({ src, alt, enlarged = false, fallback }: { src: string; alt: string; enlarged?: boolean; fallback?: ReactNode }) {
+export function FilteredPhoto({ src, alt, enlarged = false, fallback }: { src: string; alt: string; enlarged?: boolean; fallback?: ReactNode }) {
   const canvas = useRef<HTMLCanvasElement>(null)
   const [rendered, setRendered] = useState(false)
   const [failed, setFailed] = useState(false)

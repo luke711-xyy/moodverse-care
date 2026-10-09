@@ -19,6 +19,7 @@ import { logicalSize } from './viewport'
 import { DEFAULT_TRACK_ID } from './default-track'
 import { useMusicPlayer } from './useMusicPlayer'
 import { MomentContent, MomentPhotoPicker } from './MomentPhoto'
+import { CdPicker } from './CdPicker'
 import { momentPhotoError } from './moment-photo'
 import './music-app.css'
 import './dither/product.css'
@@ -751,18 +752,11 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
   const tracks = home.status === 'ready' ? home.tracks : []
   const planet = home.status === 'ready' ? home.planet : null
   const moments = home.status === 'ready' ? home.moments : []
-  const visibleTracks = useMemo(() => {
-    const needle = query.trim().toLocaleLowerCase()
-    if (!needle) return tracks
-    return tracks.filter((track) => [track.title, track.artistName, ...track.genres].join(' ').toLocaleLowerCase().includes(needle))
-  }, [query, tracks])
   const planetEditTracks = useMemo(() => {
     const available = new Map(tracks.map((track) => [track.id, track]))
     for (const track of planet?.tracks ?? []) if (!available.has(track.id)) available.set(track.id, track)
-    const needle = planetEditQuery.trim().toLocaleLowerCase()
-    return [...available.values()].filter((track) => !needle
-      || [track.title, track.artistName, ...track.genres].join(' ').toLocaleLowerCase().includes(needle))
-  }, [planetEditQuery, planet, tracks])
+    return [...available.values()]
+  }, [planet, tracks])
   const previewSeed = selectedTrackIds.join('-')
   const activeVisual = useMemo(() => planet ? resolveDitherSpec(planet.id, planet.tracks, planet.visual) : null, [planet])
   const galaxySceneResponse = galaxy.status === 'ready' ? galaxy.response : galaxy.status === 'loading' ? galaxy.previous : undefined
@@ -1587,23 +1581,11 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
           <DitherTitle level={2}>曲库还没有可选歌曲</DitherTitle>
           <p>添加曲目后，你就可以开始创建星球。我们只展示可控曲库中的歌曲，并跳转到官方平台播放。</p>
         </div> : <form onSubmit={createPlanet}>
-          <div className="music-panel-head"><div><span className="music-kicker">第一步 · 选择声音</span><DitherTitle level={2}>为你的星球选三首歌</DitherTitle></div><span className="music-count" aria-live="polite">{selectedTrackIds.length}<i>/3</i></span></div>
+          <div className="music-panel-head"><DitherTitle level={2}>为你的星球选三首歌</DitherTitle></div>
           <p className="music-panel-note">星球默认公开，可随时关闭。Cosmos 可在电台直接播放。</p>
           {tracks.some(isDemoTrack) && <p className="music-demo-catalog-note" role="note">标注“演示曲目”的歌曲为虚构示例，不提供音源；Cosmos 是你提供的真实录音。</p>}
-          <label className="music-search-label" htmlFor="music-track-search">搜索曲名或艺人</label>
-          <input id="music-track-search" className="music-search" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="曲名、艺人、曲风" />
-          <div className="music-track-list" role="group" aria-label="曲库">
-            {visibleTracks.map((track) => {
-              const selected = selectedTrackIds.includes(track.id)
-              const disabled = !selected && selectedTrackIds.length >= 3
-              return <DitherButton className={`music-track-choice${selected ? ' is-selected' : ''}`} type="button" key={track.id} aria-label={`${track.title} · ${track.artistName}`} aria-pressed={selected} disabled={disabled} onClick={() => toggleTrack(track.id)}>
-                <DitherTrackMark track={track} />
-                <span className="music-track-label"><strong>{track.title}</strong><small>{track.artistName}{track.versionLabel ? ` · ${track.versionLabel}` : ''}{isDemoTrack(track) ? ' · 演示曲目（不可播放）' : ''}</small></span>
-                <span className="music-track-check" aria-hidden="true">{selected ? '✓' : '+'}</span>
-              </DitherButton>
-            })}
-            {!visibleTracks.length && <p className="music-no-matches">没有找到匹配曲目。</p>}
-          </div>
+          <CdPicker tracks={tracks} selectedIds={selectedTrackIds} onToggle={toggleTrack} query={query} onQuery={setQuery}
+            searchId="music-track-search" max={3} min={0} disabled={creatingPlanet} reducedMotion={reducedMotion} player={musicPlayer} />
           <div className="music-fields">
             <label htmlFor="music-planet-name">星球名称</label>
             <input id="music-planet-name" value={displayName} maxLength={40} onChange={(event) => setDisplayName(event.target.value)} placeholder="给这颗星球起个名字" required />
@@ -1637,28 +1619,10 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
               <label htmlFor="music-settings-planet-tagline">星球简介</label>
               <input id="music-settings-planet-tagline" aria-label="星球简介" value={planetEditTagline} maxLength={120} disabled={Boolean(settingsSaving)} onChange={(event) => { setPlanetEditTagline(event.target.value); setPlanetEditError(''); setPlanetEditFeedback('') }} />
             </div>
-            <div className="music-section-heading music-settings-song-heading"><DitherTitle level={3}>星球歌曲</DitherTitle><span>{planetEditTrackIds.length}<i> / 5 首</i></span></div>
-            <p className="music-panel-note">创建时的三首只是起点；现在可以保留 1–5 首。主旋律会作为这颗星球的代表歌曲。</p>
-            <label className="music-search-label" htmlFor="music-settings-track-search">搜索曲名或艺人</label>
-            <input id="music-settings-track-search" className="music-search" type="search" value={planetEditQuery} disabled={Boolean(settingsSaving)} onChange={(event) => setPlanetEditQuery(event.target.value)} placeholder="曲名、艺人、曲风" />
-            <div className="music-settings-tracks" role="group" aria-label="编辑星球歌曲">
-              {planetEditTracks.map((track) => {
-                const selected = planetEditTrackIds.includes(track.id)
-                const canToggle = selected ? planetEditTrackIds.length > 1 : planetEditTrackIds.length < 5
-                return <div className="music-settings-track-row" key={track.id}>
-                  <label className={`music-track-choice music-settings-track${selected ? ' is-selected' : ''}`}>
-                    <input type="checkbox" aria-label={`星球歌曲：${track.title} · ${track.artistName}`} checked={selected} disabled={Boolean(settingsSaving) || !canToggle} onChange={() => togglePlanetEditTrack(track.id)} />
-                    <DitherTrackMark track={track} />
-                    <span className="music-track-label"><strong>{track.title}</strong><small>{track.artistName}{track.versionLabel ? ` · ${track.versionLabel}` : ''}{isDemoTrack(track) ? ' · 演示曲目（不可播放）' : ''}</small></span>
-                  </label>
-                  <label className="music-primary-track-choice">
-                    <input type="radio" name="music-planet-primary" aria-label={`星球主旋律：${track.title} · ${track.artistName}`} checked={planetEditPrimaryTrackId === track.id} disabled={!selected || Boolean(settingsSaving)} onChange={() => { setPlanetEditPrimaryTrackId(track.id); setPlanetEditFeedback('') }} />
-                    <span>主旋律</span>
-                  </label>
-                </div>
-              })}
-              {!planetEditTracks.length && <p className="music-no-matches">曲库中没有可管理的歌曲。</p>}
-            </div>
+            <CdPicker tracks={planetEditTracks} selectedIds={planetEditTrackIds} onToggle={togglePlanetEditTrack}
+              query={planetEditQuery} onQuery={setPlanetEditQuery} searchId="music-settings-track-search"
+              primaryId={planetEditPrimaryTrackId} onPrimary={id => { setPlanetEditPrimaryTrackId(id); setPlanetEditFeedback('') }}
+              disabled={Boolean(settingsSaving)} reducedMotion={reducedMotion} player={musicPlayer} />
             {planetEditError && <p className="music-form-error" role="alert">{planetEditError}</p>}
             {planetEditFeedback && <p className="music-feedback" role="status">{planetEditFeedback}</p>}
             <DitherButton className="music-secondary-button" type="submit" disabled={Boolean(settingsSaving)}>{settingsSaving === 'planet-profile' ? '正在保存…' : '保存星球资料'}</DitherButton>

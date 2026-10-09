@@ -1,0 +1,102 @@
+/* Physical media inside the existing phosphor image. RGB dithering is inherited
+   from the CRT, including the wood, artwork, metal and black hover perimeter. */
+.music-cd-picker { --cd-size: clamp(170px,25cqw,270px); --z-cd-flight: 10; position: relative; isolation: isolate; container: cd-picker / inline-size; margin-block: 24px; }
+.music-cd-toolbar { display: grid; grid-template-columns: minmax(0,1fr) minmax(280px,360px); align-items: start; gap: 40px; }
+.music-cd-search { min-width: 0; display: grid; gap: 8px; }
+.cockpit .music-cd-search .dither-title { margin: 0 0 12px; }
+.music-cd-collection { min-width: 0; }
+.music-cd-collection-head { display: flex; justify-content: space-between; gap: 16px; color: var(--phosphor,#efd79f); font-size: 14px; font-variant-numeric: tabular-nums; padding: 0 4px 12px; }
+.music-cd-rack { position: relative; display: grid; grid-template-columns: repeat(var(--rack-slots),minmax(0,1fr)); gap: 7px; padding: 12px 12px 24px; min-height: 116px;
+  border-radius: 5px; border: 3px solid #4e321c; border-top-color: #956845; background: radial-gradient(ellipse at 20% 30%,#4d2c18 0 1%,transparent 13%),radial-gradient(ellipse at 83% 80%,#422b19,transparent 26%),linear-gradient(176deg,#9b714a,#67492f 50%,#885e39 52%,#493120);
+  box-shadow: inset 0 4px 4px #1b100a,0 5px 0 #23180f; }
+.music-cd-rack::after { content: ''; position: absolute; inset: auto -3px -3px; height: 15px; border-top: 2px solid #b28957; border-bottom: 3px solid #301f12; background: linear-gradient(#8e663f,#68452c); pointer-events: none; }
+.music-cd-slot { min-width: 0; position: relative; padding-top: 4px; background: #211810; border-radius: 3px; box-shadow: inset 2px 2px 4px #080603,inset -1px 0 #b18c5755; }
+.cockpit .music-cd-rack-record { width: 100%; aspect-ratio: 1; display: block; position: relative; padding: 3px; border: 0; background: none; cursor: pointer; transition: transform 180ms ease-out; }
+.music-cd-rack-record:hover:not(:disabled) { transform: translateY(-5px); }
+.music-cd-rack-record[data-arriving=true] { visibility: hidden; }
+.music-cd-rack-record:disabled { cursor: not-allowed; }
+.music-cd-rack-record:focus-visible { outline: 2px solid #ffe0a1; outline-offset: 3px; }
+.music-cd-rack-help { font-size: 12px; color: var(--phosphor-muted,#c2ab80); margin: 12px 0 0; }
+.music-cd-empty-slot { display: grid; place-content: center; min-height: 62px; color: #d5b483; opacity: .7; font: 12px var(--cockpit-label,monospace); }
+.music-cd-primary { display: flex; align-items: center; flex-direction: column; gap: 2px; padding: 6px 0 3px; color: #f4d5a3; cursor: pointer; }
+.music-cd-primary input { margin: 0; accent-color: #e8c68b; width: 14px; height: 14px; }
+.music-cd-primary span { font-size: 10px; white-space: nowrap; }
+.music-cd-browser { display: grid; grid-template-columns: minmax(0,1fr) 240px; align-items: center; gap: 32px; margin-top: 16px; }
+.music-cd-browse-panel { min-width: 0; }
+.music-cd-stage { position: relative; height: 330px; overflow: hidden; perspective: 950px; touch-action: pan-y; border-radius: 8px;
+  background: radial-gradient(ellipse at 50% 53%,#4c3f50 0,#302a34 26%,#171612 62%,transparent 85%); }
+.music-cd-stage:focus-visible { outline: 1px dotted var(--phosphor,#efd79f); outline-offset: 4px; }
+.music-cd-position { width: var(--cd-size); height: var(--cd-size); position: absolute; top: 50%; left: 50%; opacity: var(--cd-opacity);
+  transform: translate(-50%,-50%) translate3d(calc(var(--cd-offset) * var(--cd-size) * .62),calc(var(--cd-distance) * -22px),var(--cd-depth)) rotateX(-14deg) rotateY(var(--cd-turn)) scale(var(--cd-scale));
+  transition: transform 520ms cubic-bezier(.22,1,.36,1),opacity 420ms ease-out; }
+.cockpit .music-cd-record { position: relative; display: block; width: 100%; height: 100%; padding: 0; color: var(--ink,#efe6d2); background: none; border: 0; border-radius: 50%; cursor: pointer; }
+.music-cd-hover-body { display: block; width: 100%; height: 100%; position: relative;
+  transform: translate3d(var(--hover-x,0px),var(--hover-y,0px),0) rotateX(var(--hover-rx,0deg)) rotateY(var(--hover-ry,0deg)) scale(var(--cd-pressure,1));
+  transition: transform 160ms ease-out,opacity 140ms ease-out; }
+.music-cd-record:active { --cd-pressure: .94; }
+.music-cd-hover-body[data-departing=true] { opacity: .12; }
+.music-cd-record:focus-visible { outline: 2px solid #e6c489; outline-offset: 7px; }
+.music-cd-record:disabled { cursor: wait; }
+.music-cd-ink { position: absolute; inset: -15%; width: 130%; height: 130%; fill: none; stroke: #030305; stroke-width: 4; opacity: 0;
+  transform: rotate(-12deg) scale(.85); transition: opacity 160ms ease-out,transform 320ms cubic-bezier(.22,1,.36,1); pointer-events: none; }
+.music-cd-ink path:nth-child(2) { stroke-width: 2; stroke-dasharray: 18 4 3 8; }
+.music-cd-ink path:nth-child(3) { stroke-width: 1; stroke-dasharray: 2 3; }
+.music-cd-record:is(:hover,:focus-visible) .music-cd-ink { opacity: 1; transform: rotate(8deg) scale(1); }
+.music-cd-disc { position: relative; width: 100%; height: 100%; display: block; border: 3px solid #bab1c3; border-radius: 50%; overflow: hidden;
+  background: conic-gradient(from -25deg,#d0c5d7,#797095,#cba7d9,#b9c9e3,#8e8eac,#d0c5d7); box-shadow: inset 0 0 0 2px #39333f,inset 0 0 0 5px #d9d4e34d,4px 6px 0 #050507;
+  -webkit-mask-image: radial-gradient(circle at 50% 50%,transparent 0 5%,#000 5.8%); mask-image: radial-gradient(circle at 50% 50%,transparent 0 5%,#000 5.8%); }
+.music-cd-art { display: block; position: absolute; inset: 4%; border-radius: 50%; overflow: hidden; background: #272336; }
+.music-cd-art :is(img,canvas) { display: block; width: 100%; height: 100%; object-fit: cover; image-rendering: pixelated; }
+.music-cd-art :is(img,canvas)[hidden] { display: none; }
+.music-cd-sheen { position: absolute; inset: 0; border-radius: inherit; background: conic-gradient(from 30deg,transparent 0 20%,#faf0ff44 23%,transparent 27% 45%,#b9d2ee44 48%,transparent 51% 74%,#fff7e559 79%,transparent 83%); pointer-events: none; }
+.music-cd-hub { position: absolute; inset: 38%; border-radius: 50%; border: 1px solid #e9e0e966;
+  background: radial-gradient(circle,transparent 0 30%,#37333e 31% 34%,#d0c4d599 35% 73%,#676272 74% 77%,#c2bcca55 78%); pointer-events: none; }
+.music-cd-no-art { display: flex; height: 100%; flex-direction: column; align-items: center; justify-content: center; gap: 20%; padding: 12%; text-align: center;
+  background: radial-gradient(ellipse at 35% 28%,#645f95,transparent 58%),linear-gradient(135deg,#302438,#352b47 65%,#5a4063); }
+.music-cd-no-art strong { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; max-width: 100%; font-size: 18px; color: #eee1ef; line-height: 1.3; }
+.music-cd-no-art small { font-size: 10px; color: #d2c5d6; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.music-cd-rack-record .music-cd-no-art { padding: 15%; gap: 2px; }
+.music-cd-rack-record .music-cd-no-art strong { font-size: 7px; }
+.music-cd-rack-record .music-cd-no-art small { display: none; }
+.music-cd-selected-stamp { position: absolute; bottom: 8%; right: -4%; border-radius: 3px; padding: 4px 8px; background: #e1c184; color: #211a0f; font-size: 12px; box-shadow: 2px 3px 0 #16100b; }
+.music-cd-navigation { display: flex; align-items: center; justify-content: center; gap: 24px; padding-top: 8px; }
+.cockpit .music-cd-navigation button { width: 44px; padding: 0; }
+.music-cd-navigation span { color: var(--phosphor,#efd79f); font: 13px var(--cockpit-label,monospace); font-variant-numeric: tabular-nums; }
+.music-cd-help { color: var(--phosphor-muted,#c2ab80); font-size: 12px; text-align: center; margin: 12px 0 0; }
+.music-cd-empty { position: absolute; inset: 0; display: grid; place-content: center; padding: 24px; text-align: center; color: var(--phosphor-muted,#c2ab80); font-size: 14px; }
+.music-cd-info { align-self: start; padding-top: 36px; min-width: 0; }
+.music-cd-info-reveal { animation: cd-info-arrive 420ms cubic-bezier(.22,1,.36,1) both; }
+.music-cd-info-index { font: 12px var(--cockpit-label,monospace); color: var(--phosphor-muted,#c2ab80); }
+.cockpit .music-cd-info h3 { margin: 12px 0 8px; font: 650 28px/1.25 var(--cockpit-body,sans-serif); color: #f1ddb2; overflow-wrap: anywhere; }
+.cockpit .music-cd-info .music-cd-artist { margin: 0; font-size: 16px; color: var(--ink,#efe6d2); }
+.music-cd-version,.music-cd-source-note { font-size: 12px; color: var(--phosphor-muted,#c2ab80); }
+.music-cd-info dl { margin: 24px 0; font-size: 13px; }
+.music-cd-info dl > div { display: grid; grid-template-columns: 44px minmax(0,1fr); gap: 12px; border-top: 1px solid #b79b6340; padding-block: 10px; }
+.music-cd-info dt { color: var(--phosphor-muted,#c2ab80); }
+.music-cd-info dd { margin: 0; color: var(--ink,#efe6d2); overflow-wrap: anywhere; }
+.cockpit .music-cd-info .music-cd-select { display: block; width: 100%; margin-top: 12px; }
+.music-cd-flight { position: absolute; left: 0; top: 0; z-index: var(--z-cd-flight); pointer-events: none; transform-origin: 0 0; }
+.music-cd-flight .music-cd-disc { position: absolute; left: -50%; top: -50%; }
+@keyframes cd-info-arrive { from { opacity: .25; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@container cd-picker (max-width:740px) {
+  .music-cd-toolbar { grid-template-columns: minmax(0,1fr) 270px; gap: 20px; }
+  .music-cd-rack { gap: 4px; padding-inline: 8px; }
+  .music-cd-primary span { font-size: 9px; }
+  .music-cd-browser { grid-template-columns: minmax(0,1fr) 190px; gap: 20px; }
+  .music-cd-stage { height: 280px; }
+  .cockpit .music-cd-info h3 { font-size: 22px; }
+  .music-cd-info { padding-top: 20px; }
+}
+@container cd-picker (max-width:480px) {
+  .music-cd-toolbar { grid-template-columns: minmax(0,1fr); }
+  .music-cd-collection { width: min(100%,320px); justify-self: end; }
+  .music-cd-browser { grid-template-columns: minmax(0,1fr); }
+  .music-cd-info { padding-top: 0; }
+  .music-cd-info dl { display: flex; gap: 16px; flex-wrap: wrap; margin-block: 12px; }
+}
+.music-cd-picker[data-reduced-motion=true] :is(.music-cd-position,.music-cd-hover-body,.music-cd-ink,.music-cd-rack-record) { transition: none; }
+.music-cd-picker[data-reduced-motion=true] .music-cd-info-reveal { animation: none; }
+@media (prefers-reduced-motion:reduce) {
+  .music-cd-picker :is(.music-cd-position,.music-cd-hover-body,.music-cd-ink,.music-cd-rack-record) { transition: none; }
+  .music-cd-picker .music-cd-info-reveal { animation: none; }
+}
