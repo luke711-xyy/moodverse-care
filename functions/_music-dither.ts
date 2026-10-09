@@ -1,6 +1,7 @@
 import { safeHttpsUrl, type Env } from './_shared'
 import type { MusicTrackSummary } from '../src/music-domain'
 import { isDitherSpec, resolveDitherSpec, validateMusicVisualFeatures, type DitherPlanetSpec } from '../src/music/dither/appearance'
+import { DEFAULT_TRACK_ID, DEFAULT_AUDIO_URL } from '../src/music/default-track'
 
 export type CatalogTrackRow = {
   id: string; title: string; artist_id: string; artist_name: string; version_label: string
@@ -17,6 +18,7 @@ export function catalogTrack(row: CatalogTrackRow): MusicTrackSummary {
   return { id: row.id, title: row.title, artistId: row.artist_id, artistName: row.artist_name, versionLabel: row.version_label,
     genres: array(row.genres_json), moodTags: array(row.mood_tags_json), officialUrl: safeHttpsUrl(row.official_url),
     coverUrl: safeHttpsUrl(row.cover_url), durationSeconds: row.duration_seconds,
+    ...(row.id === DEFAULT_TRACK_ID ? { audioUrl: DEFAULT_AUDIO_URL } : {}),
     ...(features.ok ? { visualFeatures: features.value } : {}), ...(row.provider === 'moodverse-demo' ? { isDemo: true } : {}),
   }
 }

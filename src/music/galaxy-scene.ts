@@ -8,7 +8,7 @@ export function buildMusicGalaxySceneSystems(by: GalaxyGroupBy, groups: readonly
   return groups.map(group => {
     const id = `${by}:${group.key}`
     return { id, key: group.key, label: group.label, color: COLORS[stableHash(id) % COLORS.length],
-      planets: group.planets.map(planet => ({ id: planet.planetId, alias: planet.displayName, tagline: planet.tagline,
+      planets: group.planets.slice(0, 16).map(planet => ({ id: planet.planetId, alias: planet.displayName, tagline: planet.tagline,
         spec: resolveDitherSpec(planet.planetId, [], planet.visual) })) }
   })
 }

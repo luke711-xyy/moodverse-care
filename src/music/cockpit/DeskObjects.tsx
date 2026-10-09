@@ -2,8 +2,8 @@ import type { CSSProperties } from 'react'
 
 /** Lightweight, reusable 2.5D desk props. Their entire painted surface passes
  * through the opaque hardware dither; these ornaments never intercept input. */
-export function RetroRadio() {
-  return <div className="cockpit-radio" role="img" aria-label="装饰用复古 FM 电台，未接入音源">
+export function RetroRadio({ player }: { player?: { playing: boolean; blocked: boolean; toggle: () => void } }) {
+  return <div className="cockpit-radio" role={player ? 'group' : 'img'} aria-label={player ? 'FM 电台 · Cosmos · The_mountain' : '装饰用复古 FM 电台，未接入音源'}>
     <svg viewBox="0 0 150 220" aria-hidden="true">
       <defs><linearGradient id="radio-case" x2=".8" y2="1"><stop stopColor="#f0d596" /><stop offset=".4" stopColor="#b79b68" /><stop offset="1" stopColor="#655032" /></linearGradient></defs>
       <path d="M10 13 L139 13 L146 215 L5 215Z" fill="#302518" stroke="#1a130d" strokeWidth="3" />
@@ -12,7 +12,7 @@ export function RetroRadio() {
       <rect x="12" y="34" width="116" height="54" rx="3" fill="#282318" stroke="#ead095" />
       <text x="19" y="51" className="radio-scale">88  92  98  104 108</text>
       {Array.from({length:23},(_,i)=><path key={i} d={`M${18+i*4.7} 60 V${i%4===0?74:68}`} stroke="#bea575" />)}
-      <path d="M73 55 V79" stroke="#f3d390" strokeWidth="2" /><circle cx="118" cy="23" r="3" fill="#ad8050" />
+      <path d="M73 55 V79" stroke="#f3d390" strokeWidth="2" /><circle cx="118" cy="23" r="3" fill={player?.playing ? '#9abd60' : '#ad8050'} />
       <rect x="12" y="99" width="68" height="87" rx="4" fill="#423520" stroke="#947442" />
       {Array.from({length:12},(_,i)=><path key={i} d={`M19 ${105+i*6.3} H73`} stroke="#19150d" strokeWidth="3" />)}
       <circle cx="105" cy="121" r="17" fill="#493722" stroke="#e5be7d" strokeWidth="3" /><circle cx="105" cy="121" r="11" fill="#c9a86b" /><path d="M105 121 L111 112" stroke="#44311c" strokeWidth="2" />
@@ -20,6 +20,7 @@ export function RetroRadio() {
       <text x="88" y="190" className="radio-scale">TUNE</text>
       <path d="M8 196 H129" stroke="#675034" /><circle cx="9" cy="10" r="2" fill="#5b492d" /><circle cx="132" cy="10" r="2" fill="#5b492d" />
     </svg>
+    {player && <button data-music-toggle className="cockpit-radio-play" aria-label={player.playing ? '暂停 Cosmos' : '播放 Cosmos'} aria-pressed={player.playing} onClick={player.toggle} title={player.blocked ? '点击播放 Cosmos · The_mountain' : 'Cosmos · The_mountain'}>{player.playing ? 'Ⅱ' : '▶'}</button>}
   </div>
 }
 

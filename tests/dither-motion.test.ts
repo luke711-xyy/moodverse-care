@@ -37,6 +37,11 @@ test('the temporary 80 BPM tide travels through the shell rather than scaling it
   expect(north).toEqual(particleTide(.4, -.6, .7, .14 + 60 / DEFAULT_TIDE_BPM, .5))
   expect(Math.hypot(north.x, north.y)).toBeLessThan(.2)
 })
+test('a supplied media beat overrides elapsed scene time and pausing removes the music tide', () => {
+  const beat={cycles:.2,bpm:105.1,playing:true}
+  expect(particleTide(.4,-.6,.7,0,.5,beat)).toEqual(particleTide(.4,-.6,.7,99,.5,beat))
+  expect(particleTide(.4,-.6,.7,0,.5,{...beat,playing:false})).toEqual({x:0,y:0})
+})
 
 test('the cursor gives particles tangential momentum, then they reform after leaving', () => {
   const field = createDitherCellField(10)

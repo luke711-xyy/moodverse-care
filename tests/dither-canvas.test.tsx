@@ -27,6 +27,13 @@ test('changing appearance and pause state redraws without recreating GPU resourc
   expect(dispose).not.toHaveBeenCalled()
   expect(draw.mock.calls.at(-1)?.[0].assets[0].radius).toBe(90)
 })
+test('hit detection receives the exact post-motion frame, not the unanimated layout', () => {
+  const onFrame=vi.fn()
+  render(<DitherCanvas getFrame={frame} onFrame={onFrame} />)
+  const displayed=draw.mock.calls.at(-1)![0]
+  expect(onFrame.mock.calls.at(-1)![0]).toBe(displayed)
+  expect(displayed.assets[0].particles.count).toBeGreaterThan(0)
+})
 
 test('initial static preview still paints, unmount releases resources and frame callbacks', () => {
   const { unmount } = render(<DitherCanvas getFrame={frame} reducedMotion />)

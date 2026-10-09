@@ -31,6 +31,7 @@ type Props = {
   onCancelTravel?: () => void
   connected?: boolean
   classifying?: boolean
+  musicPlayer?: { playing: boolean; blocked: boolean; toggle: () => void }
 }
 const personalPages: Array<[CockpitPage, string]> = [['planet', '我的星球'], ['orbit', 'Orbit'], ['moment', 'Moment']]
 const explorationPages: Array<[CockpitPage, string]> = [['collision', '撞歌'], ['roam', '漫游'], ['bottles', '漂流瓶']]
@@ -92,8 +93,9 @@ export function CockpitShell(props: Props) {
   const [retreating, setRetreating] = useState(false)
   const [typing, setTyping] = useState(false)
   const [pan, setPan] = useState<'personal' | 'exploration' | 'controls'>('personal')
-  const activePersonal = props.state.channels.personal
-  const activeExploration = props.state.channels.exploration
+  // A monitor is an entry point, not a shortcut to its last-opened channel.
+  const activePersonal: CockpitPage = 'planet'
+  const activeExploration: CockpitPage = 'collision'
   const content = useRef<HTMLDivElement>(null)
   const scrollPositions = useRef(new Map<CockpitPage, number>())
   useLayoutEffect(() => {
@@ -160,7 +162,7 @@ export function CockpitShell(props: Props) {
             <CrtScreen mini active={!focused} motion={!props.reducedMotion} enabled={props.crtEnabled}><span className="cockpit-monitor-content">{props.personalPreview ?? <span className="cockpit-mini-caption">{props.planetName}</span>}</span></CrtScreen>
             <span className="cockpit-monitor-channel">{pageNames[activePersonal]}</span>
           </button>
-          <div className="cockpit-keys">{personalPages.map(([page, label]) => <button key={page} disabled={traveling} aria-pressed={personal && props.state.console.page === page} onClick={event => open(page, event)}>{label}</button>)}</div>
+          <div className="cockpit-keys">{personalPages.map(([page, label]) => <button key={page} disabled={traveling} aria-pressed={focused && props.state.console.focus === 'personal' && props.state.console.page === page} onClick={event => open(page, event)}>{label}</button>)}</div>
         </section>
         <div className="cockpit-gauge-bay">
           <i className="cockpit-lamp" data-lit={props.connected !== false} />
@@ -175,11 +177,11 @@ export function CockpitShell(props: Props) {
             <CrtScreen mini active={!focused} motion={!props.reducedMotion} enabled={props.crtEnabled}><span className="cockpit-monitor-content">{props.explorationPreview ?? <span className="cockpit-mini-caption">{signalNames[props.signal]}</span>}</span></CrtScreen>
             <span className="cockpit-monitor-channel">{pageNames[activeExploration]}</span>
           </button>
-          <div className="cockpit-keys">{explorationPages.map(([page, label]) => <button key={page} disabled={traveling} aria-pressed={!personal && props.state.console.page === page} onClick={event => open(page, event)}>{label}</button>)}</div>
+          <div className="cockpit-keys">{explorationPages.map(([page, label]) => <button key={page} disabled={traveling} aria-pressed={focused && props.state.console.focus === 'exploration' && props.state.console.page === page} onClick={event => open(page, event)}>{label}</button>)}</div>
           <DeskSignals />
         </section>
         <div className="cockpit-console-side cockpit-console-side-right">
-        <RetroRadio />
+        <RetroRadio player={props.musicPlayer} />
         <section id="cockpit-controls" className="cockpit-wing cockpit-wing-right">
           <CaseDetails serial="NAVIGATION / 03" />
           <button className="cockpit-hardware-label cockpit-galaxy-list-key" aria-label="查看 Galaxy 星球列表" disabled={traveling} onClick={event => open('galaxy', event)}>Galaxy 分类</button>

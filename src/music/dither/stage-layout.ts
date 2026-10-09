@@ -2,6 +2,7 @@ import type { MusicGalaxySceneSystem } from '../galaxy-scene'
 import { createDitherSpec, type DitherPlanetSpec } from './appearance'
 import { depthOrderedAssets, orbitDepth, orbitPoint, satelliteAsset, type DitherOrbitGeometry } from './layout'
 import type { DitherAsset, DitherFrame } from './renderer'
+import { galaxyTourPosition } from '../galaxy-navigation'
 
 const clamp = (n: number) => Math.max(0, Math.min(1, n))
 export function sampleHomeTransition(progress: number) {
@@ -13,10 +14,10 @@ export type StageFrame = DitherFrame & { orbits: DitherOrbitGeometry[]; systemTa
 export function buildDitherStageFrame(input: StageLayoutInput): StageFrame {
   const { width, height, phase, owner, visitor, systems, focusedGalaxy, rotation } = input
   const narrow = width < 760, x = width * (narrow ? .5 : .51), y = height * .49
-  const radius = Math.min(width * (narrow ? .29 : .19), height * .31)
+  const radius = Math.min(width * (narrow ? .29 : .19), height * .31) * 1.5
   const assets: DitherAsset[] = [], orbits: DitherOrbitGeometry[] = [], systemTargets: StageFrame['systemTargets'] = []
   const home = sampleHomeTransition(input.home)
-  const systemIndex = input.journey * Math.max(0, systems.length - 1)
+  const { systemIndex } = galaxyTourPosition(input.journey, systems.length)
   for (const [index, system] of systems.entries()) {
     if (input.home >= 1 || visitor || focusedGalaxy && focusedGalaxy !== system.id) continue
     const offset = focusedGalaxy ? 0 : index - systemIndex

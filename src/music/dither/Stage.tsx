@@ -11,6 +11,7 @@ import { TOUR_END } from '../../universe'
 import { buildCockpitFlightFrame } from '../cockpit/flight-frame'
 import type { CockpitFlight } from '../cockpit/flight'
 import { clientPoint, logicalSize } from '../viewport'
+import type { DitherFrame } from './renderer'
 
 type Props = { planet: MusicPlanet | null; friendSatellites: MusicFriendSatellite[]; visitedPlanet: PublicMusicPlanet | null; previewSeed: string; previewTracks?: MusicTrackSummary[]; appearancePreview?: DitherPlanetSpec | null; reducedMotion: boolean; productView: string; focusedGalaxy?: string; galaxySystems: MusicGalaxySceneSystem[]; galaxyRotation: number; routeJourney: number; regrouping: boolean; onSelectGalaxy: (id: string)=>void; onOpenPlanet: (planet: MusicScenePlanet, galaxyId: string)=>void; onRotate: (delta: number)=>void; onTourMove: (delta: number)=>void; onMusicSelect: (id: string)=>void; onFriendSelect: (id: string)=>void }
 export function Stage(props: Props & { exteriorView?: 'home' | 'galaxy'; interactive?: boolean; flight?: CockpitFlight | null; managedTravel?: boolean }) {
@@ -53,9 +54,10 @@ export function Stage(props: Props & { exteriorView?: 'home' | 'galaxy'; interac
   const getFrame = useCallback((width:number,height:number,phase:number)=> {
     const input = { width, height, phase, owner, visitor, systems:props.galaxySystems, home, journey:Math.min(1,props.routeJourney/TOUR_END), rotation:home < 1 && props.focusedGalaxy && !visitor ? props.galaxyRotation : ownRotation, focusedGalaxy:props.focusedGalaxy, friends:props.friendSatellites, music:props.planet?.tracks ?? props.previewTracks ?? [] }
     const frame = props.flight ? buildCockpitFlightFrame(input, props.flight) : buildDitherStageFrame({ ...input, music:(props.visitedPlanet ?? props.planet)?.tracks ?? props.previewTracks ?? [] })
-    latestFrame.current=frame
+    if (!latestFrame.current) latestFrame.current=frame
     return frame
   }, [owner,visitor,props.galaxySystems,home,props.routeJourney,props.galaxyRotation,ownRotation,props.focusedGalaxy,props.friendSatellites,props.visitedPlanet,props.planet,props.previewTracks,props.flight])
+  const rememberFrame = useCallback((frame: DitherFrame) => { latestFrame.current = frame as StageFrame }, [])
   const frame = getFrame(bounds.width,bounds.height,0)
   const cloud = props.flight ? Math.sin(props.flight.progress * Math.PI) : sampleHomeTransition(home).cloudOpacity
   const busy = traveling || Boolean(props.flight)
@@ -64,7 +66,7 @@ export function Stage(props: Props & { exteriorView?: 'home' | 'galaxy'; interac
     if (busy || props.interactive === false) return
     const { x, y }=clientPoint(wrap.current!,clientX,clientY), frame=latestFrame.current!
     const canvas=wrap.current!.querySelector<HTMLCanvasElement>('[data-dither-renderer]')
-    const hit=hitTestDitherAssets(frame.assets.filter(a=>a.id !== 'nebula'),x,y,{mode:renderMode,pointer:frame.pointer,pixelRatio:canvas ? canvas.width/logicalSize(wrap.current!).width : 1})
+    const hit=hitTestDitherAssets(frame.assets.filter(a=>a.id !== 'nebula'),x,y,{mode:renderMode,pointer:frame.pointer,bodyTargets:true,pixelRatio:canvas ? canvas.width/logicalSize(wrap.current!).width : 1})
     if (hit?.id.startsWith('music:')) { props.onMusicSelect(hit.id.slice(6)); return }
     if (hit?.id.startsWith('friend:')) { props.onFriendSelect(hit.id.slice(7)); return }
     if (hit?.id.startsWith('planet:') && props.focusedGalaxy) {
@@ -87,7 +89,7 @@ export function Stage(props: Props & { exteriorView?: 'home' | 'galaxy'; interac
       {home>0 && Array.from({length:80},(_,i)=><rect key={i} x={stableHash('star-x'+i)%1000/1000*bounds.width} y={stableHash('star-y'+i)%1000/1000*bounds.height} width={i%9===0 ? 2 : 1} height={i%9===0 ? 2 : 1} opacity={home*(.15+i%4*.12)} />)}
       {frame.orbits.map((orbit,i)=><DitherOrbit key={i} orbit={orbit} />)}
     </svg>
-    <DitherCanvas getFrame={getFrame} reducedMotion={props.reducedMotion} paused={props.interactive === false && !busy} interactive={props.interactive !== false && !busy} onModeChange={setRenderMode} />
+    <DitherCanvas getFrame={getFrame} onFrame={rememberFrame} reducedMotion={props.reducedMotion} paused={props.interactive === false && !busy} interactive={props.interactive !== false && !busy} onModeChange={setRenderMode} />
     {busy && <div className="dither-travel-caption" style={{opacity:cloud}} aria-live="polite">穿过星云 · {props.flight?.to === 'visitor' ? '下一颗星球' : desiredHome===0 ? 'Galaxy' : '我的星球'}</div>}
     <div className="dither-stage-accessible" aria-label="场景对象">
       {inGalaxy && !visitor && (props.focusedGalaxy ? props.galaxySystems.filter(s=>s.id===props.focusedGalaxy).flatMap(s=>s.planets.map(p=><button disabled={busy || props.interactive === false} key={p.id} onClick={()=>props.onOpenPlanet(p,s.id)}>场景星球：{p.alias}</button>)) : props.galaxySystems.map(s=><button disabled={busy || props.interactive === false} key={s.id} onClick={()=>props.onSelectGalaxy(s.id)}>场景星系：{s.label}</button>))}

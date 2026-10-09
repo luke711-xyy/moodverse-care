@@ -22,7 +22,16 @@ type GroupAccumulator = {
 }
 
 const GROUP_LIMIT = 40
-const PLANETS_PER_GROUP = 20
+const PLANETS_PER_GROUP = 16
+export function sampleGalaxyPlanets<T>(values: T[], limit = PLANETS_PER_GROUP, random = Math.random): T[] {
+  const sampled = [...values]
+  // Uniform sampling without replacement; keep the sample for this response.
+  for (let i = sampled.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1))
+    ;[sampled[i], sampled[j]] = [sampled[j], sampled[i]]
+  }
+  return sampled.slice(0, limit)
+}
 const respond = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
   status,
   headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
@@ -83,9 +92,8 @@ function groupRows(rows: PublicMusicRow[], by: GalaxyGroupBy): GalaxyGroup[] {
       key: group.key,
       label: group.label,
       planetCount: group.planets.size,
-      planets: [...group.planets.values()]
-        .sort((a, b) => a.displayName.localeCompare(b.displayName) || a.planetId.localeCompare(b.planetId))
-        .slice(0, PLANETS_PER_GROUP),
+      planets: sampleGalaxyPlanets([...group.planets.values()])
+        .sort((a, b) => a.displayName.localeCompare(b.displayName) || a.planetId.localeCompare(b.planetId)),
     }))
 }
 
@@ -96,6 +104,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   const by = byValue as GalaxyGroupBy
 
   const { results } = await env.DB.prepare(`
+    SELECT * FROM (
     SELECT DISTINCT p.id AS planet_id, p.display_name, p.tagline, p.visual_json,
            c.id AS track_id, c.title, c.version_label, c.artist_id, c.artist_name, c.genres_json
     FROM music_planets p
@@ -120,7 +129,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         WHERE (b.blocker_user_id = ?1 AND b.blocked_user_id = p.owner_user_id)
            OR (b.blocker_user_id = p.owner_user_id AND b.blocked_user_id = ?1)
       ))
-    LIMIT 5000
+    ) ORDER BY random() LIMIT 5000
   `).bind(identity?.userId ?? null).all<PublicMusicRow>()
 
   const groups = groupRows(results, by)

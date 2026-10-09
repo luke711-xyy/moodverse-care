@@ -1,5 +1,6 @@
 import { createDitherSpec, effectiveDitherParameters, stableHash, type DitherPlanetSpec } from './appearance'
 import type { DitherAsset, DitherFrame } from './renderer'
+import type { MusicBeatClock } from '../audio-clock'
 
 // A preview oscillator, NOT a measured song BPM. Replace the clock input with
 // actual beat events when an authorized audio source is available.
@@ -53,12 +54,13 @@ export function createDitherCellField(requestedGrid: number, previous?: Particle
  * Latitude and view depth delay each particle; tangential shear differs too.
  * No common scale is ever applied to the asset or its satellite orbit.
  */
-export function particleTide(x: number, y: number, depth: number, seconds: number, strength: number) {
-  const cycles = Math.round(((seconds * DEFAULT_TIDE_BPM / 60) % 1 + 1) % 1 * 1e6) / 1e6
+export function particleTide(x: number, y: number, depth: number, seconds: number, strength: number, beat?: MusicBeatClock) {
+  if (beat && !beat.playing) return { x: 0, y: 0 }
+  const cycles = beat?.cycles ?? Math.round(((seconds * DEFAULT_TIDE_BPM / 60) % 1 + 1) % 1 * 1e6) / 1e6
   const phase = (cycles - (y + 1) * .23 - (1 - depth) * .19) * TAU
   const crest = ((1 + Math.cos(phase)) * .5) ** 6
   const undertow = .48 * ((1 + Math.cos(phase - 1.65)) * .5) ** 3
-  const amplitude = .16 * Math.sqrt(clamp(strength, 0, 1)), wave = crest - undertow
+  const amplitude = .16 * Math.sqrt(clamp(strength, 0, 1)) * (beat && !beat.playing ? 0 : 1), wave = crest - undertow
   const shear = Math.sin(phase + y * 2) * amplitude * .23
   return { x: x * wave * amplitude - y * shear, y: y * wave * amplitude + x * shear }
 }
@@ -66,7 +68,7 @@ export function particleTide(x: number, y: number, depth: number, seconds: numbe
 /** Independent point velocities, normalized to the displayed sphere radius.
  * Small fixed substeps make the spring/vortex stable at different frame rates.
  */
-export function stepParticleField(field: ParticleField, pose: Pose, delta: number, seconds: number, pointer: { x: number; y: number } | undefined, running: boolean) {
+export function stepParticleField(field: ParticleField, pose: Pose, delta: number, seconds: number, pointer: { x: number; y: number } | undefined, running: boolean, beat?: MusicBeatClock) {
   const p = effectiveDitherParameters(pose.spec)
   const cr = Math.cos(pose.rotation), sr = Math.sin(pose.rotation)
   const steps = running ? Math.ceil(clamp(delta, 0, .05) / STEP) : 0
@@ -78,7 +80,7 @@ export function stepParticleField(field: ParticleField, pose: Pose, delta: numbe
     const hi = i * 3, oi = i * 2, pi = i * PARTICLE_STRIDE
     const nx = field.homes[hi], ny = field.homes[hi + 1], nz = field.homes[hi + 2]
     const hx = nx * cr - ny * sr, hy = nx * sr + ny * cr
-    const tide = particleTide(hx, hy, Math.max(0, nz), seconds, p.pulse)
+    const tide = particleTide(hx, hy, Math.max(0, nz), seconds, p.pulse, beat)
     let ox = field.offsets[oi], oy = field.offsets[oi + 1], vx = field.velocities[oi], vy = field.velocities[oi + 1]
     for (let step = 0; step < steps; step++) {
       let ax = (tide.x - ox) * 100 - vx * 8, ay = (tide.y - oy) * 100 - vy * 8
@@ -149,7 +151,7 @@ export function createDitherMotion() {
   const cloudSpec = createDitherSpec({ planetId: 'galaxy-live-flow', tracks: [], overrides: { motif: 'flow', size: 1, pointer: 'weak', density: .32, pixelSize: 5, speed: .1, glow: .2, blue: .7, violet: .8, pink: .45 } })
   let cloudPointer: { x: number; y: number } | undefined, pointerPower = 0
   return {
-    apply(frame: DitherFrame, delta: number, seconds: number, running: boolean, low: boolean) {
+    apply(frame: DitherFrame, delta: number, seconds: number, running: boolean, low: boolean, beat?: MusicBeatClock) {
       let budget = low ? 30000 : 100000
       const visible = new Set(frame.assets.map(a => a.id))
       for (const id of fields.keys()) if (!visible.has(id)) fields.delete(id)
@@ -172,7 +174,7 @@ export function createDitherMotion() {
         const field = reuse ? existing.field : createDitherCellField(grid, existing?.seed === seed ? existing.field : undefined)
         fields.set(asset.id, { seed, low, pixelSize: p.pixelSize, field })
         const pointer = frame.pointer ? { x: (frame.pointer.x - asset.x) / radius, y: (frame.pointer.y - asset.y) / radius } : undefined
-        asset.particles = stepParticleField(field, { spec: asset.spec, phase: asset.phase ?? frame.phase, rotation: asset.rotation ?? 0, radius }, delta, seconds, pointer, running)
+        asset.particles = stepParticleField(field, { spec: asset.spec, phase: asset.phase ?? frame.phase, rotation: asset.rotation ?? 0, radius }, delta, seconds, pointer, running, beat)
       }
       const opacity = frame.ambience ?? 0
       if (opacity > 0) {

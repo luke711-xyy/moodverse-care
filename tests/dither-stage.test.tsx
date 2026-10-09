@@ -9,7 +9,7 @@ import { buildDitherStageFrame } from '../src/music/dither/stage-layout'
 import { hitTestDitherAssets } from '../src/music/dither/layout'
 import * as ditherLayout from '../src/music/dither/layout'
 const capture = vi.hoisted(() => ({ frame: null as DitherFrame | null }))
-vi.mock('../src/music/dither/DitherCanvas', () => ({ DitherCanvas: (props: { getFrame: (w: number, h: number, phase: number) => DitherFrame }) => { capture.frame = props.getFrame(1000, 700, 0); return <canvas /> } }))
+vi.mock('../src/music/dither/DitherCanvas', () => ({ DitherCanvas: (props: { getFrame: (w: number, h: number, phase: number) => DitherFrame; onFrame?: (frame: DitherFrame) => void }) => { capture.frame = props.getFrame(1000, 700, 0); props.onFrame?.(capture.frame); return <canvas /> } }))
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 test('rear satellites are painted and picked behind the owner; front satellites stay visible', () => {
@@ -145,4 +145,16 @@ test('a visible satellite is picked at its rotated screen location', () => {
   expect(picking.mock.calls.at(-1)?.[0].find(asset=>asset.id==='music:front')).toEqual(front)
   expect(picking.mock.results.at(-1)?.value?.id).toBe('music:front')
   expect(onMusicSelect).toHaveBeenCalledWith('front')
+})
+test('clicking a visible galaxy planet opens the visitor flow, rather than just disturbing pixels', () => {
+  vi.stubGlobal('PointerEvent', MouseEvent)
+  const onOpenPlanet=vi.fn()
+  render(<Stage planet={null} friendSatellites={[]} visitedPlanet={null} previewSeed="owner" reducedMotion productView="galaxy"
+    focusedGalaxy="g" galaxySystems={[{id:'g',key:'g',label:'test',color:'#ddd',planets:[{id:'p',alias:'visitor',tagline:'',spec:createDitherSpec({planetId:'p',tracks:[],overrides:{size:1}})}]}]} galaxyRotation={0} routeJourney={0} regrouping={false}
+    onSelectGalaxy={vi.fn()} onOpenPlanet={onOpenPlanet} onRotate={vi.fn()} onTourMove={vi.fn()} onMusicSelect={vi.fn()} onFriendSelect={vi.fn()} />)
+  const body=capture.frame!.assets.find(a=>a.id==='planet:p')!
+  const region=screen.getByRole('region',{name:'二维音乐宇宙'})
+  const event={button:0,clientX:body.x,clientY:body.y}
+  fireEvent.pointerDown(region,event);fireEvent.pointerUp(region,event)
+  expect(onOpenPlanet).toHaveBeenCalledWith(expect.objectContaining({id:'p'}),'g')
 })

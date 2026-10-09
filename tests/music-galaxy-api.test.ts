@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from 'vitest'
-import { onRequestGet } from '../functions/api/music/galaxy'
+import { onRequestGet, sampleGalaxyPlanets } from '../functions/api/music/galaxy'
 import { createMusicApiEnv, createMusicApiFixture, insertCatalogTrack } from './helpers/music-api-fixture'
 import type { MusicGalaxyResponse } from '../src/music-api'
 import { isDitherSpec } from '../src/music/dither/appearance'
@@ -83,6 +83,21 @@ test('Galaxy rejects unknown grouping modes instead of silently changing the dis
   const response = await getGalaxy('mood')
   expect(response.status).toBe(400)
   expect(await response.json()).toEqual({ error: 'INVALID_GROUPING' })
+})
+test('crowded systems randomly sample at most 16 distinct public planets', async () => {
+  for(let i=0;i<30;i++) {
+    fixture.sqlite.prepare(`INSERT INTO users(id,token_hash,created_at,updated_at) VALUES(?,?,?,?)`).run('sample-u'+i,'sample-h'+i,'now','now')
+    fixture.sqlite.prepare(`INSERT INTO music_planets(id,owner_user_id,display_name,tagline,visibility,created_at,updated_at) VALUES(?,?,?,'','public','now','now')`).run('sample-p'+i,'sample-u'+i,'sample '+i)
+    fixture.sqlite.prepare(`INSERT INTO music_planet_tracks(planet_id,track_id,position,selected_at) VALUES(?,'song-a',0,'now')`).run('sample-p'+i)
+  }
+  const body=await (await getGalaxy('song')).json() as MusicGalaxyResponse
+  const group=body.groups.find(g=>g.key==='song-a')!
+  expect(group.planetCount).toBe(31)
+  expect(group.planets).toHaveLength(16)
+  expect(new Set(group.planets.map(p=>p.planetId)).size).toBe(16)
+  const values=Array.from({length:40},(_,i)=>i)
+  expect(sampleGalaxyPlanets(values,16,()=>0)).not.toEqual(values.slice(0,16))
+  expect(values).toHaveLength(40)
 })
 
 test('Galaxy adapts legacy and unsafe appearance JSON into bounded deterministic 2D specs', async () => {

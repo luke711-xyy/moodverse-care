@@ -3,6 +3,7 @@ import { ensureDefaultFriendSatellites, readFriendSatellites } from '../../_musi
 import { validateTrackSelection, type MusicTrackSummary } from '../../../src/music-domain'
 import { catalogTrack, parseVisualJson, readVisualCatalogTracks, CATALOG_VISUAL_COLUMNS } from '../../_music-dither'
 import { createDitherSpec, resolveDitherSpec, validateDitherOverrides } from '../../../src/music/dither/appearance'
+import { DEFAULT_TRACK_ID } from '../../../src/music/default-track'
 
 type MusicPlanetRow = {
   id: string
@@ -136,7 +137,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     return response({ error: selection.ok ? 'INVALID_PLANET' : selection.error }, 400)
   }
 
-  const primaryTrackId = body.primaryTrackId === undefined ? selection.trackIds[0] : body.primaryTrackId
+  const primaryTrackId = body.primaryTrackId === undefined
+    ? selection.trackIds.includes(DEFAULT_TRACK_ID) ? DEFAULT_TRACK_ID : selection.trackIds[0]
+    : body.primaryTrackId
   if (typeof primaryTrackId !== 'string' || !selection.trackIds.includes(primaryTrackId.trim())) {
     return response({ error: 'INVALID_PRIMARY_TRACK' }, 400)
   }

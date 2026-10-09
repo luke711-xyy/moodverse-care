@@ -339,11 +339,11 @@
   pointer-events: auto;
 }
 .music-galaxy-axis-label { margin: 0 0 8px; color: var(--ink); font-family: var(--pixel); font-size: 12px; text-align: center; text-shadow: 0 0 9px color-mix(in srgb, var(--axis-color) 72%, transparent), 0 0 19px color-mix(in srgb, var(--axis-color) 38%, transparent); }
-.music-galaxy-axis-scroll { overflow: hidden; padding: 2px 0; }
+.music-galaxy-axis-scroll { overflow-x: auto; overflow-y: hidden; padding: 2px 0; scrollbar-width: none; }
 .music-galaxy-axis-scroll::-webkit-scrollbar { display: none; }
-.music-galaxy-axis-track { position: relative; display: flex; width: max(100%, var(--axis-track-width)); height: 26px; align-items: center; justify-content: space-between; }
-.music-galaxy-axis-track::before, .music-galaxy-axis-track > i { content: ''; position: absolute; top: 50%; right: 17px; left: 0; height: 1px; transform-origin: left; background: var(--music-line-strong); }
-.music-galaxy-axis-track > i { z-index: 1; background: var(--primary); box-shadow: 0 0 8px var(--primary); transition: transform .32s ease; }
+.music-galaxy-axis-track { position: relative; display: grid; grid-template-columns: repeat(var(--axis-node-count), 1fr); width: max(100%, var(--axis-track-width)); height: 32px; align-items: center; justify-items: center; }
+.music-galaxy-axis-track::before, .music-galaxy-axis-track > i { content: ''; position: absolute; top: 50%; right: calc(50% / var(--axis-node-count)); left: calc(50% / var(--axis-node-count)); height: 1px; transform-origin: left; background: var(--music-line-strong); }
+.music-galaxy-axis-track > i { z-index: 1; background: var(--primary); box-shadow: 0 0 8px var(--primary); }
 .music-galaxy-axis-track > button { position: relative; z-index: 2; display: grid; width: 20px; height: 20px; flex: 0 0 20px; place-items: center; padding: 0; border: 0; border-radius: 50%; background: transparent; cursor: pointer; }
 .music-galaxy-axis-track > button span { width: 7px; height: 7px; border: 1px solid color-mix(in srgb, var(--node-color) 70%, white); border-radius: 50%; background: #100d17; box-shadow: 0 0 0 1px #08080d, 0 0 10px color-mix(in srgb, var(--node-color) 22%, transparent); transition: width .2s, height .2s, background .2s, box-shadow .2s; }
 .music-galaxy-axis-track > button.is-passed span, .music-galaxy-axis-track > button.is-current span { background: var(--node-color); box-shadow: 0 0 9px var(--node-color); }

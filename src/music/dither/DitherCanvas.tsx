@@ -4,6 +4,7 @@ import { createDitherRenderer, type DitherFrame } from './renderer'
 import { advanceDitherPhase, renderDitherImage, type DitherAssetKind } from './sampler'
 import { createDitherMotion, DEFAULT_TIDE_BPM } from './motion'
 import { clientPoint, logicalSize } from '../viewport'
+import { getMusicBeatClock } from '../audio-clock'
 import './dither.css'
 
 const thumbnailCache = new Map<string, HTMLCanvasElement>()
@@ -33,7 +34,7 @@ export function DitherThumbnail({ spec, label = '', size = 96, kind = 'planet' }
   return <canvas ref={ref} className="dither-thumb" width={size} height={size} role={label ? 'img' : undefined} aria-label={label || undefined} aria-hidden={!label} />
 }
 
-export function DitherCanvas({ getFrame, reducedMotion = false, forceFallback = false, quality = 'auto', onModeChange, interactive = true, paused = false }: {
+export function DitherCanvas({ getFrame, reducedMotion = false, forceFallback = false, quality = 'auto', onModeChange, onFrame, interactive = true, paused = false }: {
   getFrame: (width: number, height: number, phase: number) => DitherFrame
   reducedMotion?: boolean
   interactive?: boolean
@@ -41,12 +42,13 @@ export function DitherCanvas({ getFrame, reducedMotion = false, forceFallback = 
   forceFallback?: boolean
   quality?: 'auto' | 'low' | 'high'
   onModeChange?: (mode: 'webgl2' | 'canvas2d') => void
+  onFrame?: (frame: DitherFrame) => void
 }) {
   const glRef = useRef<HTMLCanvasElement>(null), fallbackRef = useRef<HTMLCanvasElement>(null)
-  const latest = useRef({ getFrame, reducedMotion, quality, onModeChange, interactive, paused })
+  const latest = useRef({ getFrame, reducedMotion, quality, onModeChange, onFrame, interactive, paused })
   const restartRef = useRef<(() => void) | null>(null)
   const phasesRef = useRef(new Map<string, number>())
-  latest.current = { getFrame, reducedMotion, quality, onModeChange, interactive, paused }
+  latest.current = { getFrame, reducedMotion, quality, onModeChange, onFrame, interactive, paused }
   const [mode, setMode] = useState<'webgl2' | 'canvas2d'>('webgl2')
   useEffect(() => {
     const canvas = glRef.current!, fallback = fallbackRef.current!
@@ -86,9 +88,14 @@ export function DitherCanvas({ getFrame, reducedMotion = false, forceFallback = 
       })
       frame.pointer = reduced || !latest.current.interactive ? undefined : pointer
       const low = latest.current.quality === 'low' || latest.current.quality === 'auto' && automaticLow
-      motion.apply(frame, elapsed, seconds, isRunning() && Boolean(renderer), low)
+      const beat = getMusicBeatClock()
+      motion.apply(frame, elapsed, seconds, isRunning() && Boolean(renderer), low, beat)
+      // Picking must use the animated material cells that are actually drawn.
+      latest.current.onFrame?.(frame)
       canvas.dataset.ditherParticles = String(frame.assets.reduce((sum, asset) => sum + (asset.particles?.count ?? 0), 0))
-      canvas.dataset.ditherBpm = String(DEFAULT_TIDE_BPM)
+      canvas.dataset.ditherBpm = String(beat?.bpm ?? DEFAULT_TIDE_BPM)
+      canvas.dataset.ditherBeatPhase = String(beat?.cycles ?? 0)
+      canvas.dataset.ditherMusicPlaying = String(beat?.playing ?? false)
       canvas.dataset.ditherTime = String(seconds)
       canvas.dataset.ditherQuality = low ? 'low' : 'normal'
       if (renderer) renderer.draw(frame, Math.min(window.devicePixelRatio || 1, low ? 1 : latest.current.quality === 'high' ? 2 : 1.5))

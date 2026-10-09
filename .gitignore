@@ -12,3 +12,5 @@ design/
 .tripo/
 graphify-out/
 functions/graphify-out/
+# User-supplied audio ships with Pages but is not stored as a Git asset.
+public/audio/

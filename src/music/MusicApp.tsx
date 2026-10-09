@@ -4,6 +4,7 @@ import { createMusicApi, MusicApiError } from '../music-api'
 import { togglePlanetTrack, validatePlanetDraft } from '../music-app-domain'
 import type { MusicTrackSummary } from '../music-domain'
 import { buildMusicGalaxySceneSystems } from './galaxy-scene'
+import { galaxyTourPosition } from './galaxy-navigation'
 import { getTourAnchorProgress, normalizeWheelDelta, reachesTourHomeEndpoint, TOUR_END } from '../universe'
 import { Stage } from './dither/Stage'
 import { AppearanceEditor } from './dither/AppearanceEditor'
@@ -14,6 +15,8 @@ import { CockpitShell } from './cockpit/CockpitShell'
 import { cockpitReducer, initialCockpitState, type CockpitPage } from './cockpit/state'
 import { getFlightSpeed, useCockpitFlight } from './cockpit/flight'
 import { logicalSize } from './viewport'
+import { DEFAULT_TRACK_ID } from './default-track'
+import { useMusicPlayer } from './useMusicPlayer'
 import './music-app.css'
 import './dither/product.css'
 import './cockpit/product.css'
@@ -142,14 +145,24 @@ function MusicGalaxyAxis({ systems, journey, onSelect, onHome }: {
   onHome: () => void
 }) {
   const progress = systems.length ? Math.max(0, Math.min(1, journey / TOUR_END)) : 0
-  const currentIndex = Math.round(progress * Math.max(0, systems.length - 1))
+  const { currentIndex, axisProgress } = galaxyTourPosition(progress, systems.length)
+  const scroll = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const node = scroll.current?.querySelector<HTMLElement>('[aria-current="step"]')
+    const el = scroll.current
+    if (!el || !node) return
+    // Scroll this strip only, never scroll the entire cockpit with scrollIntoView.
+    const center = node.offsetLeft + node.offsetWidth / 2
+    if (center < el.scrollLeft + 20 || center > el.scrollLeft + el.clientWidth - 20)
+      el.scrollLeft = Math.max(0, center - el.clientWidth / 2)
+  }, [currentIndex])
   if (!systems.length) return null
   const current = systems[currentIndex]
   return <div className="music-galaxy-axis" style={{ '--axis-color': current.color } as CSSProperties}>
     <div className="music-galaxy-axis-label" aria-live="polite">正在观测 · {current.label}</div>
-    <div className="music-galaxy-axis-scroll" role="group" aria-label="Galaxy 星系导航">
-      <div className="music-galaxy-axis-track" style={{ '--axis-track-width': `${Math.max(100, systems.length * 31 + 44)}px` } as CSSProperties}>
-        <i style={{ transform: `scaleX(${progress})` }} />
+    <div ref={scroll} className="music-galaxy-axis-scroll" role="group" aria-label="Galaxy 星系导航">
+      <div className="music-galaxy-axis-track" style={{ '--axis-track-width': `${Math.max(100, (systems.length + 1) * 36)}px`, '--axis-node-count': systems.length + 1 } as CSSProperties}>
+        <i style={{ transform: `scaleX(${axisProgress})` }} />
         {systems.map((system, index) => <DitherButton
           type="button" key={system.id} title={`星系 · ${system.label}`}
           aria-label={`前往星系 ${system.label}`} aria-current={index === currentIndex ? 'step' : undefined}
@@ -456,6 +469,7 @@ function DriftBottlePanel({ api, tracks, moments, onVisitPlanet }: {
 }
 
 function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
+  const musicPlayer = useMusicPlayer()
   const [api] = useState(() => apiOverride ?? createMusicApi())
   const [home, setHome] = useState<HomeState>({ status: 'loading' })
   const [query, setQuery] = useState('')
@@ -638,6 +652,8 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
       if (epoch !== accountEpoch.current) return
       setMomentsLoadError(failedToLoadMoments)
       setHome({ status: 'ready', tracks, planet, moments, friendSatellites })
+      if (!planet && tracks.some(track => track.id === DEFAULT_TRACK_ID))
+        setSelectedTrackIds(current => current.length ? current : [DEFAULT_TRACK_ID])
       if (planet) {
         setMomentTrackId(planet.tracks.find((track) => track.isPrimary)?.id ?? planet.tracks[0]?.id ?? '')
       }
@@ -1503,7 +1519,7 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
   const signal = cockpit.travel.status !== 'idle' ? 'traveling' : visitError || galaxy.status === 'error' ? 'error' : songPortal.status === 'loading' || galaxy.status === 'loading' || discovery.status === 'loading' ? 'loading' : 'idle'
 
   return <main className={`music-app${planet ? ' has-planet' : ' is-onboarding'}`}>
-    <CockpitShell state={cockpit} reducedMotion={reducedMotion} crtEnabled={crtEnabled} signal={signal}
+    <CockpitShell state={cockpit} reducedMotion={reducedMotion} crtEnabled={crtEnabled} signal={signal} musicPlayer={musicPlayer}
       planetName={planet?.displayName ?? '待命星球'} heading={Math.min(1, galaxyJourney / TOUR_END)}
       flightSpeed={getFlightSpeed(flightController.flight)}
       by={galaxy.status === 'idle' ? 'genre' : galaxy.by} onClassify={by => { void regroupGalaxy(by) }}
@@ -1539,7 +1555,7 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
     <div className="cockpit-pages">
       {view === 'planet' && <section className="cockpit-personal-heading"><DitherTitle level={2}>{planet?.displayName ?? '创建我的星球'}</DitherTitle>{planet?.tagline && <p>{planet.tagline}</p>}
         {planet && <div className="cockpit-page-actions"><DitherButton onClick={() => changeView('manage')}>星球资料与歌曲</DitherButton><DitherButton aria-label="编辑星球外观" onClick={() => { setAppearanceError(''); setAppearanceOpen(true); changeView('appearance') }}>调整外观</DitherButton></div>}
-        <SongWall tracks={planet?.tracks ?? tracks.filter(t=>selectedTrackIds.includes(t.id))} selectedId={focusedTrackId} onSelect={setFocusedTrackId} />
+        <SongWall tracks={planet?.tracks ?? tracks.filter(t=>selectedTrackIds.includes(t.id))} selectedId={focusedTrackId} onSelect={setFocusedTrackId} player={musicPlayer} />
       </section>}
       {appearanceOpen && activeVisual && <div hidden={view !== 'appearance'}><AppearanceEditor embedded active={view === 'appearance' && cockpit.console.focus !== 'overview'} reducedMotion={reducedMotion} spec={activeVisual} busy={appearanceBusy} error={appearanceError} onPreview={setAppearancePreview} onApply={(overrides)=>{void applyAppearance(overrides)}} onClose={() => { closeAppearance(); changeView('planet') }} onReload={()=>{void reloadAppearance()}} /></div>}
 

@@ -25,6 +25,7 @@ if (!expected.every((value) => config.includes(value))) {
 const seedFiles = [
   'scripts/seed-music-demo-tracks.sql',
   'scripts/seed-music-demo-world.sql',
+  'scripts/seed-default-music.sql',
 ]
 
 for (const relativePath of seedFiles) {

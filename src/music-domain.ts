@@ -28,6 +28,8 @@ export type MusicTrackSummary = {
   officialUrl: string | null
   coverUrl: string | null
   durationSeconds: number | null
+  /** An allowlisted, first-party recording; never an arbitrary remote URL. */
+  audioUrl?: string
   /** True only for fictional, non-playable catalog rows used in isolated staging. */
   isDemo?: boolean
   visualFeatures?: MusicVisualFeatures

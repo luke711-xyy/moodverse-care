@@ -18,7 +18,7 @@ export function depthOrderedAssets(assets: DitherAsset[]): DitherAsset[] {
   return [...assets].sort((a, b) => (a.depth ?? 0) - (b.depth ?? 0))
 }
 
-type HitSampling = { mode?: 'webgl2' | 'canvas2d'; pointer?: { x: number; y: number }; pixelRatio?: number; materialGrid?: number }
+type HitSampling = { mode?: 'webgl2' | 'canvas2d'; pointer?: { x: number; y: number }; pixelRatio?: number; materialGrid?: number; bodyTargets?: boolean }
 /** Match the actual renderer's pixel-cell centers, including cached fallback. */
 export function sampleDitherAssetAlpha(asset: DitherAsset, x: number, y: number, sampling: HitSampling = {}): number {
   const p = effectiveDitherParameters(asset.spec), radius = asset.radius * p.size
@@ -79,7 +79,9 @@ export function hitTestDitherAssets(assets: DitherAsset[], x: number, y: number,
     // The GPU depth-only prepass uses the capped material grid and an opaque
     // analytic volume even while visible cells are fading. Match its .36 alpha
     // cutoff, not the requested finer raster or the asset's display opacity.
-    if (asset.particles && sampling.mode !== 'canvas2d' && sampleDitherAssetAlpha({ ...asset, particles: undefined, opacity: 1 }, x, y, { ...sampling, pointer: undefined, materialGrid: asset.particles.grid }) > 91) return null
+    const bodyAlpha = sampleDitherAssetAlpha({ ...asset, particles: undefined, opacity: 1 }, x, y, { ...sampling, pointer: undefined, materialGrid: asset.particles?.grid })
+    if (bodyAlpha > 91 && sampling.bodyTargets) return asset
+    if (asset.particles && sampling.mode !== 'canvas2d' && bodyAlpha > 91) return null
   }
   return null
 }
