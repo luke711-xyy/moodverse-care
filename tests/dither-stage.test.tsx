@@ -73,3 +73,16 @@ test('own planet rotation still responds after returning from a focused galaxy',
   expect(capture.frame!.assets[0].rotation).toBeCloseTo((initial ?? 0) + .15 * .25)
   expect(props.onRotate).not.toHaveBeenCalled()
 })
+
+test('an open personal terminal cannot change the Galaxy exterior or its controls', () => {
+  const props: React.ComponentProps<typeof Stage> = {
+    planet: { id: 'owner', tracks: [], visual: createDitherSpec({ planetId: 'owner', tracks: [] }) } as React.ComponentProps<typeof Stage>['planet'],
+    friendSatellites: [], visitedPlanet: null, previewSeed: 'owner', reducedMotion: true,
+    productView: 'orbit', exteriorView: 'galaxy', galaxySystems: [], galaxyRotation: 0, routeJourney: 0, regrouping: false,
+    onSelectGalaxy: vi.fn(), onOpenPlanet: vi.fn(), onRotate: vi.fn(), onTourMove: vi.fn(), onMusicSelect: vi.fn(), onFriendSelect: vi.fn(),
+  }
+  render(<Stage {...props} />)
+  expect(capture.frame!.assets.some(asset => asset.id.startsWith('home:'))).toBe(false)
+  fireEvent.keyDown(screen.getByRole('region', { name: '二维音乐宇宙' }), { key: 'ArrowRight' })
+  expect(props.onTourMove).toHaveBeenCalledWith(.15)
+})

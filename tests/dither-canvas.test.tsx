@@ -37,6 +37,18 @@ test('initial static preview still paints, unmount releases resources and frame 
   expect(cancel).toHaveBeenCalled()
 })
 
+test('a focused terminal pauses the covered world and resumes in place without a second GPU context', () => {
+  const { rerender } = render(<DitherCanvas getFrame={frame} />)
+  vi.mocked(requestAnimationFrame).mockClear()
+  rerender(<DitherCanvas getFrame={frame} paused />)
+  expect(requestAnimationFrame).not.toHaveBeenCalled()
+  expect(createDitherRenderer).toHaveBeenCalledTimes(1)
+  rerender(<DitherCanvas getFrame={frame} />)
+  expect(requestAnimationFrame).toHaveBeenCalled()
+  expect(createDitherRenderer).toHaveBeenCalledTimes(1)
+  expect(dispose).not.toHaveBeenCalled()
+})
+
 test('the slower orbit clock does not wrap before completing its revolution', () => {
   vi.spyOn(document, 'hidden', 'get').mockReturnValue(false)
   vi.spyOn(performance, 'now').mockReturnValue(0)

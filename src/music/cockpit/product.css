@@ -1,0 +1,76 @@
+/* Terminal content overrides the retired floating-panel layout, never the world shader. */
+.music-app:has(.cockpit) { width: 100%; height: 100dvh; min-height: 0; overflow: clip; }
+.cockpit { --primary: var(--phosphor); --muted: var(--phosphor-muted); --ink: #efe6d2; --music-line: #dbc69b38; --music-line-strong: #dbc69b66; }
+.cockpit-pages { max-width: 1100px; margin-inline: auto; min-width: 0; }
+.cockpit-pages > * { min-width: 0; }
+.cockpit-pages:has(.cockpit-personal-heading) { display: grid; grid-template-columns: minmax(200px,.65fr) minmax(0,1.35fr); gap: 32px; }
+.cockpit-personal-heading { border-right: 1px dotted var(--phosphor-muted); padding-right: 24px; }
+.cockpit .music-panel { position: static; width: 100%; max-width: none; max-height: none; overflow: visible; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; pointer-events: auto; color: var(--ink); }
+.cockpit .dither-title { background-image: var(--dither-pattern),linear-gradient(120deg,#fff5db,var(--phosphor),#c8a267); font-size: 24px; line-height: 1.3; letter-spacing: 0; margin-top: 0; }
+.cockpit h3.dither-title { font-size: 18px; }
+.cockpit h2.dither-title { font: 650 24px/1.3 var(--cockpit-label); }
+.cockpit :is(.music-message p,.music-moment-item p,.music-bottle-comment p,.music-bottle-detail p,.music-bottle-item p,.music-orbit-entry p,.music-discovery-match-copy p,.music-moderation-detail) { font-size: 16px; line-height: 1.65; max-width: 68ch; }
+.cockpit :is(.music-panel-note,.music-privacy-note,.music-moments-empty) { max-width: 72ch; }
+.cockpit :is(.music-fields label,.music-moment-form label,.music-message-form label,.music-bottle-compose label,.music-search-label,.music-report-form label) { font-size: 14px; }
+.cockpit :is(.music-message time,.music-moment-item span,.music-orbit-entry small,.music-bottle-item small,.music-bottle-comment small,.music-discovery-status,.music-section-heading>span,.music-visibility-toggle small,.music-report-feedback,.music-feedback,.music-form-error) { font-size: 13px; line-height: 1.6; }
+.cockpit .music-panel input:not([type=checkbox]):not([type=radio]):not([type=range]) { min-height: 44px; font-size: 16px; color: var(--ink); background: #12110c; }
+.cockpit p { line-height: 1.65; overflow-wrap: anywhere; }
+.cockpit .music-panel-note,.cockpit .music-privacy-note,.cockpit .music-moments-empty { color: var(--phosphor-muted); font-size: 14px; }
+.cockpit :is(.music-primary-button,.music-secondary-button,.music-track-portal-button,.dither-button) { min-height: 44px; color: var(--phosphor); background-color: #251f14; border-color: #b99a5c; }
+.cockpit .music-text-button { color: var(--phosphor); min-height: 44px; }
+.cockpit .music-panel button,.cockpit .dither-button { font-size: 14px; }
+.cockpit .music-orbit-entry strong { font-size: 16px; }
+.cockpit :is(.music-fields input,.music-search,.music-panel textarea,.music-panel select) { color: var(--ink); border-color: #bba07180; background: #12110c; min-height: 44px; font: 16px var(--cockpit-body); }
+.cockpit .music-panel textarea { min-height: 140px; line-height: 1.65; }
+.cockpit :is(.music-track-choice,.music-moment-item,.music-orbit-entry,.music-bottle-comment,.music-settings-track) { background-color: #19170f; border-color: #bba07140; color: var(--ink); }
+.cockpit .music-track-choice.is-selected { border-color: #dabd81; background-color: #342b19; }
+.cockpit .music-track-label strong { font-size: 16px; }
+.cockpit .music-track-label small { font-size: 13px; color: var(--phosphor-muted); }
+.cockpit .music-owned-track { flex-wrap: wrap; gap: 12px; }
+.cockpit .music-owned-track .music-track-label { min-width: 100px; }
+.cockpit .music-owned-track :is(a,.music-link-unavailable) { margin-left: auto; }
+.cockpit .music-track-list,.cockpit .music-settings-tracks { max-height: 350px; overflow-y: auto; overscroll-behavior: contain; padding: 4px; }
+.cockpit .music-message-list { max-height: 320px; overflow-y: auto; overscroll-behavior: contain; }
+.cockpit .music-discovery-match,.cockpit .music-orbit-entry { gap: 16px; }
+.cockpit .music-discovery-match-copy { min-width: 0; }
+.cockpit .music-section-heading { margin-block: 24px 12px; }
+.cockpit .music-form-error { color: #ffc4b0; }
+.cockpit .music-feedback,.cockpit .music-social-feedback { color: #f4d59b; }
+.cockpit .music-demo-catalog-note { font-size: 13px; color: var(--phosphor-muted); }
+.cockpit .dither-song-wall { width: 100%; margin-top: 32px; }
+.cockpit .dither-focused-record small { color: var(--phosphor-muted); }
+.cockpit .dither-focused-record a { color: var(--phosphor); }
+.cockpit-page-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.cockpit-personal-preview { display: grid; grid-template-columns: 58px minmax(0,1fr); gap: 4px 12px; align-items: center; width: 90%; text-align: left; }
+.cockpit-personal-preview .dither-planet-mark { grid-row: span 2; width: 58px; height: 58px; margin: 0; }
+.cockpit-personal-preview strong { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cockpit-personal-preview small,.cockpit-radar-preview small { font-size: 10px; color: var(--phosphor-muted); }
+.cockpit-personal-preview small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cockpit-radar-preview { position: relative; width: 100%; height: 100%; display: grid; align-content: center; padding-left: 85px; text-align: left; font-size: 13px; gap: 4px; }
+.cockpit-radar-preview > i { position: absolute; left: 12px; top: calc(50% - 30px); width: 60px; height: 60px; border: 1px dotted #dbc69b; border-radius: 50%; background: repeating-radial-gradient(circle,transparent 0 9px,#dbc69b30 10px 11px),conic-gradient(from 40deg,transparent 0 270deg,#dbc69b50); }
+.cockpit.is-in-flight .cockpit-radar-preview > i { animation: cockpit-radar 3s linear infinite; }
+@keyframes cockpit-radar { to { transform: rotate(360deg); } }
+.cockpit .music-visit-dialog { position: static; width: 100%; max-width: 620px; margin-inline: auto; padding: 0; border: 0; background: transparent; transform: none; box-shadow: none; }
+.cockpit .music-visit-dialog p { color: var(--phosphor-muted); }
+.cockpit .music-visit-actions { display: flex; flex-wrap: wrap; gap: 12px; }
+.cockpit .music-visit-incognito { margin-block: 24px; }
+.cockpit .music-galaxy-axis,.cockpit .music-galaxy-footer { position: relative; bottom: auto; left: auto; transform: none; margin: auto; background: transparent; }
+.cockpit .music-galaxy-footer { width: fit-content; text-align: center; }
+.cockpit-appearance-editor .dither-editor { position: static; width: 100%; max-width: none; border: 0; padding: 0; background: transparent; }
+.cockpit-appearance-editor .dither-editor-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); overflow: visible; gap: 24px 32px; }
+.cockpit-appearance-editor .dither-editor :is(p,label) { font-size: 16px; }
+.cockpit-appearance-editor .dither-editor select { min-height: 44px; color: var(--ink); border-color: #bba07180; }
+.cockpit-appearance-editor .dither-editor input { min-height: 44px; accent-color: #d5ae68; }
+.cockpit-appearance-editor .dither-editor output { color: var(--phosphor); }
+.cockpit-appearance-editor .dither-editor footer { position: sticky; bottom: -24px; background: #13110c; padding-block: 16px; }
+.cockpit-appearance-preview { position: relative; height: 240px; max-width: 480px; margin: 16px auto 24px; overflow: hidden; border: 1px dotted var(--phosphor-muted); }
+.cockpit-appearance-preview canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.cockpit .music-galaxy-dimensions { display: none; }
+@media (max-width:760px) {
+  .cockpit-pages:has(.cockpit-personal-heading) { grid-template-columns: minmax(0,1fr); gap: 24px; }
+  .cockpit-personal-heading { border-right: 0; padding-right: 0; border-bottom: 1px dotted var(--phosphor-muted); padding-bottom: 24px; }
+  .cockpit-appearance-editor .dither-editor-fields { grid-template-columns: minmax(0,1fr); }
+  .cockpit .music-owned-track,.cockpit .music-discovery-match,.cockpit .music-orbit-entry { flex-wrap: wrap; }
+  .cockpit .music-track-portal-button { max-width: none; }
+  .cockpit .music-galaxy-axis { width: calc(100% - 32px); }
+}

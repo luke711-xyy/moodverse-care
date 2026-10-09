@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type CSSProperties, type FormEvent } from 'react'
 import type { GalaxyGroupBy, MusicAdminReport, MusicApi, MusicDirectMessage, MusicDiscoveryResponse, MusicDriftBottleDetail, MusicDriftBottlesResponse, MusicFriendRequestsResponse, MusicFriendSatellite, MusicGalaxyResponse, MusicMoment, MusicOrbitResponse, MusicPlanet, MusicPlanetVisitSource, MusicReportQueueFilter, MusicReportReason, MusicReportStatus, MusicReportTarget, MusicSocialSettings, PublicMusicPlanet, SongPortalMatch, SongPortalResponse } from '../music-api'
 import { createMusicApi, MusicApiError } from '../music-api'
 import { togglePlanetTrack, validatePlanetDraft } from '../music-app-domain'
@@ -10,8 +10,12 @@ import { AppearanceEditor } from './dither/AppearanceEditor'
 import { SongWall } from './dither/SongWall'
 import { DitherButton, DitherTitle, DitherLoadingRing, DitherTrackMark, DitherPlanetMark } from './dither/components'
 import { resolveDitherSpec, type DitherPlanetSpec, type DitherOverrides } from './dither/appearance'
+import { CockpitShell } from './cockpit/CockpitShell'
+import { cockpitReducer, initialCockpitState, type CockpitPage } from './cockpit/state'
+import { useCockpitFlight } from './cockpit/flight'
 import './music-app.css'
 import './dither/product.css'
+import './cockpit/product.css'
 
 type HomeState =
   | { status: 'loading' }
@@ -24,7 +28,7 @@ type SongPortalState =
   | { status: 'ready'; track: MusicTrackSummary; response: SongPortalResponse }
   | { status: 'error'; track: MusicTrackSummary; message: string }
 
-type ProductView = 'planet' | 'galaxy' | 'roam' | 'orbit' | 'bottles' | 'settings' | 'moderation'
+type ProductView = CockpitPage
 
 type GalaxyState =
   | { status: 'idle' }
@@ -57,27 +61,6 @@ type MomentManagementState =
 
 const MUSIC_AUTH_CHANNEL = 'moodverse-music-auth'
 const MUSIC_AUTH_STORAGE_KEY = 'moodverse-music-auth-change'
-
-function BrandMark() {
-  return <span className="brand-lockup"><span className="brand-orb" aria-hidden="true"><i /></span><strong>MOODVERSE</strong></span>
-}
-
-function BrandHeader({ connected, view, onChangeView }: { connected: boolean; view?: ProductView; onChangeView?: (view: ProductView) => void }) {
-  return <header className="music-topbar">
-    <BrandMark />
-    {connected && onChangeView && <nav className="music-main-nav" aria-label="主导航">
-      <DitherButton type="button" aria-pressed={view === 'planet'} onClick={() => onChangeView('planet')}>我的星球</DitherButton>
-      <DitherButton type="button" aria-pressed={view === 'galaxy'} onClick={() => onChangeView('galaxy')}>Galaxy</DitherButton>
-      <DitherButton type="button" aria-pressed={view === 'roam'} onClick={() => onChangeView('roam')}>随机漫游</DitherButton>
-      <DitherButton type="button" aria-pressed={view === 'bottles'} onClick={() => onChangeView('bottles')}>漂流瓶</DitherButton>
-      <DitherButton type="button" aria-pressed={view === 'orbit'} onClick={() => onChangeView('orbit')}>My Orbit</DitherButton>
-      <DitherButton type="button" aria-pressed={view === 'settings'} onClick={() => onChangeView('settings')}>设置</DitherButton>
-    </nav>}
-    <div className="music-topbar-actions">
-      <span className={`music-access-status${connected ? ' is-connected' : ''}`}><i />{connected ? '匿名体验账号' : '匿名体验'}</span>
-    </div>
-  </header>
-}
 
 const reportReasonOptions: Array<{ value: MusicReportReason; label: string }> = [
   { value: 'spam', label: '垃圾或刷屏' },
@@ -470,8 +453,8 @@ function DriftBottlePanel({ api, tracks, moments, onVisitPlanet }: {
   </aside>
 }
 
-function MusicApp() {
-  const [api] = useState(() => createMusicApi())
+function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
+  const [api] = useState(() => apiOverride ?? createMusicApi())
   const [home, setHome] = useState<HomeState>({ status: 'loading' })
   const [query, setQuery] = useState('')
   const [displayName, setDisplayName] = useState('')
@@ -493,7 +476,13 @@ function MusicApp() {
   const [momentManagement, setMomentManagement] = useState<MomentManagementState>({ status: 'idle' })
   const [reducedMotion, setReducedMotion] = useState(false)
   const [songPortal, setSongPortal] = useState<SongPortalState>({ status: 'idle' })
-  const [view, setView] = useState<ProductView>('planet')
+  const [cockpit, dispatchCockpit] = useReducer(cockpitReducer, initialCockpitState)
+  const view = cockpit.console.page
+  const setView = useCallback((page: ProductView) => dispatchCockpit({ type: 'open', page }), [])
+  const [crtEnabled, setCrtEnabled] = useState(() => { try { return localStorage.getItem('moodverse-crt') !== 'off' } catch { return true } })
+  const [bottlesMounted, setBottlesMounted] = useState(false)
+  const profileInitialized = useRef(false)
+  const [blockConfirm, setBlockConfirm] = useState(false)
   const [galaxy, setGalaxy] = useState<GalaxyState>({ status: 'idle' })
   const [galaxyJourney, setGalaxyJourney] = useState(0)
   const galaxyJourneyRef = useRef(galaxyJourney)
@@ -538,16 +527,35 @@ function MusicApp() {
   const [incognitoVisit, setIncognitoVisit] = useState(false)
   const [visitingPlanetId, setVisitingPlanetId] = useState('')
   const [visitError, setVisitError] = useState('')
-  const visitDialogRef = useRef<HTMLElement>(null)
   const accountEpoch = useRef(0)
+  const visitLock = useRef(false)
+  const visitRequestId = useRef(0)
+  const returnVisitors = useRef<Array<PublicMusicPlanet | null>>([])
+  const flightController = useCockpitFlight(reducedMotion, trip => {
+    if (trip.to === 'visitor') setVisitedPlanet(trip.targetVisitor)
+    else setVisitedPlanet(null)
+    if (trip.returning) returnVisitors.current.pop()
+    else if (trip.to === 'visitor') returnVisitors.current.push(trip.sourceVisitor)
+    setPendingVisit(null)
+    dispatchCockpit({ type: 'arrive', token: trip.token })
+  })
+  const goHomeRef = useRef(() => {})
   const moderationRequestId = useRef(0)
+  const songRequestId = useRef(0)
+  const galaxyRequestId = useRef(0)
   const tabId = useRef(`${Date.now()}-${Math.random()}`)
   const seenAuthEvents = useRef(new Set<string>())
 
   const resetAccountScopedState = useCallback(() => {
     accountEpoch.current += 1
+    flightController.cancel()
+    returnVisitors.current = []
+    visitLock.current = false
+    visitRequestId.current += 1
     setHome({ status: 'loading' })
-    setView('planet')
+    dispatchCockpit({ type: 'reset' })
+    profileInitialized.current = false
+    setBottlesMounted(false)
     setQuery('')
     setDisplayName('')
     setTagline('')
@@ -698,9 +706,6 @@ function MusicApp() {
     }
   }, [reloadHome, resetAccountScopedState])
   useEffect(() => {
-    if (pendingVisit) visitDialogRef.current?.focus()
-  }, [pendingVisit])
-  useEffect(() => {
     if (typeof window.matchMedia !== 'function') return
     const preference = window.matchMedia('(prefers-reduced-motion: reduce)')
     const update = () => setReducedMotion(preference.matches)
@@ -734,54 +739,58 @@ function MusicApp() {
   const selectedGalaxyGroup = galaxy.status === 'ready'
     ? galaxy.response.groups.find((group) => group.key === galaxy.selectedGroupKey)
     : undefined
-  const visitedGalaxyGroup = visitedPlanet && galaxySceneResponse
-    ? galaxySceneResponse.groups.find((group) => group.planets.some((candidate) => candidate.planetId === visitedPlanet.id))
-    : undefined
-  const focusedGalaxyKey = visitedGalaxyGroup?.key ?? selectedGalaxyGroup?.key
+  const focusedGalaxyKey = selectedGalaxyGroup?.key
   const focusedGalaxyId = focusedGalaxyKey && galaxySceneResponse ? `${galaxySceneResponse.by}:${focusedGalaxyKey}` : undefined
   const focusedGalaxySystem = focusedGalaxyId ? galaxySceneSystems.find((system) => system.id === focusedGalaxyId) : undefined
 
   const openSongPortal = async (track: MusicTrackSummary) => {
     const epoch = accountEpoch.current
-    setView('planet')
-    setVisitedPlanet(null)
+    const requestId = ++songRequestId.current
+    setView('collision')
     setVisitError('')
     setSongPortal({ status: 'loading', track })
     try {
       const response = await api.findSongMatches(track.id)
-      if (epoch !== accountEpoch.current) return
+      if (epoch !== accountEpoch.current || requestId !== songRequestId.current) return
       setSongPortal({ status: 'ready', track, response })
     } catch (error) {
-      if (epoch !== accountEpoch.current) return
+      if (epoch !== accountEpoch.current || requestId !== songRequestId.current) return
       setSongPortal({ status: 'error', track, message: portalErrorMessage(error) })
     }
   }
 
   const requestPublicPlanetVisit = (planetId: string, displayName: string, source: MusicPlanetVisitSource = 'direct', trackId?: string) => {
-    if (visitingPlanetId || pendingVisit) return
+    if (visitLock.current || cockpit.travel.status !== 'idle') return
     setVisitError('')
     setIncognitoVisit(false)
     setPendingVisit({ planetId, displayName, source, ...(trackId ? { trackId } : {}) })
+    setView('preflight')
   }
 
   const visitPublicPlanet = async () => {
-    if (!pendingVisit || visitingPlanetId) return
+    if (!pendingVisit || visitLock.current) return
+    const token = flightController.start({ from: cockpit.exterior, to: 'visitor', ready: false, sourceVisitor: visitedPlanet, targetVisitor: null, returning: false })
+    if (token === null) return
+    visitLock.current = true
+    const requestId = ++visitRequestId.current
+    dispatchCockpit({ type: 'depart', token, target: 'visitor', originConsole: cockpit.history.at(-1) })
     const epoch = accountEpoch.current
     const { planetId, source, trackId } = pendingVisit
     setVisitingPlanetId(planetId)
     setVisitError('')
     try {
       const result = await api.visitPublicPlanet(planetId, incognitoVisit, source, trackId)
-      if (epoch !== accountEpoch.current) return
-      setVisitedPlanet(result)
-      setPendingVisit(null)
+      if (epoch !== accountEpoch.current || !flightController.isCurrent(token)) return
+      flightController.ready(token, result)
+      dispatchCockpit({ type: 'ready', token })
     } catch (error) {
-      if (epoch !== accountEpoch.current) return
+      if (epoch !== accountEpoch.current || !flightController.isCurrent(token)) return
+      flightController.cancel(); dispatchCockpit({ type: 'cancel', token }); setView('preflight')
       setVisitError(error instanceof MusicApiError && error.status === 404
         ? '这颗星球现在无法公开访问。'
         : portalErrorMessage(error))
     } finally {
-      if (epoch === accountEpoch.current) setVisitingPlanetId('')
+      if (epoch === accountEpoch.current && requestId === visitRequestId.current) { setVisitingPlanetId(''); visitLock.current = false }
     }
   }
 
@@ -814,7 +823,8 @@ function MusicApp() {
 
   const blockVisitedPlanet = async () => {
     if (!visitedPlanet || blockingPlanetId) return
-    if (typeof window !== 'undefined' && !window.confirm(`屏蔽「${visitedPlanet.displayName}」的星主？你们将无法互相发现、访问或私信。`)) return
+    if (!blockConfirm) { setBlockConfirm(true); return }
+    setBlockConfirm(false)
     const planetId = visitedPlanet.id
     const epoch = accountEpoch.current
     setBlockingPlanetId(planetId)
@@ -823,6 +833,8 @@ function MusicApp() {
       await api.blockPlanet(planetId)
       if (epoch !== accountEpoch.current) return
       setVisitedPlanet(null)
+      dispatchCockpit({ type: 'exterior', destination: 'home' })
+      setView('settings')
       setSocialFeedback('已屏蔽此星主；双方将不再出现在彼此的发现与 Orbit 中。')
       if (view === 'orbit') void loadOrbit()
     } catch {
@@ -835,46 +847,50 @@ function MusicApp() {
 
   const loadGalaxy = async (by: GalaxyGroupBy) => {
     const epoch = accountEpoch.current
+    const requestId = ++galaxyRequestId.current
     const previous = galaxy.status === 'ready' ? galaxy.response : galaxy.status === 'loading' ? galaxy.previous : undefined
     setGalaxy({ status: 'loading', by, ...(previous ? { previous } : {}) })
     try {
       const response = await api.loadGalaxy(by)
-      if (epoch !== accountEpoch.current) return
+      if (epoch !== accountEpoch.current || requestId !== galaxyRequestId.current) return false
       setGalaxy({ status: 'ready', by, response, selectedGroupKey: null })
       setGalaxyJourney(0)
       setGalaxyRotation(0)
+      return true
     } catch {
-      if (epoch !== accountEpoch.current) return
+      if (epoch !== accountEpoch.current || requestId !== galaxyRequestId.current) return false
       if (previous) setGalaxy({ status: 'ready', by: previous.by, response: previous, selectedGroupKey: null })
       else setGalaxy({ status: 'error', by })
+      return false
     }
   }
 
   const regroupGalaxy = async (by: GalaxyGroupBy) => {
     if (galaxy.status === 'loading' || galaxy.status === 'ready' && galaxy.by === by) return
     const epoch = accountEpoch.current
+    const requestId = ++galaxyRequestId.current
     const previous = galaxySceneResponse
     setGalaxyRegrouping(false)
     setGalaxy({ status: 'loading', by, ...(previous ? { previous } : {}) })
     setVisitError('')
     try {
       const response = await api.loadGalaxy(by)
-      if (epoch !== accountEpoch.current) return
+      if (epoch !== accountEpoch.current || requestId !== galaxyRequestId.current) return
       setGalaxyRegrouping(true)
       await new Promise((resolve) => window.setTimeout(resolve, 140))
-      if (epoch !== accountEpoch.current) return
+      if (epoch !== accountEpoch.current || requestId !== galaxyRequestId.current) return
       setGalaxy({ status: 'ready', by, response, selectedGroupKey: null })
       setGalaxyJourney(0)
       setGalaxyRotation(0)
       await new Promise((resolve) => window.setTimeout(resolve, 220))
     } catch {
-      if (epoch !== accountEpoch.current) return
+      if (epoch !== accountEpoch.current || requestId !== galaxyRequestId.current) return
       if (previous) {
         setGalaxy({ status: 'ready', by: previous.by, response: previous, selectedGroupKey: null })
         setVisitError('新的分类暂时无法载入，已保留原来的星系排列。')
       } else setGalaxy({ status: 'error', by })
     } finally {
-      if (epoch === accountEpoch.current) setGalaxyRegrouping(false)
+      if (epoch === accountEpoch.current && requestId === galaxyRequestId.current) setGalaxyRegrouping(false)
     }
   }
 
@@ -888,7 +904,7 @@ function MusicApp() {
 
   const focusGalaxyById = (id: string) => {
     const system = galaxySceneSystems.find((item) => item.id === id)
-    if (system) focusGalaxyGroup(system.key)
+    if (system) { focusGalaxyGroup(system.key); dispatchCockpit({ type: 'channel', page: 'galaxy' }) }
   }
 
   const loadDiscovery = async () => {
@@ -1276,27 +1292,18 @@ function MusicApp() {
 
   const changeView = (next: ProductView) => {
     setView(next)
-    setVisitedPlanet(null)
-    setPendingVisit(null)
-    setVisitError('')
-    if (next === 'galaxy') {
-      setSongPortal({ status: 'idle' })
-      setGalaxyJourney(0)
-      setGalaxyRotation(0)
-      void loadGalaxy('genre')
-    }
+    if (next === 'galaxy' && galaxy.status === 'idle') void loadGalaxy('genre')
     if (next === 'roam') {
-      setSongPortal({ status: 'idle' })
-      void loadDiscovery()
+      if (discovery.status === 'idle') void loadDiscovery()
     }
     if (next === 'orbit') {
-      setSongPortal({ status: 'idle' })
-      void loadOrbit()
+      if (orbit.status === 'idle') void loadOrbit()
     }
-    if (next === 'bottles') setSongPortal({ status: 'idle' })
-    if (next === 'settings') {
-      void loadSettings()
-      if (view !== 'settings') {
+    if (next === 'bottles') setBottlesMounted(true)
+    if (next === 'settings' && settingsStatus === 'idle') void loadSettings()
+    if (next === 'manage') {
+      if (!profileInitialized.current) {
+        profileInitialized.current = true
         setPlanetEditName(planet?.displayName ?? '')
         setPlanetEditTagline(planet?.tagline ?? '')
         const trackIds = planet?.tracks.map((track) => track.id) ?? []
@@ -1316,28 +1323,24 @@ function MusicApp() {
       void loadModerationQueue('open')
     }
   }
-  const changeViewRef = useRef(changeView)
-  changeViewRef.current = changeView
   const moveGalaxyJourney = (step: number) => {
     if (!Number.isFinite(step) || !step) return
     const progress = galaxyJourneyRef.current
     const nextProgress = Math.max(0, Math.min(TOUR_END, progress + step))
     galaxyJourneyRef.current = nextProgress
     setGalaxyJourney(nextProgress)
-    if (reachesTourHomeEndpoint(progress, step)) changeViewRef.current('planet')
+    if (reachesTourHomeEndpoint(progress, step)) goHomeRef.current()
   }
   const moveGalaxyJourneyRef = useRef(moveGalaxyJourney)
   moveGalaxyJourneyRef.current = moveGalaxyJourney
 
   const selectedGroupKeyForWheel = galaxy.status === 'ready' ? galaxy.selectedGroupKey : null
   useEffect(() => {
-    if (view !== 'galaxy' || visitedPlanet || galaxy.status !== 'ready') return
+    if (cockpit.exterior !== 'galaxy' || cockpit.console.focus !== 'overview' || cockpit.travel.status !== 'idle' || galaxy.status !== 'ready') return
     const onWheel = (event: WheelEvent) => {
       const target = event.target
       if (target instanceof Element) {
-        const overGalaxyAxis = Boolean(target.closest('.music-galaxy-axis'))
-        if (target.closest('.music-panel, .music-topbar, .music-visit-dialog, input, textarea, select')
-          || (!overGalaxyAxis && target.closest('button'))) return
+        if (!target.closest('.cockpit-viewport') || target.closest('button, input, textarea, select')) return
       }
       const step = normalizeWheelDelta(event.deltaY, event.deltaMode, window.innerHeight)
       if (!step) return
@@ -1347,7 +1350,7 @@ function MusicApp() {
     }
     window.addEventListener('wheel', onWheel, { passive: false })
     return () => window.removeEventListener('wheel', onWheel)
-  }, [selectedGroupKeyForWheel, galaxy.status, view, visitedPlanet])
+  }, [selectedGroupKeyForWheel, galaxy.status, cockpit.exterior, cockpit.console.focus, cockpit.travel.status])
 
   const canOpenSongPortal = (trackId: string) => Boolean(planet?.tracks.some((track) => track.id === trackId)
     || moments.some((moment) => moment.trackId === trackId && moment.visibility === 'public'))
@@ -1440,61 +1443,92 @@ function MusicApp() {
       const result = await api.updateMusicPlanet({ appearanceOverrides, appearanceRevision: planet.appearanceRevision ?? 0 })
       if (epoch !== accountEpoch.current) return
       setHome(current => current.status === 'ready' ? { ...current, planet: result.planet } : current)
-      setAppearanceOpen(false); setAppearancePreview(null)
+      setAppearanceOpen(false); setAppearancePreview(null); setView('planet')
     } catch (cause) {
       if (epoch !== accountEpoch.current) return
       setAppearanceError(cause instanceof MusicApiError && cause.code === 'APPEARANCE_CONFLICT' ? '外观已在其他窗口更新。当前预览已保留，请重新读取已保存版本后再应用。' : '外观未保存，预览与填写仍保留。请重试。')
     } finally { if (epoch === accountEpoch.current) setAppearanceBusy(false) }
   }
 
-  if (home.status === 'loading') return <main className="music-app music-loading"><BrandHeader connected={false} /><DitherLoadingRing label="正在读取星球" /></main>
-
-  if (home.status === 'error') return <main className="music-app music-gate">
-    <BrandHeader connected={false} />
-    <section className="music-gate-copy" aria-live="polite">
-      <span className="music-kicker">匿名体验 · 自动为本机创建身份</span>
-      <h1>暂时连接不上，<br />星际档案仍在原处</h1>
-      <p>没有任何资料被覆盖。请检查网络或稍后重新连接。</p>
-      <DitherButton className="music-primary-button" type="button" onClick={() => { void reloadHome() }}>重新连接 <span aria-hidden="true">↗</span></DitherButton>
-    </section>
+  if (home.status !== 'ready') return <main className="music-app">
+    <CockpitShell state={{ ...cockpit, console: { focus: 'exploration', page: 'settings' } }} reducedMotion={reducedMotion} crtEnabled={crtEnabled}
+      signal={home.status === 'error' ? 'error' : 'loading'} connected={false} heading={0} planetName="待命星球" by="genre" scene={null}
+      onClassify={() => {}} onOpen={() => {}} onOverview={() => {}} onBack={() => {}} onGalaxy={() => {}} onHome={() => {}}>
+      {home.status === 'loading' ? <DitherLoadingRing label="正在读取星球" /> : <section className="cockpit-connection-error" aria-live="polite"><DitherTitle level={2}>暂时连接不上，星际档案仍在原处</DitherTitle><p>没有任何资料被覆盖。请检查网络或稍后重新连接。</p><DitherButton className="music-primary-button" type="button" onClick={() => { void reloadHome() }}>重新连接</DitherButton></section>}
+    </CockpitShell>
   </main>
 
-  const connected = home.status === 'ready'
   const canCreate = home.status === 'ready' && !planet
+  const goGalaxy = async () => {
+    const loaded = galaxy.status === 'ready'
+    const token = flightController.start({ from: cockpit.exterior, to: 'galaxy', ready: loaded, sourceVisitor: visitedPlanet, targetVisitor: null, returning: false })
+    if (token === null) return
+    dispatchCockpit({ type: 'depart', token, target: 'galaxy' })
+    if (!loaded) {
+      const success = await loadGalaxy(galaxy.status === 'idle' ? 'genre' : galaxy.by)
+      if (flightController.isCurrent(token)) {
+        if (success) { flightController.ready(token); dispatchCockpit({ type: 'ready', token }) }
+        else { flightController.cancel(); dispatchCockpit({ type: 'cancel', token }); changeView('galaxy') }
+      }
+    }
+  }
+  const goHome = () => {
+    const returning = cockpit.exterior === 'visitor'
+    const target = returning ? cockpit.origins.at(-1)?.exterior ?? 'home' : 'home'
+    const token = flightController.start({ from: cockpit.exterior, to: target, ready: true, sourceVisitor: visitedPlanet, targetVisitor: returning ? returnVisitors.current.at(-1) ?? null : null, returning })
+    if (token !== null) dispatchCockpit(returning ? { type: 'return', token } : { type: 'depart', token, target: 'home' })
+  }
+  goHomeRef.current = goHome
+  const cancelFlight = () => {
+    const token = flightController.cancel()
+    if (token !== undefined) dispatchCockpit({ type: 'cancel', token })
+    visitRequestId.current += 1
+    visitLock.current = false
+    setVisitingPlanetId('')
+    setPendingVisit(null)
+    setVisitError('航行已取消。已确认的访问可能已留下足迹；取消不会撤销服务器记录。')
+  }
+  const signal = cockpit.travel.status !== 'idle' ? 'traveling' : visitError ? 'error' : songPortal.status === 'loading' || galaxy.status === 'loading' || discovery.status === 'loading' ? 'loading' : 'idle'
 
   return <main className={`music-app${planet ? ' has-planet' : ' is-onboarding'}`}>
-    <Stage
-      planet={planet} friendSatellites={home.status === 'ready' ? home.friendSatellites : []} visitedPlanet={visitedPlanet} previewSeed={previewSeed} reducedMotion={reducedMotion}
+    <CockpitShell state={cockpit} reducedMotion={reducedMotion} crtEnabled={crtEnabled} signal={signal}
+      planetName={planet?.displayName ?? '待命星球'} heading={Math.min(1, galaxyJourney / TOUR_END)}
+      by={galaxy.status === 'idle' ? 'genre' : galaxy.by} onClassify={by => { void regroupGalaxy(by) }}
+      classifying={galaxy.status === 'loading' || galaxyRegrouping}
+      onOpen={changeView} onOverview={() => dispatchCockpit({ type: 'overview' })} onBack={() => dispatchCockpit({ type: 'back' })}
+      onGalaxy={() => { void goGalaxy() }} onHome={goHome} onCancelTravel={cancelFlight}
+      personalPreview={<span className="cockpit-personal-preview"><DitherPlanetMark planetId={planet?.id ?? null} visual={planet?.visual} /><strong>{planet?.displayName ?? '创建我的星球'}</strong><small>{planet ? `${planet.tracks.length} 首歌 · ${moments.length} Moments` : '选择三首歌'}</small></span>}
+      explorationPreview={<span className="cockpit-radar-preview"><i /><span>{cockpit.exterior === 'visitor' ? visitedPlanet?.displayName : selectedGalaxyGroup?.label ?? '扫描待命'}</span><small>{songPortal.status === 'ready' ? `${songPortal.response.matches.length} 同歌信号` : discovery.status === 'ready' ? `${discovery.response.recommendations.length} 漫游信号` : '撞歌 / 漫游 / 漂流瓶'}</small></span>}
+      scene={<Stage
+      planet={planet} friendSatellites={home.friendSatellites} visitedPlanet={cockpit.exterior === 'visitor' ? visitedPlanet : null} previewSeed={previewSeed} reducedMotion={reducedMotion}
+      exteriorView={cockpit.exterior === 'galaxy' ? 'galaxy' : 'home'} interactive={cockpit.console.focus === 'overview' && cockpit.travel.status === 'idle'} managedTravel flight={flightController.flight}
       productView={view} focusedGalaxy={focusedGalaxyId} galaxySystems={galaxySceneSystems}
       galaxyRotation={galaxyRotation} routeJourney={galaxyJourney} regrouping={galaxyRegrouping}
       onSelectGalaxy={focusGalaxyById}
       onOpenPlanet={(scenePlanet, _galaxyId) => requestPublicPlanetVisit(scenePlanet.id, scenePlanet.alias, 'galaxy')}
       previewTracks={tracks.filter(track => selectedTrackIds.includes(track.id))}
       appearancePreview={appearancePreview}
-      onMusicSelect={setFocusedTrackId}
+      onMusicSelect={id => { setFocusedTrackId(id); changeView(cockpit.exterior === 'visitor' ? 'visitor' : 'planet') }}
       onTourMove={moveGalaxyJourney}
       onFriendSelect={(id) => { const friend = home.friendSatellites.find(f => f.id === id); changeView('orbit'); if (friend) setSocialFeedback(friend.displayName) }}
       onRotate={(delta) => setGalaxyRotation((rotation) => rotation + delta)}
-    />
-    {appearanceOpen && activeVisual && <AppearanceEditor spec={activeVisual} busy={appearanceBusy} error={appearanceError} onPreview={setAppearancePreview} onApply={(overrides)=>{void applyAppearance(overrides)}} onClose={closeAppearance} onReload={()=>{void reloadAppearance()}} />}
-    <BrandHeader connected={connected} view={view} onChangeView={changeView} />
-    {view === 'galaxy' && !visitedPlanet && galaxy.status === 'ready' && !galaxy.selectedGroupKey && <MusicGalaxyAxis
+    />}
+      windowNavigation={<>{cockpit.exterior === 'galaxy' && galaxy.status === 'ready' && !galaxy.selectedGroupKey && <MusicGalaxyAxis
       systems={galaxySceneSystems} journey={galaxyJourney}
       onSelect={(index) => setGalaxyJourney(getTourAnchorProgress(index, galaxySceneSystems.length) * TOUR_END)}
-      onHome={() => changeView('planet')}
+      onHome={goHome}
     />}
-    {view === 'galaxy' && !visitedPlanet && focusedGalaxySystem && <MusicGalaxyFooter
+    {cockpit.exterior === 'galaxy' && focusedGalaxySystem && <MusicGalaxyFooter
       label={focusedGalaxySystem.label} color={focusedGalaxySystem.color}
       onBack={() => { if (galaxy.status === 'ready') setGalaxy({ ...galaxy, selectedGroupKey: null }) }}
-    />}
+    />}</>}>
 
-    <div className="music-layout">
-      <section className="music-copy">
-        <DitherTitle>{visitedPlanet ? `访问 · ${visitedPlanet.displayName}` : view === 'planet' ? planet?.displayName ?? '把歌留在星球' : view === 'galaxy' ? '声音之间' : view === 'roam' ? '下一站' : view === 'orbit' ? '轨道' : view === 'bottles' ? '继续漂流' : view === 'settings' ? '设置' : '审核'}</DitherTitle>
-        {(visitedPlanet?.tagline || view === 'planet' && planet?.tagline) && <p>{visitedPlanet?.tagline ?? planet?.tagline}</p>}
-        {(view === 'planet' || visitedPlanet) && <SongWall tracks={(visitedPlanet ?? planet)?.tracks ?? tracks.filter(t=>selectedTrackIds.includes(t.id))} selectedId={focusedTrackId} onSelect={setFocusedTrackId} />}
-        {planet && !visitedPlanet && view === 'planet' && <DitherButton className="music-appearance-open" aria-label="编辑星球外观" onClick={()=>{setAppearanceError('');setAppearanceOpen(true)}}>调整外观 ↗</DitherButton>}
-      </section>
+    <div className="cockpit-pages">
+      {view === 'planet' && <section className="cockpit-personal-heading"><DitherTitle level={2}>{planet?.displayName ?? '创建我的星球'}</DitherTitle>{planet?.tagline && <p>{planet.tagline}</p>}
+        {planet && <div className="cockpit-page-actions"><DitherButton onClick={() => changeView('manage')}>星球资料与歌曲</DitherButton><DitherButton aria-label="编辑星球外观" onClick={() => { setAppearanceError(''); setAppearanceOpen(true); changeView('appearance') }}>调整外观</DitherButton></div>}
+        <SongWall tracks={planet?.tracks ?? tracks.filter(t=>selectedTrackIds.includes(t.id))} selectedId={focusedTrackId} onSelect={setFocusedTrackId} />
+      </section>}
+      {appearanceOpen && activeVisual && <div hidden={view !== 'appearance'}><AppearanceEditor embedded active={view === 'appearance' && cockpit.console.focus !== 'overview'} reducedMotion={reducedMotion} spec={activeVisual} busy={appearanceBusy} error={appearanceError} onPreview={setAppearancePreview} onApply={(overrides)=>{void applyAppearance(overrides)}} onClose={() => { closeAppearance(); changeView('planet') }} onReload={()=>{void reloadAppearance()}} /></div>}
 
       {canCreate && view === 'planet' ? <aside className="music-panel music-create-panel" aria-label="创建音乐星球">
         {!tracks.length ? <div className="music-empty-catalog" role="status">
@@ -1534,13 +1568,16 @@ function MusicApp() {
         </form>}
       </aside> : null}
 
-      {view === 'settings' && !visitedPlanet && <aside className="music-panel music-settings-panel" aria-label="账户与隐私设置">
+      {(view === 'settings' || view === 'manage') && <aside className="music-panel music-settings-panel" aria-label={view === 'manage' ? '星球资料与歌曲' : '账户与隐私设置'}>
+        {view === 'settings' && <>
         <div className="music-panel-head"><div><span className="music-kicker">Moodverse · 账户偏好</span><DitherTitle level={2}>账户与隐私设置</DitherTitle></div></div>
         <p className="music-panel-note">星球访问权限与接收偏好彼此独立。公开星球会出现在 Galaxy；每条 Moment 也可以单独设为仅自己可见。</p>
         {settingsStatus === 'loading' && <DitherLoadingRing label="正在读取已保存的设置…" />}
         {settingsError && <p className="music-form-error" role="alert">{settingsError}</p>}
         {settingsStatus === 'error' && <DitherButton className="music-text-button" type="button" onClick={() => { void loadSettings() }}>重新读取设置</DitherButton>}
-        {planet && <form className="music-settings-planet-form" aria-label="编辑星球资料" onSubmit={savePlanetSettings}>
+        <label className="music-visibility-toggle"><input type="checkbox" aria-label="CRT 效果" checked={crtEnabled} onChange={e => { setCrtEnabled(e.target.checked); try { localStorage.setItem('moodverse-crt', e.target.checked ? 'on' : 'off') } catch { /* This session can still toggle effects without storage. */ } }} /><span><strong>CRT 效果</strong><small>减少动态效果时自动关闭闪动。</small></span></label>
+        </>}
+        {planet && view === 'manage' && <form className="music-settings-planet-form" aria-label="编辑星球资料" onSubmit={savePlanetSettings}>
           <section className="music-settings-section" aria-label="星球资料与歌曲">
             <div className="music-section-heading"><DitherTitle level={3}>星球资料与歌曲</DitherTitle><span>可随时调整</span></div>
             <div className="music-fields">
@@ -1576,7 +1613,7 @@ function MusicApp() {
             <DitherButton className="music-secondary-button" type="submit" disabled={Boolean(settingsSaving)}>{settingsSaving === 'planet-profile' ? '正在保存…' : '保存星球资料'}</DitherButton>
           </section>
         </form>}
-        {settingsStatus === 'ready' && socialSettings && <div className="music-settings-content">
+        {view === 'settings' && settingsStatus === 'ready' && socialSettings && <div className="music-settings-content">
           <section className="music-settings-section" aria-label="访问与接收偏好">
             <div className="music-section-heading"><DitherTitle level={3}>访问与接收</DitherTitle><span>随时可更改</span></div>
             {planet
@@ -1618,18 +1655,18 @@ function MusicApp() {
                   </label>)}</div>}
           </section>
         </div>}
-        {moderatorAvailable && settingsStatus === 'ready' && <section className="music-settings-section" aria-label="内部内容审核">
+        {view === 'settings' && moderatorAvailable && settingsStatus === 'ready' && <section className="music-settings-section" aria-label="内部内容审核">
           <div className="music-section-heading"><DitherTitle level={3}>内部内容审核</DitherTitle><span>仅授权账号</span></div>
           <p className="music-panel-note">处理举报并记录状态。审核列表不展示被举报内容。</p>
           <DitherButton className="music-secondary-button" type="button" onClick={() => changeView('moderation')}>打开审核队列</DitherButton>
         </section>}
-        <section className="music-settings-section" aria-label="匿名体验身份">
+        {view === 'settings' && <section className="music-settings-section" aria-label="匿名体验身份">
           <div className="music-section-heading"><DitherTitle level={3}>匿名体验身份</DitherTitle><span>自动创建</span></div>
           <p className="music-panel-note">账号已保存在这个浏览器中。换浏览器或清除本站点数据后，会生成新的随机账号；当前演示阶段暂不支持跨设备找回。</p>
-        </section>
+        </section>}
       </aside>}
 
-      {view === 'moderation' && !visitedPlanet && moderatorAvailable && <aside className="music-panel music-moderation-panel" aria-label="举报审核">
+      {view === 'moderation' && moderatorAvailable && <aside className="music-panel music-moderation-panel" aria-label="举报审核">
         <div className="music-panel-head">
           <div><span className="music-kicker">Moodverse · 内部工具</span><DitherTitle level={2}>举报审核</DitherTitle></div>
           <DitherButton className="music-text-button" type="button" onClick={() => changeView('settings')}>返回设置</DitherButton>
@@ -1675,7 +1712,7 @@ function MusicApp() {
         </div>}
       </aside>}
 
-      {visitedPlanet && <aside className="music-panel music-public-planet-panel" aria-label={`公开星球 ${visitedPlanet.displayName}`}>
+      {visitedPlanet && view === 'visitor' && <aside className="music-panel music-public-planet-panel" aria-label={`公开星球 ${visitedPlanet.displayName}`}>
         <div className="music-panel-head"><div><span className="music-kicker">公开星球 · 公开内容</span><DitherTitle level={2}>{visitedPlanet.displayName}</DitherTitle></div></div>
         {visitedPlanet.tagline && <p className="music-public-tagline">{visitedPlanet.tagline}</p>}
         <ReportControl api={api} target={{ type: 'planet', id: visitedPlanet.id }} ariaLabel="举报这颗星球" />
@@ -1689,7 +1726,8 @@ function MusicApp() {
         </div>
         {socialFeedback && <p className="music-social-feedback" role="status">{socialFeedback}</p>}
         {socialError && <p className="music-form-error" role="alert">{socialError}</p>}
-        <DitherButton className="music-text-button music-back-link" type="button" onClick={() => setVisitedPlanet(null)}>{view === 'galaxy' ? '← 返回 Galaxy' : view === 'roam' ? '← 返回随机漫游' : view === 'bottles' ? '← 返回漂流瓶' : '← 返回我的星球'}</DitherButton>
+        {blockConfirm && <div role="group" aria-label="确认屏蔽星主"><p>屏蔽后将无法互相发现、访问或私信。</p><DitherButton onClick={() => { void blockVisitedPlanet() }}>确认屏蔽</DitherButton><DitherButton onClick={() => setBlockConfirm(false)}>取消屏蔽</DitherButton></div>}
+        <DitherButton className="music-text-button music-back-link" type="button" onClick={goHome}>← 返回出发地</DitherButton>
 
         <section className="music-public-section" aria-label="对方公开选择的歌曲">
           <div className="music-section-heading"><DitherTitle level={3}>星球上的歌</DitherTitle><span>{visitedPlanet.tracks.length} 首</span></div>
@@ -1717,10 +1755,11 @@ function MusicApp() {
               </article>)}
         </section>
         {visitError && <p className="music-form-error" role="alert">{visitError}</p>}
-        {songPortal.status === 'ready' && <DitherButton className="music-secondary-button" type="button" onClick={() => setVisitedPlanet(null)}>返回同歌结果</DitherButton>}
+        {songPortal.status === 'ready' && <DitherButton className="music-secondary-button" type="button" onClick={() => changeView('collision')}>返回同歌结果</DitherButton>}
       </aside>}
 
-      {planet && !visitedPlanet && view === 'planet' && <aside className="music-panel music-planet-panel" aria-label="我的音乐星球">
+      {planet && (view === 'planet' || view === 'collision' || view === 'moment') && <aside className="music-panel music-planet-panel" aria-label={view === 'collision' ? '同歌搜索' : view === 'moment' ? 'Moment 编辑' : '我的音乐星球'}>
+        {view !== 'moment' && <>
         <div className="music-panel-head"><div><span className="music-kicker">星球轨道 · {planet.visibility === 'public' ? '公开访问' : '仅自己'}</span><DitherTitle level={2}>留在这里的歌</DitherTitle></div><span className="music-count">{planet.tracks.length}<i>首</i></span></div>
         <div className="music-owned-track-list">
           {planet.tracks.map((track) => <article className="music-owned-track" key={track.id}>
@@ -1733,7 +1772,9 @@ function MusicApp() {
           </article>)}
         </div>
 
-        {songPortal.status !== 'idle' && <section className="music-song-portal" aria-label="同歌星球">
+        </>}
+        {view === 'collision' && songPortal.status === 'idle' && <p className="music-moments-empty">选择一首歌，寻找同歌星球。</p>}
+        {view === 'collision' && songPortal.status !== 'idle' && <section className="music-song-portal" aria-label="同歌星球">
           <div className="music-section-heading">
             <DitherTitle level={3}>与《{songPortal.track.title}》同歌</DitherTitle>
             <DitherButton type="button" className="music-close-inline" aria-label="关闭同歌结果" onClick={() => setSongPortal({ status: 'idle' })}>×</DitherButton>
@@ -1762,7 +1803,7 @@ function MusicApp() {
           </>}
         </section>}
 
-        <form className="music-moment-form" onSubmit={addMoment}>
+        {view === 'moment' && <form className="music-moment-form" onSubmit={addMoment}>
           <div className="music-section-heading"><DitherTitle level={3}>留下一个 Moment</DitherTitle><span>最多 500 字</span></div>
           <label htmlFor="music-moment-track">这段 Moment 属于哪首歌</label>
           <select id="music-moment-track" value={momentTrackId} onChange={(event) => setMomentTrackId(event.target.value)}>
@@ -1772,9 +1813,9 @@ function MusicApp() {
           <div className="music-moment-actions"><label className="music-moment-privacy"><input type="checkbox" checked={momentPrivate} onChange={(event) => setMomentPrivate(event.target.checked)} /><span>{momentPrivate ? '仅自己可见' : '公开给访客'}</span></label><span>{momentText.length}/500</span></div>
           {momentFeedback && <p className="music-feedback" aria-live="polite">{momentFeedback}</p>}
           <DitherButton className="music-secondary-button" type="submit" disabled={savingMoment || !momentTrackId}>{savingMoment ? '正在保存…' : '保存 Moment'} <span aria-hidden="true">↗</span></DitherButton>
-        </form>
+        </form>}
 
-        <section className="music-moments" aria-label="我的 Moments">
+        {view !== 'collision' && <section className="music-moments" aria-label="我的 Moments">
           <div className="music-section-heading"><DitherTitle level={3}>沿途留下的 Moment</DitherTitle><span>{moments.length}</span></div>
           {!moments.length ? <p className="music-moments-empty">还没有 Moment。留下一段片刻吧。</p> : moments.map((moment) => <article className="music-moment-item" key={moment.id}>
             <div><strong>{moment.track.title}</strong><span>{moment.visibility === 'public' ? '公开' : '仅自己'} · {new Date(moment.createdAt).toLocaleDateString('zh-CN')}</span></div>
@@ -1828,10 +1869,11 @@ function MusicApp() {
                     <DitherButton className="music-text-button is-danger" type="button" disabled={momentManagement.status !== 'idle'} aria-label={`删除 Moment：${moment.contentText.slice(0, 40) || moment.track.title}`} onClick={() => setMomentManagement({ status: 'confirm-delete', momentId: moment.id, busy: false, error: '' })}>删除</DitherButton>
                   </div>}
           </article>)}
-        </section>
+        </section>}
       </aside>}
+      {!planet && (view === 'moment' || view === 'collision') && <div className="music-panel"><DitherTitle level={2}>{view === 'moment' ? 'Moment' : '撞歌'}</DitherTitle><p>先创建自己的音乐星球。</p><DitherButton onClick={() => changeView('planet')}>创建星球</DitherButton></div>}
 
-      {view === 'galaxy' && !visitedPlanet && <aside className="music-panel music-galaxy-panel" aria-label="Galaxy 公开星球发现">
+      {view === 'galaxy' && <aside className="music-panel music-galaxy-panel" aria-label="Galaxy 公开星球发现">
         <div className="music-panel-head"><div><span className="music-kicker">公开星球 · 可直接访问</span><DitherTitle level={2}>Galaxy</DitherTitle></div></div>
         <p className="music-panel-note">按曲目、艺人或曲风浏览。艺人／曲风相近不代表听过同一首歌。</p>
         <div className="music-galaxy-dimensions" role="group" aria-label="Galaxy 分组方式">
@@ -1875,7 +1917,7 @@ function MusicApp() {
         {visitError && <p className="music-form-error" role="alert">{visitError}</p>}
       </aside>}
 
-      {view === 'roam' && !visitedPlanet && <aside className="music-panel music-discovery-panel" aria-label="随机漫游">
+      {view === 'roam' && <aside className="music-panel music-discovery-panel" aria-label="随机漫游">
         <div className="music-panel-head"><div><span className="music-kicker">相关性与随机性 · 今日航线</span><DitherTitle level={2}>随机漫游</DitherTitle></div></div>
         <p className="music-panel-note">只从真实、公开可访问的星球中探索。打开卡片才会访问；推荐本身不会留下足迹。</p>
         {discovery.status === 'loading' && <DitherLoadingRing label="正在寻找下一站…" />}
@@ -1906,14 +1948,14 @@ function MusicApp() {
         </>}
       </aside>}
 
-      {view === 'bottles' && !visitedPlanet && <DriftBottlePanel
+      {bottlesMounted && <div hidden={view !== 'bottles'}><DriftBottlePanel
         api={api}
         tracks={tracks}
         moments={moments}
         onVisitPlanet={(planetId, name) => requestPublicPlanetVisit(planetId, name, 'direct')}
-      />}
+      /></div>}
 
-      {view === 'orbit' && !visitedPlanet && <aside className="music-panel music-orbit-panel" aria-label="My Orbit">
+      {view === 'orbit' && <aside className="music-panel music-orbit-panel" aria-label="My Orbit">
         <div className="music-panel-head"><div><span className="music-kicker">你的私人星图 · 仅自己可见</span><DitherTitle level={2}>My Orbit</DitherTitle></div></div>
         <p className="music-panel-note">足迹会随星球当前的公开状态变化；隐身访问只留在你的历史里。</p>
         {orbit.status === 'loading' && <DitherLoadingRing label="正在整理你的星图…" />}
@@ -1999,17 +2041,16 @@ function MusicApp() {
       </aside>}
     </div>
 
-    {pendingVisit && <div className="music-visit-backdrop">
+    {pendingVisit && view === 'preflight' && <div className="cockpit-preflight">
       <section
-        ref={visitDialogRef}
         className="music-visit-dialog"
-        role="dialog"
-        aria-modal="true"
+        role="region"
         aria-labelledby="music-visit-title"
         tabIndex={-1}
         onKeyDown={(event) => {
           if (event.key === 'Escape' && !visitingPlanetId) {
-            setPendingVisit(null)
+            event.stopPropagation()
+            setPendingVisit(null); dispatchCockpit({ type: 'back' })
             setVisitError('')
           }
         }}
@@ -2020,11 +2061,12 @@ function MusicApp() {
         <label className="music-visit-incognito"><input type="checkbox" checked={incognitoVisit} onChange={(event) => setIncognitoVisit(event.target.checked)} /><span><strong>隐身访问</strong><small>对方不会在“访问过我”中看到你</small></span></label>
         {visitError && <p className="music-form-error" role="alert">{visitError}</p>}
         <div className="music-visit-actions">
-          <DitherButton className="music-secondary-button" type="button" disabled={Boolean(visitingPlanetId)} onClick={() => { setPendingVisit(null); setVisitError('') }}>暂不访问</DitherButton>
+          <DitherButton className="music-secondary-button" type="button" disabled={Boolean(visitingPlanetId)} onClick={() => { setPendingVisit(null); setVisitError(''); dispatchCockpit({ type: 'back' }) }}>暂不访问</DitherButton>
           <DitherButton className="music-primary-button" type="button" disabled={Boolean(visitingPlanetId)} onClick={() => { void visitPublicPlanet() }}>{visitingPlanetId ? '正在接近…' : '继续访问'} <span aria-hidden="true">↗</span></DitherButton>
         </div>
       </section>
     </div>}
+    </CockpitShell>
   </main>
 }
 

@@ -1,0 +1,8 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><title>Cockpit responsive check</title>
+<style>body{margin:0;background:#111;display:grid;place-items:center;min-height:100vh}iframe{border:0;max-width:100vw;max-height:100vh}</style>
+<iframe title="驾驶舱响应式验证"></iframe>
+<script>
+const query=new URLSearchParams(location.search),frame=document.querySelector('iframe');
+frame.width=query.get('width')||'390';frame.height=query.get('height')||'844';frame.src='/?cockpit-preview=1';
+</script></html>

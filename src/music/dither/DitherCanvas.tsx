@@ -32,18 +32,20 @@ export function DitherThumbnail({ spec, label = '', size = 96, kind = 'planet' }
   return <canvas ref={ref} className="dither-thumb" width={size} height={size} role={label ? 'img' : undefined} aria-label={label || undefined} aria-hidden={!label} />
 }
 
-export function DitherCanvas({ getFrame, reducedMotion = false, forceFallback = false, quality = 'auto', onModeChange }: {
+export function DitherCanvas({ getFrame, reducedMotion = false, forceFallback = false, quality = 'auto', onModeChange, interactive = true, paused = false }: {
   getFrame: (width: number, height: number, phase: number) => DitherFrame
   reducedMotion?: boolean
+  interactive?: boolean
+  paused?: boolean
   forceFallback?: boolean
   quality?: 'auto' | 'low' | 'high'
   onModeChange?: (mode: 'webgl2' | 'canvas2d') => void
 }) {
   const glRef = useRef<HTMLCanvasElement>(null), fallbackRef = useRef<HTMLCanvasElement>(null)
-  const latest = useRef({ getFrame, reducedMotion, quality, onModeChange })
+  const latest = useRef({ getFrame, reducedMotion, quality, onModeChange, interactive, paused })
   const restartRef = useRef<(() => void) | null>(null)
   const phasesRef = useRef(new Map<string, number>())
-  latest.current = { getFrame, reducedMotion, quality, onModeChange }
+  latest.current = { getFrame, reducedMotion, quality, onModeChange, interactive, paused }
   const [mode, setMode] = useState<'webgl2' | 'canvas2d'>('webgl2')
   useEffect(() => {
     const canvas = glRef.current!, fallback = fallbackRef.current!
@@ -54,7 +56,7 @@ export function DitherCanvas({ getFrame, reducedMotion = false, forceFallback = 
     let pointer: { x: number; y: number } | undefined
     const media = window.matchMedia('(prefers-reduced-motion: reduce)')
     let reduced = latest.current.reducedMotion || media.matches
-    const isRunning = () => !reduced && !document.hidden
+    const isRunning = () => !reduced && !document.hidden && !latest.current.paused
     const report = (next: typeof mode) => { setMode(next); latest.current.onModeChange?.(next) }
     const initialize = () => {
       renderer?.dispose(); renderer = null
@@ -75,12 +77,13 @@ export function DitherCanvas({ getFrame, reducedMotion = false, forceFallback = 
       const bounds = canvas.getBoundingClientRect(), width = Math.max(1, bounds.width), height = Math.max(1, bounds.height)
       const frame = latest.current.getFrame(width, height, phase)
       const visible = new Set(frame.assets.map((asset) => asset.id))
-      for (const key of phases.keys()) if (!visible.has(key)) phases.delete(key)
+      // Keep bounded off-screen clocks so returning to a planet doesn't restart its texture.
+      if (phases.size > 256) for (const key of phases.keys()) { if (!visible.has(key)) phases.delete(key); if (phases.size <= 192) break }
       frame.assets = frame.assets.map((asset) => {
         const next = advanceDitherPhase(phases.get(asset.id) ?? 0, elapsed, effectiveDitherParameters(asset.spec).speed, isRunning())
         phases.set(asset.id, next); return { ...asset, phase: next }
       })
-      frame.pointer = reduced ? undefined : pointer
+      frame.pointer = reduced || !latest.current.interactive ? undefined : pointer
       const low = latest.current.quality === 'low' || latest.current.quality === 'auto' && automaticLow
       motion.apply(frame, elapsed, seconds, isRunning() && Boolean(renderer), low)
       canvas.dataset.ditherParticles = String(frame.assets.reduce((sum, asset) => sum + (asset.particles?.count ?? 0), 0))
@@ -114,7 +117,7 @@ export function DitherCanvas({ getFrame, reducedMotion = false, forceFallback = 
     // Visibility only pauses subsequent animation, never the initial content.
     const restart = () => { cancelAnimationFrame(raf); last = 0; paint(performance.now()) }
     restartRef.current = restart
-    const onPointer = (event: PointerEvent) => { const rect = canvas.getBoundingClientRect(); pointer = { x: event.clientX - rect.left, y: event.clientY - rect.top }; if (!isRunning()) restart() }
+    const onPointer = (event: PointerEvent) => { if (!latest.current.interactive) return; const rect = canvas.getBoundingClientRect(); pointer = { x: event.clientX - rect.left, y: event.clientY - rect.top }; if (!isRunning()) restart() }
     const onLeave = () => { pointer = undefined; if (!isRunning()) restart() }
     const onLost = (event: Event) => { event.preventDefault(); renderer?.dispose(); renderer = null; report('canvas2d'); restart() }
     const onRestored = () => { initialize(); restart() }
@@ -135,7 +138,7 @@ export function DitherCanvas({ getFrame, reducedMotion = false, forceFallback = 
   }, [forceFallback])
   // Visual edits and pause toggles repaint in-place. They must not allocate a new
   // shader program or reset the per-asset clock on every React state update.
-  useEffect(() => { restartRef.current?.() }, [getFrame, reducedMotion, quality])
+  useEffect(() => { restartRef.current?.() }, [getFrame, reducedMotion, quality, paused])
   return <>
     <canvas ref={glRef} className="dither-canvas" aria-hidden="true" data-dither-renderer={mode} style={{ visibility: mode === 'webgl2' ? 'visible' : 'hidden' }} />
     <canvas ref={fallbackRef} className="dither-canvas" aria-hidden="true" style={{ visibility: mode === 'canvas2d' ? 'visible' : 'hidden' }} />

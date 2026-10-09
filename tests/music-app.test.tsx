@@ -16,6 +16,30 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+async function openPersonal() {
+  fireEvent.click(await screen.findByRole('button', { name: '打开个人终端' }))
+}
+async function renderCockpit() {
+  render(<MusicApp />)
+  await waitFor(() => expect(document.querySelector('.cockpit[data-focus="overview"]') || screen.queryByRole('heading', { name: /暂时连接不上/ })).toBeTruthy())
+  if (screen.queryByRole('button', { name: '打开个人终端' })) await openPersonal()
+}
+async function openGalaxyList() {
+  if (screen.queryByRole('button', { name: '返回驾驶舱' })) fireEvent.click(screen.getByRole('button', { name: '返回驾驶舱' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Galaxy' }))
+  await waitFor(() => expect(document.querySelector('.cockpit[data-exterior="galaxy"]:not(.is-in-flight)')).toBeTruthy())
+  fireEvent.click(screen.getByRole('button', { name: '打开探索终端' }))
+}
+async function openExploration(page: '漫游' | '漂流瓶') {
+  if (screen.queryByRole('button', { name: '返回驾驶舱' })) fireEvent.click(screen.getByRole('button', { name: '返回驾驶舱' }))
+  fireEvent.click(screen.getByRole('button', { name: page }))
+}
+async function confirmVisit() {
+  fireEvent.click(await screen.findByRole('button', { name: '继续访问' }))
+  await waitFor(() => expect(document.querySelector('.cockpit[data-exterior="visitor"]:not(.is-in-flight)')).toBeTruthy(), { onTimeout: () => new Error(JSON.stringify({ page: document.querySelector('.cockpit')?.outerHTML.slice(0,400), progress: document.querySelector('.dither-stage')?.dataset, alerts: [...document.querySelectorAll('[role=alert]')].map(e=>e.textContent) })) })
+  fireEvent.click(screen.getByRole('button', { name: '打开探索终端' }))
+}
+
 const tracks = [
   { id: 'song-a', title: '夜航', artistId: 'artist-a', artistName: '星际旅人', versionLabel: '', genres: ['ambient'], moodTags: ['calm'], officialUrl: 'https://music.example/a', coverUrl: null, durationSeconds: 215 },
   { id: 'song-b', title: '潮汐之间', artistId: 'artist-b', artistName: '潮汐', versionLabel: '', genres: ['indie'], moodTags: ['reflective'], officialUrl: 'https://music.example/b', coverUrl: null, durationSeconds: 203 },
@@ -36,9 +60,10 @@ test.each(['keyboard', 'drag', 'wheel'] as const)('Galaxy journey endpoint retur
     if (path === '/api/music/galaxy') return Response.json({ by: 'genre', groups: [{ key: 'ambient', label: 'ambient', planetCount: 1, planets: [] }] })
     throw Error(path)
   }))
-  render(<MusicApp />)
+  await renderCockpit()
   await screen.findByRole('button', { name: '编辑星球外观' })
-  fireEvent.click(screen.getByRole('button', { name: 'Galaxy' }))
+  await openGalaxyList()
+  fireEvent.click(screen.getByRole('button', { name: '返回驾驶舱' }))
   await screen.findByRole('button', { name: '前往星系 ambient' })
   const stage = screen.getByRole('region', { name: '二维音乐宇宙' })
   expect(screen.queryByRole('button', { name: '编辑星球外观' })).toBeNull()
@@ -49,7 +74,9 @@ test.each(['keyboard', 'drag', 'wheel'] as const)('Galaxy journey endpoint retur
     fireEvent.pointerUp(stage, { clientX: 200, clientY: 300 })
   }
   if (input === 'wheel') for (let n = 0; n < 100; n++) fireEvent.wheel(stage, { deltaY: -10000 })
-  expect(await screen.findByRole('button', { name: '编辑星球外观' })).toBeTruthy()
+  await waitFor(() => expect(document.querySelector('.cockpit[data-exterior="home"]:not(.is-in-flight)')).toBeTruthy())
+  await openPersonal()
+  expect(screen.getByRole('button', { name: '编辑星球外观' })).toBeTruthy()
   expect(screen.queryByRole('button', { name: '前往星系 ambient' })).toBeNull()
 })
 
@@ -65,7 +92,7 @@ test('appearance preview cancels locally; apply saves overrides with the confirm
     if (path === '/api/me/music-planet') return Response.json({ planet:owner })
     throw Error(path)
   }))
-  render(<MusicApp />)
+  await renderCockpit()
   fireEvent.click(await screen.findByRole('button',{name:'编辑星球外观'}))
   fireEvent.change(screen.getByLabelText('纹理'),{target:{value:'flower'}})
   fireEvent.click(screen.getByRole('button',{name:'取消'}))
@@ -103,7 +130,7 @@ test('a new user can choose exactly three songs, create a public planet and see 
     throw new Error(`Unexpected request: ${path}`)
   }))
 
-  render(<MusicApp />)
+  await renderCockpit()
   await screen.findByRole('heading', { name: '为你的星球选三首歌' })
   fireEvent.change(screen.getByLabelText('星球名称'), { target: { value: '夜航者' } })
   fireEvent.change(screen.getByLabelText('一句星球简介（可选）'), { target: { value: '慢慢靠岸' } })
@@ -130,7 +157,7 @@ test('clearly identifies the fictional non-playable staging catalog', async () =
     throw new Error(`Unexpected request: ${path}`)
   }))
 
-  render(<MusicApp />)
+  await renderCockpit()
 
   expect(await screen.findByRole('heading', { name: '为你的星球选三首歌' })).toBeTruthy()
   expect(screen.getByRole('note').textContent).toContain('虚构示例')
@@ -152,13 +179,13 @@ test('keeps song selection and social navigation usable with the Canvas2D visual
     throw new Error(`Unexpected request: ${path}`)
   }))
 
-  render(<MusicApp />)
+  await renderCockpit()
 
   expect(await screen.findByRole('heading', { name: '为你的星球选三首歌' })).toBeTruthy()
   await waitFor(()=>expect(document.querySelector('[data-dither-renderer="canvas2d"]')).toBeTruthy())
   expect(screen.getByRole('button', { name: '夜航 · 星际旅人' }).disabled).toBe(false)
   expect(screen.queryByText(/3D 星球/)).toBeNull()
-  fireEvent.click(screen.getByRole('button', { name: 'My Orbit' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Orbit' }))
   expect(await screen.findByRole('heading', { name: 'My Orbit' })).toBeTruthy()
 })
 
@@ -170,9 +197,10 @@ test('clearly labels the automatically created anonymous account', async () => {
     throw new Error(`Unexpected request: ${path}`)
   }))
 
-  render(<MusicApp />)
+  await renderCockpit()
   expect(await screen.findByRole('heading', { name: '为你的星球选三首歌' })).toBeTruthy()
-  expect(screen.getByText('匿名体验账号')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: '设置' }))
+  expect(await screen.findByRole('heading', { name: '匿名体验身份' })).toBeTruthy()
   expect(screen.queryByRole('button', { name: '退出登录' })).toBeNull()
 })
 
@@ -183,7 +211,7 @@ test('an API 401 shows a retry state and never asks for email login', async () =
     return Response.json({ error: 'UNAUTHENTICATED' }, { status: 401 })
   }))
 
-  render(<MusicApp />)
+  await renderCockpit()
   expect(await screen.findByRole('heading', { name: /暂时连接不上/ })).toBeTruthy()
   expect(screen.queryByLabelText('邮箱地址')).toBeNull()
   expect(screen.queryByRole('button', { name: '发送验证码' })).toBeNull()
@@ -212,9 +240,9 @@ test('the anonymous account can use its private Orbit without login controls', a
     throw new Error(`Unexpected request: ${url.pathname}`)
   }))
 
-  render(<MusicApp />)
+  await renderCockpit()
   await screen.findByRole('heading', { name: /第一颗星球/ })
-  fireEvent.click(screen.getByRole('button', { name: 'My Orbit' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Orbit' }))
   fireEvent.click(await screen.findByRole('button', { name: /私信 第一位好友/ }))
   expect(await screen.findByText('只属于本机匿名账号的私信。')).toBeTruthy()
   expect(screen.getByText('匿名体验账号')).toBeTruthy()
@@ -247,9 +275,9 @@ test('an auth change from another tab clears this tab and reloads the shared ses
     throw new Error(`Unexpected request: ${path}`)
   }))
 
-  render(<MusicApp />)
+  await renderCockpit()
   await screen.findByRole('heading', { name: /第一颗星球/ })
-  fireEvent.click(screen.getByRole('button', { name: 'My Orbit' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Orbit' }))
   fireEvent.click(await screen.findByRole('button', { name: /私信 第一位好友/ }))
   expect(await screen.findByText('另一个标签页里缓存的私信。')).toBeTruthy()
 
@@ -261,8 +289,9 @@ test('an auth change from another tab clears this tab and reloads the shared ses
   activeEmail = 'second@example.com'
   authenticated = true
   window.dispatchEvent(new StorageEvent('storage', { key: 'moodverse-music-auth-change', newValue: JSON.stringify({ type: 'session-changed', sourceId: 'other-tab', eventId: 'login-event' }) }))
+  await openPersonal()
   await screen.findByRole('heading', { name: '为你的星球选三首歌' })
-  fireEvent.click(screen.getByRole('button', { name: 'My Orbit' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Orbit' }))
   await screen.findByRole('heading', { name: 'My Orbit' })
   expect(screen.queryByText('第一位好友')).toBeNull()
   expect(screen.queryByLabelText('私信记录')).toBeNull()
@@ -323,9 +352,9 @@ test('legacy cross-tab session notifications deduplicate without exposing anothe
     throw new Error(`Unexpected request: ${path}`)
   }))
 
-  render(<MusicApp />)
+  await renderCockpit()
   await screen.findByRole('heading', { name: /第一颗星球/ })
-  fireEvent.click(screen.getByRole('button', { name: 'My Orbit' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Orbit' }))
   fireEvent.click(await screen.findByRole('button', { name: /私信 第一位好友/ }))
   expect(await screen.findByText('广播通道中的旧私信。')).toBeTruthy()
 
@@ -342,6 +371,7 @@ test('legacy cross-tab session notifications deduplicate without exposing anothe
   const loginEvent = { type: 'session-changed', sourceId: 'remote-tab', eventId: 'remote-login-1' }
   FakeBroadcastChannel.fromOtherTab(loginEvent)
   window.dispatchEvent(new StorageEvent('storage', { key: 'moodverse-music-auth-change', newValue: JSON.stringify(loginEvent) }))
+  await openPersonal()
   await screen.findByRole('heading', { name: '为你的星球选三首歌' })
   await waitFor(() => expect(privatePlanetReads).toBe(3))
 
@@ -355,7 +385,7 @@ test('an empty catalog explains that the controlled catalog must be populated be
     return path === '/api/music/catalog' ? Response.json({ tracks: [] }) : Response.json({ planet: null })
   }))
 
-  render(<MusicApp />)
+  await renderCockpit()
   expect(await screen.findByText('曲库还没有可选歌曲')).toBeTruthy()
   expect(screen.getByText(/添加曲目后，你就可以开始创建星球/)).toBeTruthy()
 })
@@ -407,7 +437,7 @@ test('settings load server privacy preferences and only show confirmed planet an
     throw new Error(`Unexpected request: ${path}`)
   }))
 
-  render(<MusicApp />)
+  await renderCockpit()
   await screen.findByRole('button', { name: '我的星球' })
   fireEvent.click(screen.getByRole('button', { name: '设置' }))
   await screen.findByRole('heading', { name: '账户与隐私设置' })
@@ -464,7 +494,7 @@ test('a moderator can review report metadata from settings without exposing targ
     throw new Error(`Unexpected request: ${path}`)
   }))
 
-  render(<MusicApp />)
+  await renderCockpit()
   await screen.findByRole('button', { name: '我的星球' })
   fireEvent.click(screen.getByRole('button', { name: '设置' }))
   await screen.findByRole('heading', { name: '账户与隐私设置' })
@@ -489,7 +519,7 @@ test('a non-moderator does not see an internal report-review entry in settings',
     throw new Error(`Unexpected request: ${path}`)
   }))
 
-  render(<MusicApp />)
+  await renderCockpit()
   await screen.findByRole('button', { name: '我的星球' })
   fireEvent.click(screen.getByRole('button', { name: '设置' }))
   await screen.findByRole('heading', { name: '账户与隐私设置' })
@@ -527,7 +557,7 @@ test('a planet owner can edit a Moment and only sees the saved version after the
     throw new Error(`Unexpected request: ${path}`)
   }))
 
-  render(<MusicApp />)
+  await renderCockpit()
   await screen.findByText('今天想起这首歌。')
   fireEvent.click(screen.getByRole('button', { name: '编辑 Moment：今天想起这首歌。' }))
   fireEvent.change(screen.getByRole('textbox', { name: '编辑 Moment 文本' }), { target: { value: '改写后仍然属于这首歌。' } })
@@ -572,7 +602,7 @@ test('a planet owner can view all Moments and confirm deletion before a Moment i
     throw new Error(`Unexpected request: ${path}`)
   }))
 
-  render(<MusicApp />)
+  await renderCockpit()
   expect(await screen.findByText('第 6 条 Moment 内容。')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: '删除 Moment：第 2 条 Moment 内容。' }))
   expect(screen.getByText('删除后，这条 Moment 会从访客页面和发现入口移除。')).toBeTruthy()
@@ -601,7 +631,7 @@ test('settings explain the anonymous browser identity and omit email account con
     throw new Error(`Unexpected request: ${path}`)
   }))
 
-  render(<MusicApp />)
+  await renderCockpit()
   await screen.findByRole('button', { name: '我的星球' })
   fireEvent.click(screen.getByRole('button', { name: '设置' }))
   await screen.findByRole('heading', { name: '账户与隐私设置' })
@@ -640,10 +670,10 @@ test('an owner can edit planet details, manage one to five selected songs, and c
     throw new Error(`Unexpected request: ${path}`)
   }))
 
-  render(<MusicApp />)
+  await renderCockpit()
   await screen.findByRole('button', { name: '我的星球' })
-  fireEvent.click(screen.getByRole('button', { name: '设置' }))
-  await screen.findByRole('heading', { name: '账户与隐私设置' })
+  fireEvent.click(screen.getByRole('button', { name: '星球资料与歌曲' }))
+  await screen.findByRole('heading', { name: '星球资料与歌曲' })
 
   fireEvent.change(screen.getByLabelText('星球名称'), { target: { value: '新的名字' } })
   fireEvent.change(screen.getByLabelText('星球简介'), { target: { value: '新的简介' } })
@@ -693,7 +723,7 @@ test('settings distinguish a failed Moment read from an empty Moment list and al
     throw new Error(`Unexpected request: ${path}`)
   }))
 
-  render(<MusicApp />)
+  await renderCockpit()
   await screen.findByRole('button', { name: '我的星球' })
   fireEvent.click(screen.getByRole('button', { name: '设置' }))
   await screen.findByRole('heading', { name: '账户与隐私设置' })
@@ -751,17 +781,17 @@ test('an owner can open an exact-song portal and visit a matching public planet'
     throw new Error(`Unexpected request: ${url.pathname}`)
   }))
 
-  render(<MusicApp />)
+  await renderCockpit()
   await screen.findByRole('heading', { name: '留在这里的歌' })
   fireEvent.click(screen.getByRole('button', { name: '寻找与《夜航》同歌的星球' }))
   expect(await screen.findByText('AI 已在精确同歌候选中排序')).toBeTruthy()
   expect(screen.getByText('潮汐边')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: '访问星球 潮汐边' }))
-  expect(await screen.findByRole('dialog')).toBeTruthy()
+  expect(await screen.findByRole('region', { name: /要访问/ })).toBeTruthy()
   const incognito = screen.getByRole('checkbox', { name: /隐身访问/ }) as HTMLInputElement
   expect(incognito.checked).toBe(false)
   fireEvent.click(incognito)
-  fireEvent.click(screen.getByRole('button', { name: '继续访问' }))
+  await confirmVisit()
   expect(await screen.findByRole('heading', { name: '潮汐边' })).toBeTruthy()
   expect(screen.getByText('夜色把路照亮了一点。')).toBeTruthy()
   expect(screen.getByRole('link', { name: '夜航 · 星际旅人 · 在官方平台打开' }).getAttribute('href'))
@@ -815,24 +845,24 @@ test('a visitor can browse public Galaxy planets by genre and open one without a
     throw new Error(`Unexpected request: ${url.pathname}`)
   }))
 
-  render(<MusicApp />)
+  await renderCockpit()
   await screen.findByRole('heading', { name: '留在这里的歌' })
-  expect(screen.queryByRole('button', { name: 'Galaxy' })).toBeTruthy()
-  fireEvent.click(screen.getByRole('button', { name: 'Galaxy' }))
+  expect(screen.queryByRole('button', { name: 'Galaxy' })).toBeNull()
+  await openGalaxyList()
   expect(await screen.findByRole('heading', { name: 'Galaxy' })).toBeTruthy()
   expect(screen.queryByText('只属于我的星球视觉摘要。')).toBeNull()
   expect(await screen.findByRole('button', { name: 'indie · 1' })).toBeTruthy()
-  expect(await screen.findByRole('button', { name: '前往星系 indie' })).toBeTruthy()
-  expect(screen.getByRole('button', { name: '穿过星云回到我的星球' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: '前往星系 indie', hidden: true })).toBeTruthy()
+  expect(screen.getByRole('button', { name: '穿过星云回到我的星球', hidden: true })).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'indie · 1' }))
   expect(await screen.findByText('星系 · indie')).toBeTruthy()
-  expect(screen.getByRole('button', { name: '← 回到宇宙' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: '← 回到宇宙', hidden: true })).toBeTruthy()
   expect(await screen.findByRole('button', { name: '访问星球 潮汐边' })).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: '访问星球 潮汐边' }))
-  expect(await screen.findByRole('dialog')).toBeTruthy()
-  fireEvent.click(screen.getByRole('button', { name: '继续访问' }))
+  expect(await screen.findByRole('region', { name: /要访问/ })).toBeTruthy()
+  await confirmVisit()
   expect(await screen.findByRole('heading', { name: '潮汐边' })).toBeTruthy()
-  expect(screen.getByRole('heading', { name: '访问 · 潮汐边' })).toBeTruthy()
+  expect(document.querySelector('.cockpit')?.getAttribute('data-exterior')).toBe('visitor')
   expect(requested).toContain('/api/music/galaxy?by=genre')
   expect(requested).toContain('/api/music/planets/planet-galaxy/visit')
   expect(visitBodies).toEqual([{ isIncognito: false, source: 'galaxy' }])
@@ -863,16 +893,16 @@ test('homepage random roam shows model-ranked public discoveries and asks before
     throw new Error(`Unexpected request: ${url.pathname}`)
   }))
 
-  render(<MusicApp />)
+  await renderCockpit()
   await screen.findByRole('heading', { name: '为你的星球选三首歌' })
-  fireEvent.click(screen.getByRole('button', { name: '随机漫游' }))
+  await openExploration('漫游')
   expect(await screen.findByRole('heading', { name: '随机漫游' })).toBeTruthy()
   expect(await screen.findByText('本地语义模型 · qwen3-embedding-local 已参与排序')).toBeTruthy()
   expect(screen.getByText('公开 Moment 的文字氛围相近')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: '访问星球 寂静河岸' }))
-  expect(await screen.findByRole('dialog')).toBeTruthy()
+  expect(await screen.findByRole('region', { name: /要访问/ })).toBeTruthy()
   expect(screen.getByText(/默认会在对方的 Orbit 留下最近访问足迹/)).toBeTruthy()
-  fireEvent.click(screen.getByRole('button', { name: '继续访问' }))
+  await confirmVisit()
   expect(await screen.findByRole('heading', { name: '寂静河岸' })).toBeTruthy()
   expect(visitBodies).toEqual([{ isIncognito: false, source: 'random_roam' }])
   expect(requested).toContain('/api/music/discovery')
@@ -908,9 +938,9 @@ test('My Orbit separates its five groups and visiting a daily route happens only
     throw new Error(`Unexpected request: ${url.pathname}`)
   }))
 
-  render(<MusicApp />)
+  await renderCockpit()
   await screen.findByRole('heading', { name: '为你的星球选三首歌' })
-  fireEvent.click(screen.getByRole('button', { name: 'My Orbit' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Orbit' }))
   expect(await screen.findByRole('heading', { name: 'My Orbit' })).toBeTruthy()
   expect(await screen.findByText('撞歌遇见')).toBeTruthy()
   expect(screen.getByText('好友')).toBeTruthy()
@@ -922,8 +952,8 @@ test('My Orbit separates its five groups and visiting a daily route happens only
   expect(visitBodies).toEqual([])
 
   fireEvent.click(screen.getByRole('button', { name: '访问星球 潮声' }))
-  expect(await screen.findByRole('dialog')).toBeTruthy()
-  fireEvent.click(screen.getByRole('button', { name: '继续访问' }))
+  expect(await screen.findByRole('region', { name: /要访问/ })).toBeTruthy()
+  await confirmVisit()
   expect(await screen.findByRole('heading', { name: '潮声' })).toBeTruthy()
   expect(visitBodies).toEqual([{ isIncognito: false, source: 'daily_roam' }])
 })
@@ -968,9 +998,9 @@ test('My Orbit lets users answer friend requests and open a friend-only text con
     throw new Error(`Unexpected request: ${url.pathname}`)
   }))
 
-  render(<MusicApp />)
+  await renderCockpit()
   await screen.findByRole('heading', { name: '为你的星球选三首歌' })
-  fireEvent.click(screen.getByRole('button', { name: 'My Orbit' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Orbit' }))
   expect(await screen.findByText('收到的好友请求')).toBeTruthy()
   fireEvent.click(await screen.findByRole('button', { name: '接受 海边的人' }))
 
@@ -1014,18 +1044,20 @@ test('a visitor can send a friend request from a public planet and block its own
     throw new Error(`Unexpected request: ${url.pathname}`)
   }))
 
-  render(<MusicApp />)
+  await renderCockpit()
   await screen.findByRole('heading', { name: '为你的星球选三首歌' })
-  fireEvent.click(screen.getByRole('button', { name: 'Galaxy' }))
+  await openGalaxyList()
   fireEvent.click(await screen.findByRole('button', { name: 'ambient · 1' }))
   fireEvent.click(await screen.findByRole('button', { name: '访问星球 雨声收集者' }))
-  fireEvent.click(await screen.findByRole('button', { name: '继续访问' }))
+  await confirmVisit()
   expect(await screen.findByRole('heading', { name: '雨声收集者' })).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: '发送好友请求' }))
   expect(await screen.findByText('好友请求已发送；对方接受后，你们会出现在彼此的好友 Orbit 中。')).toBeTruthy()
   expect((screen.getByRole('button', { name: '好友请求已发送' }) as HTMLButtonElement).disabled).toBe(true)
   fireEvent.click(screen.getByRole('button', { name: '屏蔽此人' }))
-  expect(await screen.findByRole('heading', { name: 'Galaxy' })).toBeTruthy()
+  expect(socialCalls).toHaveLength(2)
+  fireEvent.click(screen.getByRole('button', { name: '确认屏蔽' }))
+  await waitFor(() => expect(document.querySelector('.cockpit[data-exterior="home"]')).toBeTruthy())
   expect(socialCalls).toEqual([
     { path: '/api/me/friend-requests', method: 'POST', body: { planetId: 'public-planet' } },
     { path: '/api/me/friend-requests' },
@@ -1076,9 +1108,9 @@ test('a visitor can send, receive, open, comment on and release a drift bottle',
     throw new Error(`Unexpected request: ${url.pathname}`)
   }))
 
-  render(<MusicApp />)
+  await renderCockpit()
   await screen.findByRole('heading', { name: '为你的星球选三首歌' })
-  fireEvent.click(screen.getByRole('button', { name: '漂流瓶' }))
+  await openExploration('漂流瓶')
   expect(await screen.findByRole('heading', { name: '漂流瓶' })).toBeTruthy()
   fireEvent.change(screen.getByLabelText(/附上一句话/), { target: { value: '沿着这首歌继续漂流。' } })
   fireEvent.click(screen.getByRole('button', { name: '放出漂流瓶 ↗' }))
@@ -1126,7 +1158,7 @@ test('settings can remove a virtual friend satellite without treating it as a re
     throw new Error(`Unexpected request: ${path}`)
   }))
 
-  render(<MusicApp />)
+  await renderCockpit()
   await screen.findByRole('button', { name: '设置' })
   fireEvent.click(screen.getByRole('button', { name: '设置' }))
   await screen.findByText('真实好友')
@@ -1139,4 +1171,90 @@ test('settings can remove a virtual friend satellite without treating it as a re
   expect(screen.getByText('阿澄')).toBeTruthy()
   expect(screen.getByText('真实好友')).toBeTruthy()
   expect(state.deleted).toEqual(['friend-virtual-a'])
+})
+
+function installCockpitFixture(onVisit?: (init?: RequestInit) => Promise<Response>) {
+  const owner = { id: 'cockpit-owner', displayName: '驾驶舱测试星球', tagline: '', visibility: 'public', visualSchemaVersion: 3,
+    visual: createDitherSpec({ planetId: 'cockpit-owner', tracks }), tracks: tracks.slice(0,3) }
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = new URL(String(input), 'https://moodverse.test').pathname
+    if (path === '/api/music/catalog') return Response.json({ tracks })
+    if (path === '/api/me/music-planet') return Response.json({ planet: owner })
+    if (path === '/api/me/music-planet/moments') return Response.json({ moments: [] })
+    if (path === '/api/me/orbit') return Response.json({ date: '2026-10-09', groups: { songEncounters: [], friends: [], visitedByMe: [], visitorsToMe: [], dailyRoam: [] } })
+    if (path === '/api/me/friend-requests') return Response.json({ incoming: [], outgoing: [] })
+    if (path === '/api/music/galaxy') return Response.json({ by: 'genre', groups: [{ key: 'ambient', label: 'ambient', planetCount: 0, planets: [] }] })
+    if (path === '/api/music/song-portal') return Response.json({ trackId: 'song-a', ranking: { mode: 'rule', status: 'ready' }, matches: [{ planetId: 'cockpit-target', displayName: '下一站', matchSource: 'active_selection', reasonCode: 'shared_song_selection' }] })
+    if (path === '/api/music/planets/cockpit-target/visit' && onVisit) return onVisit(init)
+    throw Error(path)
+  }))
+  return owner
+}
+
+test('cockpit channels keep the same world renderer and preserve a Moment draft across Orbit and overview', async () => {
+  installCockpitFixture()
+  await renderCockpit()
+  const renderer = document.querySelector('.cockpit-viewport [data-dither-renderer]')
+  fireEvent.click(screen.getByRole('button', { name: 'Moment', exact: true }))
+  fireEvent.change(screen.getByRole('textbox', { name: 'Moment 内容' }), { target: { value: '还没发送的片刻' } })
+  fireEvent.change(screen.getByLabelText('这段 Moment 属于哪首歌'), { target: { value: 'song-b' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Orbit', exact: true }))
+  await screen.findByRole('heading', { name: 'My Orbit' })
+  fireEvent.click(screen.getByRole('button', { name: '返回驾驶舱' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Moment', exact: true }))
+  expect((screen.getByRole('textbox', { name: 'Moment 内容' }) as HTMLTextAreaElement).value).toBe('还没发送的片刻')
+  expect((screen.getByLabelText('这段 Moment 属于哪首歌') as HTMLSelectElement).value).toBe('song-b')
+  expect(document.querySelector('.cockpit-viewport [data-dither-renderer]')).toBe(renderer)
+  expect(document.querySelector('.cockpit')?.getAttribute('data-exterior')).toBe('home')
+})
+
+test('terminal wheel scrolling never advances the exterior Galaxy journey', async () => {
+  installCockpitFixture()
+  await renderCockpit()
+  await openGalaxyList()
+  const before = document.querySelector('.cockpit-viewport .music-galaxy-axis')?.innerHTML
+  for (let i = 0; i < 100; i++) fireEvent.wheel(document.querySelector('.cockpit-terminal-content')!, { deltaY: -10000 })
+  expect(document.querySelector('.cockpit')?.getAttribute('data-exterior')).toBe('galaxy')
+  expect(document.querySelector('.cockpit-viewport .music-galaxy-axis')?.innerHTML).toBe(before)
+  expect(document.querySelector('.cockpit.is-in-flight')).toBeNull()
+})
+
+test('a slow visit holds in the nebula, double confirmation posts once, and stale cancelled responses cannot redirect a new flight', async () => {
+  const responses: Array<(value: Response) => void> = []
+  let posts = 0
+  const owner = installCockpitFixture(async () => { posts++; return new Promise<Response>(resolve => responses.push(resolve)) })
+  await renderCockpit()
+  fireEvent.click(screen.getByRole('button', { name: '寻找与《夜航》同歌的星球' }))
+  fireEvent.click(await screen.findByRole('button', { name: '访问星球 下一站' }))
+  const confirm = screen.getByRole('button', { name: '继续访问' })
+  fireEvent.click(confirm)
+  fireEvent.click(confirm)
+  await waitFor(() => expect(document.querySelector('.dither-stage')?.getAttribute('data-flight-progress')).toBe('0.5'))
+  expect(posts).toBe(1)
+  expect(document.querySelector('.cockpit')?.getAttribute('data-exterior')).toBe('home')
+  fireEvent.click(screen.getByRole('button', { name: '取消航行' }))
+  fireEvent.click(await screen.findByRole('button', { name: '访问星球 下一站' }))
+  fireEvent.click(screen.getByRole('button', { name: '继续访问' }))
+  await waitFor(() => expect(responses).toHaveLength(2))
+  responses[0](Response.json({ planet: { ...owner, id: 'cockpit-target', displayName: '过期结果', moments: [] } }))
+  await waitFor(() => expect(document.querySelector('.dither-stage')?.getAttribute('data-flight-progress')).toBe('0.5'))
+  expect(document.querySelector('.cockpit')?.getAttribute('data-exterior')).toBe('home')
+  responses[1](Response.json({ planet: { ...owner, id: 'cockpit-target', displayName: '当前结果', moments: [] } }))
+  await waitFor(() => expect(document.querySelector('.cockpit[data-exterior="visitor"]:not(.is-in-flight)')).toBeTruthy(), { onTimeout: () => new Error(JSON.stringify({ page: document.querySelector('.cockpit')?.outerHTML.slice(0,400), progress: { ...document.querySelector<HTMLElement>('.dither-stage')?.dataset }, alerts: [...document.querySelectorAll('[role=alert]')].map(e=>e.textContent) })) })
+  fireEvent.click(screen.getByRole('button', { name: '打开探索终端' }))
+  expect(await screen.findByRole('heading', { name: '当前结果' })).toBeTruthy()
+  expect(screen.queryByRole('heading', { name: '过期结果' })).toBeNull()
+  expect(posts).toBe(2)
+})
+
+test('Escape inside visit confirmation returns only one channel and never records a visit', async () => {
+  let posts = 0
+  installCockpitFixture(async () => { posts++; return Response.json({}) })
+  await renderCockpit()
+  fireEvent.click(screen.getByRole('button', { name: '寻找与《夜航》同歌的星球' }))
+  fireEvent.click(await screen.findByRole('button', { name: '访问星球 下一站' }))
+  fireEvent.keyDown(screen.getByRole('region', { name: /要访问/ }), { key: 'Escape' })
+  expect(document.querySelector('.cockpit')?.getAttribute('data-page')).toBe('collision')
+  expect(document.querySelector('.cockpit')?.getAttribute('data-focus')).toBe('exploration')
+  expect(posts).toBe(0)
 })

@@ -12,7 +12,7 @@ export type StageLayoutInput = { width: number; height: number; phase: number; o
 export type StageFrame = DitherFrame & { orbits: DitherOrbitGeometry[]; systemTargets: { id: string; x: number; y: number; radius: number }[] }
 export function buildDitherStageFrame(input: StageLayoutInput): StageFrame {
   const { width, height, phase, owner, visitor, systems, focusedGalaxy, rotation } = input
-  const narrow = width < 760, x = width * (narrow ? .5 : .51), y = height * (narrow ? .27 : .49)
+  const narrow = width < 760, x = width * (narrow ? .5 : .51), y = height * .49
   const radius = Math.min(width * (narrow ? .29 : .19), height * .31)
   const assets: DitherAsset[] = [], orbits: DitherOrbitGeometry[] = [], systemTargets: StageFrame['systemTargets'] = []
   const home = sampleHomeTransition(input.home)
