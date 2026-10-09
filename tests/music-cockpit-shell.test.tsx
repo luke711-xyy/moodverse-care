@@ -55,3 +55,37 @@ test('desk replaces the redundant signal gauge with an honest radio ornament and
   expect(container.querySelector('.cockpit-console > .cockpit-center')).toBeTruthy()
   expect(container.querySelectorAll('.cockpit-console > .cockpit-console-side').length).toBe(2)
 })
+test('signal lights belong only to the central terminal, not the full-width desk', () => {
+  const { container } = render(<Harness />)
+  const lights = container.querySelectorAll('.desk-signals')
+  expect(lights.length).toBe(1)
+  expect(container.querySelector('#cockpit-exploration')!.contains(lights[0])).toBe(true)
+  expect(lights[0].getAttribute('aria-hidden')).toBe('true')
+  expect(lights[0].querySelectorAll('button, [tabindex]').length).toBe(0)
+})
+test('coffee emits a diffuse, graded pixel plume instead of stroked steam paths', () => {
+  const { container } = render(<Harness reduced />)
+  const steam = container.querySelector('.coffee-steam')!
+  expect(steam.querySelectorAll('path').length).toBe(0)
+  const pixels = [...steam.querySelectorAll('rect')]
+  expect(pixels.length).toBeGreaterThan(300)
+  expect(pixels.length).toBeLessThan(1200)
+  expect(new Set(pixels.map(pixel => pixel.getAttribute('fill'))).size).toBeGreaterThan(10)
+  const band = (from: number, to: number) => pixels.filter(pixel => {
+    const y = Number(pixel.getAttribute('y'))
+    return y >= from && y < to
+  })
+  const near = band(0, 20), far = band(-65, -45)
+  const width = (items: Element[]) => Math.max(...items.map(pixel => Number(pixel.getAttribute('x')))) - Math.min(...items.map(pixel => Number(pixel.getAttribute('x'))))
+  const alpha = (items: Element[]) => items.reduce((sum, pixel) => sum + Number(pixel.getAttribute('opacity')), 0) / items.length
+  expect(near.length).toBeGreaterThan(20)
+  expect(far.length).toBeGreaterThan(20)
+  expect(width(far)).toBeGreaterThan(width(near))
+  expect(alpha(near)).toBeGreaterThan(alpha(far))
+  const layers = [...steam.querySelectorAll('.coffee-steam-layer')]
+  expect(layers.length).toBeGreaterThan(1)
+  // A dither threshold must not put almost all cells into one animation phase:
+  // that would make the entire plume vanish whenever that cohort fades out.
+  const counts = layers.map(layer => layer.childElementCount)
+  expect(Math.max(...counts) / Math.min(...counts)).toBeLessThan(2)
+})

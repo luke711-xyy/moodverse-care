@@ -1,3 +1,5 @@
+import type { CSSProperties } from 'react'
+
 /** Lightweight, reusable 2.5D desk props. Their entire painted surface passes
  * through the opaque hardware dither; these ornaments never intercept input. */
 export function RetroRadio() {
@@ -21,20 +23,49 @@ export function RetroRadio() {
   </div>
 }
 
-export function DeskObjects() {
+export function DeskSignals() {
   const signalColors = ['#779c53','#91b363','#e3a251','#ce7442','#b34a36','#759250']
-  return <svg className="cockpit-desk-objects" viewBox="0 0 1800 170" preserveAspectRatio="xMidYMax meet" aria-hidden="true" focusable="false">
+  // Attached to the central casing, so its own projected width is the boundary
+  // on desktop, horizontally panned tablets, and the rotated phone viewport.
+  return <svg className="desk-signals" viewBox="0 0 600 18" aria-hidden="true" focusable="false">
+    {Array.from({length:18},(_,i)=><g key={i} transform={`translate(${12+i*576/17} 6)`}>
+      <ellipse cy="3" rx="7" ry="5" fill="#271f14" /><ellipse rx="4.5" ry="3.5" fill={signalColors[i%6]} /><ellipse cx="-1.2" cy="-1.2" rx="1.3" ry=".8" fill="#f7dca0" opacity=".65" />
+    </g>)}
+  </svg>
+}
+
+// A bounded field of fine dither cells, generated once rather than updating
+// React on every animation frame. The vapor widens and loses density/contrast
+// with height. Interleaved cohorts drift independently without visible ribbons.
+const steamLayers = Array.from({length:4}, () => [] as {x:number;y:number;fill:string;opacity:number}[])
+const steamBayer = [0,8,2,10,12,4,14,6,3,11,1,9,15,7,13,5]
+for (let row=0;row<48;row++) {
+  const height=2+row*2, t=height/98, spread=8+t*30
+  const center=59+Math.sin(t*7)*7+Math.sin(t*15)*3
+  for (let col=0;col<75;col++) {
+    const x=-15+col*2, q=(x-center)/spread
+    let hash=Math.imul((row+11)^Math.imul(col+7,0x9e3779b1),0x85ebca6b)>>>0
+    hash=Math.imul(hash^(hash>>>13),0xc2b2ae35)>>>0
+    const random=hash/4294967296
+    const threshold=.7*(steamBayer[(row%4)*4+col%4]+.5)/16+.3*random
+    const density=.9*(1-.4*t)*Math.exp(-q*q/2)
+    if (threshold>density) continue
+    const edge=Math.exp(-q*q/3)*Math.min(1,height/8)*Math.min(1,(98-height)/18)
+    const opacity=Number(((.84-.56*t)*edge).toFixed(3))
+    const fill=`rgb(${Math.round(248-t*35)} ${Math.round(235-t*24)} ${Math.round(208-t*1)})`
+    // Decouple motion cohorts from the ordered threshold lattice.
+    steamLayers[(hash>>>3)%4].push({x,y:23-height,fill,opacity})
+  }
+}
+
+export function DeskObjects() {
+  return <svg className="cockpit-desk-objects" viewBox="0 -115 1800 285" preserveAspectRatio="xMidYMax meet" aria-hidden="true" focusable="false">
     <defs>
       <linearGradient id="keyboard-case" x2=".1" y2="1"><stop stopColor="#d7b778" /><stop offset=".4" stopColor="#85704b" /><stop offset="1" stopColor="#332819" /></linearGradient>
       <linearGradient id="keyboard-cap" x2=".4" y2="1"><stop stopColor="#f1d497" /><stop offset=".45" stopColor="#c4a26b" /><stop offset="1" stopColor="#897049" /></linearGradient>
       <linearGradient id="headphone-shell" x2=".8" y2="1"><stop stopColor="#a38f66" /><stop offset=".4" stopColor="#3c362a" /><stop offset="1" stopColor="#19160f" /></linearGradient>
       <linearGradient id="cup-case" x2="1" y2=".15"><stop stopColor="#5c462b" /><stop offset=".3" stopColor="#d5b079" /><stop offset=".65" stopColor="#b38d5a" /><stop offset="1" stopColor="#5a4028" /></linearGradient>
     </defs>
-    <g className="desk-signals">
-      {Array.from({length:32},(_,i)=><g key={i} transform={`translate(${200+i*45} ${12+Math.abs(i-15.5)*.38})`}>
-        <ellipse cy="3" rx="7" ry="5" fill="#271f14" /><ellipse rx="4.5" ry="3.5" fill={signalColors[i%6]} /><ellipse cx="-1.2" cy="-1.2" rx="1.3" ry=".8" fill="#f7dca0" opacity=".65" />
-      </g>)}
-    </g>
     <g className="desk-keyboard" transform="translate(633.5 41)">
       <ellipse cx="266.5" cy="113" rx="299" ry="18" fill="#100d09" opacity=".7" />
       <path d="M0 0 H533 L573 106 L568 120 H-35 L-40 106Z" fill="#40311e" stroke="#21180f" strokeWidth="3" />
@@ -68,8 +99,10 @@ export function DeskObjects() {
       <path d="M105 48 C159 28 155 109 108 99" fill="none" stroke="#46301b" strokeWidth="16" /><path d="M106 45 C145 30 146 100 109 95" fill="none" stroke="#bfa16f" strokeWidth="9" />
       <path d="M5 35 Q2 91 18 103 Q57 123 103 101 L113 35Z" fill="url(#cup-case)" stroke="#755231" strokeWidth="2" />
       <ellipse cx="59" cy="35" rx="54" ry="15" fill="#2d2114" stroke="#e5bd80" strokeWidth="4" /><ellipse cx="59" cy="36" rx="46" ry="10" fill="#22170c" /><path d="M22 34 Q50 28 87 34" fill="none" stroke="#766040" strokeWidth="2" />
-      <g className="coffee-steam" fill="none" stroke="#dbc895" strokeWidth="3" strokeLinecap="round">
-        <path d="M37 20 C14 0 60 -9 38 -32" /><path d="M64 17 C85 -1 37 -12 65 -43" /><path d="M84 21 C105 2 73 -6 86 -26" />
+      <g className="coffee-steam" stroke="none">
+        {steamLayers.map((pixels,layer)=><g key={layer} className="coffee-steam-layer" style={{'--steam-duration':`${5.2+layer*.7}s`,'--steam-phase':`${-layer*1.8}s`,'--steam-drift':`${layer%2===0?-5:7}px`} as CSSProperties}>
+          {pixels.map((pixel,index)=><rect key={index} {...pixel} width="1.9" height="1.9" />)}
+        </g>)}
       </g>
     </g>
   </svg>

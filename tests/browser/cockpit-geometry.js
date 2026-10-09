@@ -23,9 +23,15 @@ export function assertCockpitGeometry(root = document) {
     return turned ? r.height : r.width
   }
   const keyNearToFar = keyWidth(3) / keyWidth(0)
+  const lights = root.querySelector('.desk-signals').getBoundingClientRect()
+  const lightsWithinMonitor = turned ? lights.top >= center.top && lights.bottom <= center.bottom
+    : lights.left >= center.left && lights.right <= center.right
+  const desk = root.querySelector('.cockpit-desk-objects').getBoundingClientRect()
+  const steam = root.querySelector('.coffee-steam').getBoundingClientRect()
+  const steamWithinPaintArea = steam.left >= desk.left && steam.right <= desk.right && steam.top >= desk.top && steam.bottom <= desk.bottom
   const keyOverflow = [...root.querySelectorAll('.cockpit-keys')].some(el => el.scrollWidth > el.clientWidth + 1)
-  const report = { centerOffset, wings, keyNearToFar, keyOverflow, documentOverflow: root.documentElement.scrollWidth > root.documentElement.clientWidth }
-  if (Math.abs(centerOffset) > 1 || wings.some(wing => wing.nearToFar < 1.025 || !wing.inWindow) || keyNearToFar < 1.04 || keyOverflow || report.documentOverflow) {
+  const report = { centerOffset, wings, keyNearToFar, lightsWithinMonitor, steamWithinPaintArea, keyOverflow, documentOverflow: root.documentElement.scrollWidth > root.documentElement.clientWidth }
+  if (Math.abs(centerOffset) > 1 || wings.some(wing => wing.nearToFar < 1.025 || !wing.inWindow) || keyNearToFar < 1.04 || !lightsWithinMonitor || !steamWithinPaintArea || keyOverflow || report.documentOverflow) {
     throw new Error(`Cockpit projection regression: ${JSON.stringify(report)}`)
   }
   return report

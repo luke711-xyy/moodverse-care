@@ -4,7 +4,7 @@ import { pageTerminal, type CockpitPage, type CockpitState } from './state'
 import './cockpit.css'
 import { DitherSurfaceDefinitions } from './surface'
 import { CrtScreen } from './CrtScreen'
-import { DeskObjects, RetroRadio } from './DeskObjects'
+import { DeskObjects, DeskSignals, RetroRadio } from './DeskObjects'
 import './desk.css'
 
 export type CockpitSignal = 'idle' | 'loading' | 'traveling' | 'error'
@@ -176,6 +176,7 @@ export function CockpitShell(props: Props) {
           </button>
           <div className="cockpit-keys">{explorationPages.map(([page, label]) => <button key={page} disabled={traveling} aria-pressed={!personal && props.state.console.page === page} onClick={event => open(page, event)}>{label}</button>)}</div>
           <Vent />
+          <DeskSignals />
         </section>
         <div className="cockpit-console-side cockpit-console-side-right">
         <RetroRadio />
