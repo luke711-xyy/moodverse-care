@@ -1,5 +1,10 @@
 # Moodverse Music MVP staging setup
 
+> Update 2026-10-09: the user has authorized promotion of the music app to the
+> original public domain. Use [music-production-setup.md](music-production-setup.md)
+> for that release. This document still governs the staging project. Both music
+> sites temporarily share the music DB; the legacy emotional DB remains intact.
+
 The repository's existing `wrangler.toml` and `wrangler-cron.toml` belong to
 the original `moodverse-care` Pages/Worker deployment and its production D1
 database. Do not use them to publish this branch.

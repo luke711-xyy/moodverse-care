@@ -1,0 +1,25 @@
+# Music demo promoted to the original public domain at the user's request.
+# Share the existing music DB/scheduler for now; never bind the legacy care DB.
+name = "moodverse-care"
+compatibility_date = "2026-09-22"
+pages_build_output_dir = "./dist"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "moodverse-music-staging-db"
+database_id = "58d7ea1b-aaaf-4639-8adb-5fb2136dddf4"
+migrations_dir = "./migrations-music-staging"
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "moodverse-music-staging-db"
+database_id = "58d7ea1b-aaaf-4639-8adb-5fb2136dddf4"
+migrations_dir = "./migrations-music-staging"
+
+[vars]
+MUSIC_EMAIL_LOGIN_ENABLED = "false"
+MUSIC_ALLOW_LEGACY_ACCESS_AUTH = "false"
+
+[env.production.vars]
+MUSIC_EMAIL_LOGIN_ENABLED = "false"
+MUSIC_ALLOW_LEGACY_ACCESS_AUTH = "false"
