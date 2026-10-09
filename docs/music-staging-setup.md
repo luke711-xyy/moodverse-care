@@ -78,8 +78,23 @@ IDs before applying the fictional track and world fixtures.
 3. Build the app and run `npm run music:staging:preflight`. It must pass before
    any deployment; it fails closed while either manifest has a placeholder ID,
    the manifests point at different databases, or either target is production.
-4. Deploy the Pages app with
-   `npx wrangler pages deploy dist --config wrangler.music-staging.pages.toml --branch staging`.
+4. Deploy the Pages app to this isolated project's `main` branch to update its
+   root domain. Pages in Wrangler 4.149.0 rejects custom config paths, so use a
+   temporary release directory with the validated staging manifest under the
+   standard config name. Do not replace the repository's production config:
+
+   ```sh
+   taskReleaseDir=$(mktemp -d /tmp/moodverse-music-release.XXXXXX)
+   cp -R dist functions src "$taskReleaseDir/"
+   cp care-templates.ts package.json "$taskReleaseDir/"
+   cp wrangler.music-staging.pages.toml "$taskReleaseDir/wrangler.toml"
+   npx wrangler pages deploy dist --cwd "$taskReleaseDir" \
+     --project-name moodverse-music-staging --branch main \
+     --commit-hash "$(git rev-parse HEAD)" --commit-dirty=false
+   ```
+
+   Build, preflight and a clean Git state are prerequisites. This Pages branch
+   does not merge the source branch into the legacy repository's `main`.
 5. Deploy the cron Worker with
    `npx wrangler deploy --config wrangler.music-staging-scheduler.toml`.
 6. Confirm in Cloudflare that the Worker has the `*/5 * * * *` Cron Trigger and
