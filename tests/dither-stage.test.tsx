@@ -7,6 +7,7 @@ import type { DitherFrame } from '../src/music/dither/renderer'
 import { createDitherSpec } from '../src/music/dither/appearance'
 import { buildDitherStageFrame } from '../src/music/dither/stage-layout'
 import { hitTestDitherAssets } from '../src/music/dither/layout'
+import * as ditherLayout from '../src/music/dither/layout'
 const capture = vi.hoisted(() => ({ frame: null as DitherFrame | null }))
 vi.mock('../src/music/dither/DitherCanvas', () => ({ DitherCanvas: (props: { getFrame: (w: number, h: number, phase: number) => DitherFrame }) => { capture.frame = props.getFrame(1000, 700, 0); return <canvas /> } }))
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
@@ -92,4 +93,56 @@ test('live nebula ambience is retained behind an own or visited planet', () => {
   const input = {width:1000,height:700,phase:0,owner:createDitherSpec({planetId:'owner',tracks:[]}),systems:[],home:1,journey:0,rotation:0,friends:[],music:[]}
   expect(buildDitherStageFrame(input).ambience).toBeCloseTo(.65)
   expect(buildDitherStageFrame({...input,visitor:createDitherSpec({planetId:'visitor',tracks:[]})}).ambience).toBeCloseTo(.65)
+})
+
+test('rotated touch dragging uses landscape X, not the physical screen X', () => {
+  vi.stubGlobal('PointerEvent', MouseEvent)
+  const props: React.ComponentProps<typeof Stage> = {
+    planet:null, friendSatellites:[],visitedPlanet:null,previewSeed:'landscape',reducedMotion:true,
+    productView:'galaxy',galaxySystems:[],galaxyRotation:0,routeJourney:0,regrouping:false,
+    onSelectGalaxy:vi.fn(),onOpenPlanet:vi.fn(),onRotate:vi.fn(),onTourMove:vi.fn(),onMusicSelect:vi.fn(),onFriendSelect:vi.fn(),
+  }
+  render(<Stage {...props} />)
+  const region=screen.getByRole('region',{name:'二维音乐宇宙'})
+  Object.defineProperty(region,'clientWidth',{value:844})
+  Object.defineProperty(region,'clientHeight',{value:390})
+  region.getBoundingClientRect=()=>({left:0,top:0,right:390,width:390,height:844} as DOMRect)
+  region.style.setProperty('--music-viewport-rotation','90')
+  fireEvent.pointerDown(region,{button:0,clientX:300,clientY:100})
+  fireEvent.pointerMove(region,{clientX:300,clientY:140})
+  expect(props.onTourMove).toHaveBeenCalledWith(-40*.0014)
+  fireEvent.pointerUp(region,{clientX:300,clientY:140})
+  expect(props.onSelectGalaxy).not.toHaveBeenCalled()
+})
+
+test('a visible satellite is picked at its rotated screen location', () => {
+  vi.stubGlobal('PointerEvent', MouseEvent)
+  const planet = {id:'owner',tracks:[{id:'right'},{id:'front'},{id:'left'},{id:'rear'}],visual:createDitherSpec({planetId:'owner',tracks:[],overrides:{form:'particles',pointer:'off',pulse:0}})} as React.ComponentProps<typeof Stage>['planet']
+  const onMusicSelect = vi.fn()
+  render(<Stage planet={planet} friendSatellites={[]} visitedPlanet={null} previewSeed="owner" reducedMotion productView="planet"
+    galaxySystems={[]} galaxyRotation={0} routeJourney={0} regrouping={false}
+    onSelectGalaxy={vi.fn()} onOpenPlanet={vi.fn()} onRotate={vi.fn()} onTourMove={vi.fn()} onMusicSelect={onMusicSelect} onFriendSelect={vi.fn()} />)
+  const region=screen.getByRole('region',{name:'二维音乐宇宙'})
+  Object.defineProperty(region,'clientWidth',{value:1000})
+  Object.defineProperty(region,'clientHeight',{value:700})
+  region.getBoundingClientRect=()=>({left:0,top:0,right:700,width:700,height:1000} as DOMRect)
+  region.style.setProperty('--music-viewport-rotation','90')
+  fireEvent(window, new Event('resize'))
+  const front=capture.frame!.assets.find(asset=>asset.id==='music:front')!
+  // Music satellites have a perforated dither silhouette: pick a painted cell,
+  // not the transparent center of their ring.
+  let painted: {x:number;y:number} | undefined
+  const range=Math.ceil(front.radius)
+  for(let dx=-range;dx<range && !painted;dx++) for(let dy=-range;dy<range;dy++) {
+    const x=Math.round(front.x)+dx,y=Math.round(front.y)+dy
+    if(hitTestDitherAssets(capture.frame!.assets,x,y,{mode:'webgl2'})?.id==='music:front') { painted={x,y}; break }
+  }
+  expect(painted).toBeTruthy()
+  const event={button:0,clientX:700-painted!.y,clientY:painted!.x}
+  const picking = vi.spyOn(ditherLayout,'hitTestDitherAssets')
+  fireEvent.pointerDown(region,event); fireEvent.pointerUp(region,event)
+  expect(picking).toHaveBeenCalledWith(expect.any(Array),painted!.x,painted!.y,expect.any(Object))
+  expect(picking.mock.calls.at(-1)?.[0].find(asset=>asset.id==='music:front')).toEqual(front)
+  expect(picking.mock.results.at(-1)?.value?.id).toBe('music:front')
+  expect(onMusicSelect).toHaveBeenCalledWith('front')
 })

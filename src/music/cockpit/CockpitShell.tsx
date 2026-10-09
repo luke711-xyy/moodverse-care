@@ -4,6 +4,8 @@ import { pageTerminal, type CockpitPage, type CockpitState } from './state'
 import './cockpit.css'
 import { DitherSurfaceDefinitions } from './surface'
 import { CrtScreen } from './CrtScreen'
+import { DeskObjects, RetroRadio } from './DeskObjects'
+import './desk.css'
 
 export type CockpitSignal = 'idle' | 'loading' | 'traveling' | 'error'
 type Props = {
@@ -133,7 +135,6 @@ export function CockpitShell(props: Props) {
     if (event.shiftKey && (document.activeElement === first || document.activeElement === region.current)) { event.preventDefault(); last.focus() }
     else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
   }
-  const signalValue = props.signal === 'idle' ? .7 : props.signal === 'loading' ? .4 : props.signal === 'traveling' ? .95 : .08
   return <div className={`cockpit${focused ? ' is-focused' : ''}${traveling ? ' is-in-flight' : ''}`}
     data-focus={props.state.console.focus} data-page={props.state.console.page} data-exterior={props.state.exterior}
     data-crt={props.crtEnabled ? 'on' : 'off'} data-crt-motion={props.crtEnabled && !props.reducedMotion} data-typing={typing} data-reduced-motion={props.reducedMotion}>
@@ -153,6 +154,7 @@ export function CockpitShell(props: Props) {
     <div ref={overview} className="cockpit-console-scroll" inert={focused || undefined} aria-hidden={focused || undefined}>
       <ConsoleDeck />
       <div className="cockpit-console">
+        <div className="cockpit-console-side cockpit-console-side-left">
         <section id="cockpit-personal" className="cockpit-wing cockpit-wing-left">
           <CaseDetails serial="PERSONAL / 01" />
           <div className="cockpit-hardware-label">个人终端</div>
@@ -164,6 +166,7 @@ export function CockpitShell(props: Props) {
           <Vent />
         </section>
         <div className="cockpit-gauge-bay"><i className="cockpit-lamp" data-lit={props.connected !== false} /><Gauge label="航向" value={props.heading} /><button className="cockpit-flight-lever" disabled={traveling} aria-label={props.state.exterior === 'visitor' ? '返回出发地' : 'Galaxy'} onClick={event => props.state.exterior === 'visitor' ? props.onHome() : props.state.exterior === 'home' ? props.onGalaxy() : open('galaxy', event)}><span aria-hidden="true" /><small>{props.state.exterior === 'visitor' ? '返回' : 'Galaxy'}</small></button></div>
+        </div>
         <section id="cockpit-exploration" className="cockpit-center">
           <CaseDetails serial="TRANSMISSION / 02" />
           <div className="cockpit-hardware-label">探索终端 <span className="cockpit-signal" data-signal={props.signal}>{signalNames[props.signal]}</span></div>
@@ -174,7 +177,8 @@ export function CockpitShell(props: Props) {
           <div className="cockpit-keys">{explorationPages.map(([page, label]) => <button key={page} disabled={traveling} aria-pressed={!personal && props.state.console.page === page} onClick={event => open(page, event)}>{label}</button>)}</div>
           <Vent />
         </section>
-        <div className="cockpit-gauge-bay cockpit-signal-bay"><i className="cockpit-lamp" data-lit={props.signal !== 'error'} /><Gauge label="信号" value={signalValue} state={signalNames[props.signal]} /><span className="cockpit-signal-legend">{signalNames[props.signal]}</span></div>
+        <div className="cockpit-console-side cockpit-console-side-right">
+        <RetroRadio />
         <section id="cockpit-controls" className="cockpit-wing cockpit-wing-right">
           <CaseDetails serial="NAVIGATION / 03" />
           <div className="cockpit-hardware-label">Galaxy 分类</div>
@@ -184,7 +188,9 @@ export function CockpitShell(props: Props) {
           </div>
           <button className="cockpit-settings-key" aria-label="设置" disabled={traveling} onClick={event => open('settings', event)}>⚙ <span>设置</span></button><Vent />
         </section>
+        </div>
       </div>
+      <DeskObjects />
     </div>
     <div ref={region} className={`cockpit-terminal cockpit-${terminal}-terminal${retreating ? ' is-retreating' : ''}`} hidden={!focused && !retreating} aria-hidden={!focused || undefined} inert={!focused || undefined}
       role="region" tabIndex={-1} aria-label={personal ? '个人终端' : '探索终端'} data-page={props.state.console.page}

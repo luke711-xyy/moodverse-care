@@ -13,9 +13,11 @@ import { resolveDitherSpec, type DitherPlanetSpec, type DitherOverrides } from '
 import { CockpitShell } from './cockpit/CockpitShell'
 import { cockpitReducer, initialCockpitState, type CockpitPage } from './cockpit/state'
 import { useCockpitFlight } from './cockpit/flight'
+import { logicalSize } from './viewport'
 import './music-app.css'
 import './dither/product.css'
 import './cockpit/product.css'
+import './viewport.css'
 
 type HomeState =
   | { status: 'loading' }
@@ -1350,7 +1352,8 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
       if (target instanceof Element) {
         if (!target.closest('.cockpit-viewport') || target.closest('button, input, textarea, select')) return
       }
-      const step = normalizeWheelDelta(event.deltaY, event.deltaMode, window.innerHeight)
+      const viewport = document.querySelector<HTMLElement>('.music-app')
+      const step = normalizeWheelDelta(event.deltaY, event.deltaMode, viewport ? logicalSize(viewport).height : window.innerHeight)
       if (!step) return
       event.preventDefault()
       if (selectedGroupKeyForWheel) setGalaxyRotation((rotation) => rotation - step * 10)

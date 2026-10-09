@@ -10,6 +10,7 @@ import { buildDitherStageFrame, sampleHomeTransition, type StageFrame } from './
 import { TOUR_END } from '../../universe'
 import { buildCockpitFlightFrame } from '../cockpit/flight-frame'
 import type { CockpitFlight } from '../cockpit/flight'
+import { clientPoint, logicalSize } from '../viewport'
 
 type Props = { planet: MusicPlanet | null; friendSatellites: MusicFriendSatellite[]; visitedPlanet: PublicMusicPlanet | null; previewSeed: string; previewTracks?: MusicTrackSummary[]; appearancePreview?: DitherPlanetSpec | null; reducedMotion: boolean; productView: string; focusedGalaxy?: string; galaxySystems: MusicGalaxySceneSystem[]; galaxyRotation: number; routeJourney: number; regrouping: boolean; onSelectGalaxy: (id: string)=>void; onOpenPlanet: (planet: MusicScenePlanet, galaxyId: string)=>void; onRotate: (delta: number)=>void; onTourMove: (delta: number)=>void; onMusicSelect: (id: string)=>void; onFriendSelect: (id: string)=>void }
 export function Stage(props: Props & { exteriorView?: 'home' | 'galaxy'; interactive?: boolean; flight?: CockpitFlight | null; managedTravel?: boolean }) {
@@ -43,7 +44,7 @@ export function Stage(props: Props & { exteriorView?: 'home' | 'galaxy'; interac
     return ()=>cancelAnimationFrame(raf)
   }, [desiredHome, props.reducedMotion, Boolean(props.planet), props.managedTravel])
   useEffect(()=> {
-    const resize = ()=> { const rect=wrap.current?.getBoundingClientRect(); if (rect) setBounds({ width: rect.width, height: rect.height }) }
+    const resize = ()=> { if (wrap.current) setBounds(logicalSize(wrap.current)) }
     resize(); window.addEventListener('resize',resize)
     const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(resize) : null
     if (wrap.current) observer?.observe(wrap.current)
@@ -61,9 +62,9 @@ export function Stage(props: Props & { exteriorView?: 'home' | 'galaxy'; interac
   useEffect(() => { if (busy || props.interactive === false) drag.current = null }, [busy, props.interactive])
   const activate = (clientX:number, clientY:number)=> {
     if (busy || props.interactive === false) return
-    const rect=wrap.current!.getBoundingClientRect(), x=clientX-rect.left, y=clientY-rect.top, frame=latestFrame.current!
+    const { x, y }=clientPoint(wrap.current!,clientX,clientY), frame=latestFrame.current!
     const canvas=wrap.current!.querySelector<HTMLCanvasElement>('[data-dither-renderer]')
-    const hit=hitTestDitherAssets(frame.assets.filter(a=>a.id !== 'nebula'),x,y,{mode:renderMode,pointer:frame.pointer,pixelRatio:canvas ? canvas.width/rect.width : 1})
+    const hit=hitTestDitherAssets(frame.assets.filter(a=>a.id !== 'nebula'),x,y,{mode:renderMode,pointer:frame.pointer,pixelRatio:canvas ? canvas.width/logicalSize(wrap.current!).width : 1})
     if (hit?.id.startsWith('music:')) { props.onMusicSelect(hit.id.slice(6)); return }
     if (hit?.id.startsWith('friend:')) { props.onFriendSelect(hit.id.slice(7)); return }
     if (hit?.id.startsWith('planet:') && props.focusedGalaxy) {
@@ -78,8 +79,8 @@ export function Stage(props: Props & { exteriorView?: 'home' | 'galaxy'; interac
   }
   return <div ref={wrap} className={`dither-stage${props.regrouping ? ' is-regrouping' : ''}`} data-traveling={busy} data-flight-progress={props.flight?.progress} data-flight-ready={props.flight?.ready} data-flight-token={props.flight?.token} role="region" tabIndex={props.interactive === false ? -1 : 0} aria-label="二维音乐宇宙"
     onKeyDown={event=>{ if(busy || props.interactive === false || event.target !== event.currentTarget || !['ArrowLeft','ArrowRight'].includes(event.key)) return; event.preventDefault(); const step=event.key==='ArrowRight' ? .15 : -.15; if(inGalaxy && !visitor) { if(props.focusedGalaxy) props.onRotate(step); else props.onTourMove(step) } else setOwnRotation(r=>r+step) }}
-    onPointerDown={event=> { if(event.button!==0 || busy || props.interactive === false) return; drag.current={x:event.clientX,y:event.clientY,travel:0}; event.currentTarget.setPointerCapture?.(event.pointerId) }}
-    onPointerMove={event=> { const current=drag.current; if (!current || busy || props.interactive === false) return; const dx=event.clientX-current.x, dy=event.clientY-current.y; current.travel+=Math.hypot(dx,dy); current.x=event.clientX; current.y=event.clientY; if(inGalaxy && !visitor) { if(props.focusedGalaxy) props.onRotate(dx*.006); else props.onTourMove(-dx*.0014) } else setOwnRotation(r=>r+dx*.009) }}
+    onPointerDown={event=> { if(event.button!==0 || busy || props.interactive === false) return; drag.current={...clientPoint(event.currentTarget,event.clientX,event.clientY),travel:0}; event.currentTarget.setPointerCapture?.(event.pointerId) }}
+    onPointerMove={event=> { const current=drag.current; if (!current || busy || props.interactive === false) return; const point=clientPoint(event.currentTarget,event.clientX,event.clientY), dx=point.x-current.x, dy=point.y-current.y; current.travel+=Math.hypot(dx,dy); current.x=point.x; current.y=point.y; if(inGalaxy && !visitor) { if(props.focusedGalaxy) props.onRotate(dx*.006); else props.onTourMove(-dx*.0014) } else setOwnRotation(r=>r+dx*.009) }}
     onPointerUp={event=> { const current=drag.current; drag.current=null; event.currentTarget.releasePointerCapture?.(event.pointerId); if(current && current.travel<6) activate(event.clientX,event.clientY) }}
     onPointerCancel={()=>{drag.current=null}} onLostPointerCapture={()=>{drag.current=null}}>
     <svg className="dither-stage-lines" viewBox={`0 0 ${bounds.width} ${bounds.height}`} aria-hidden="true">

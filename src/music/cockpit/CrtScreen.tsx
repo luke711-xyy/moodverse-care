@@ -1,5 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type MouseEvent } from 'react'
 import { crtDisplacementMap, displayToSource, screenDepth } from './screen-math'
+import { clientPoint, isQuarterTurn, localToScreen } from '../viewport'
 const warp = crtDisplacementMap()
 /** Native DOM stays accessible/editable. Only the displayed phosphor image is
  * curved; trusted pointer input is mapped back to its unwarped control. */
@@ -42,8 +43,10 @@ export function CrtScreen({ children, active, motion, enabled, mini = false }: {
     // Synthetic keyboard/accessibility clicks already use the native target.
     if (mini || !enabled || !event.isTrusted || !event.detail || !root.current) return
     const rect = root.current.getBoundingClientRect()
-    const point = displayToSource(event.clientX - rect.left, event.clientY - rect.top, size)
-    const target = document.elementFromPoint(rect.left + point.x, rect.top + point.y)?.closest<HTMLElement>('button, a, input, textarea, select')
+    const displayed = clientPoint(root.current, event.clientX, event.clientY)
+    const point = displayToSource(displayed.x, displayed.y, size)
+    const client = localToScreen(point, rect, size, isQuarterTurn(root.current))
+    const target = document.elementFromPoint(client.x, client.y)?.closest<HTMLElement>('button, a, input, textarea, select')
     const original = (event.target as Element).closest('button, a, input, textarea, select')
     if (!target || target === original || !root.current.contains(target) || target.matches(':disabled')) return
     event.preventDefault(); event.stopPropagation(); target.focus({ preventScroll: true }); target.click()

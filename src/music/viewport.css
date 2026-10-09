@@ -1,0 +1,19 @@
+/* One landscape viewport on every device. Portrait windows rotate the entire
+   cockpit, including DOM controls; no fullscreen/orientation-lock permission. */
+body:has(.music-app) { overflow: clip; }
+.music-app, .music-app:has(.cockpit) {
+  --music-viewport-rotation: 0;
+  position: fixed; inset: 0; width: 100%; height: 100dvh; min-height: 0;
+  overflow: clip; container: music-viewport / size; transform-origin: 0 0;
+}
+.music-app .cockpit { height: 100%; }
+/* Retired portrait rules must not turn the persistent canvas into a tall,
+   fixed-position layer inside the rotated viewport. */
+.cockpit .dither-stage { position: absolute; height: 100%; opacity: 1; }
+@media (orientation: portrait) {
+  .music-app, .music-app:has(.cockpit) {
+    --music-viewport-rotation: 90;
+    inset: 0 auto auto 100dvw; width: 100dvh; height: 100dvw;
+    transform: rotate(90deg);
+  }
+}

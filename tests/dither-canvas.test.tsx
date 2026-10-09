@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from 'react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
-import { act, cleanup, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { DitherCanvas } from '../src/music/dither/DitherCanvas'
 import { createDitherSpec } from '../src/music/dither/appearance'
 import { createDitherRenderer, type DitherFrame } from '../src/music/dither/renderer'
@@ -45,6 +45,24 @@ test('a focused terminal pauses the covered world and resumes in place without a
   expect(createDitherRenderer).toHaveBeenCalledTimes(1)
   rerender(<DitherCanvas getFrame={frame} />)
   expect(requestAnimationFrame).toHaveBeenCalled()
+  expect(createDitherRenderer).toHaveBeenCalledTimes(1)
+  expect(dispose).not.toHaveBeenCalled()
+})
+
+test('portrait rotation preserves logical resolution and maps material interaction without reinitializing', () => {
+  vi.stubGlobal('PointerEvent', MouseEvent)
+  const { container } = render(<div style={{ '--music-viewport-rotation': '90' } as React.CSSProperties}><DitherCanvas getFrame={frame} paused /></div>)
+  const canvas = container.querySelector('canvas')!
+  Object.defineProperty(canvas,'clientWidth',{value:844})
+  Object.defineProperty(canvas,'clientHeight',{value:390})
+  canvas.getBoundingClientRect = () => ({left:0,top:0,right:390,width:390,height:844} as DOMRect)
+  // jsdom doesn't inherit custom properties; set the same resolved value.
+  canvas.style.setProperty('--music-viewport-rotation','90')
+  fireEvent(window,new Event('resize'))
+  fireEvent.pointerMove(canvas.parentElement!,{clientX:90,clientY:31})
+  expect(draw.mock.calls.at(-1)?.[0].width).toBe(844)
+  expect(draw.mock.calls.at(-1)?.[0].height).toBe(390)
+  expect(draw.mock.calls.at(-1)?.[0].pointer).toEqual({x:31,y:300})
   expect(createDitherRenderer).toHaveBeenCalledTimes(1)
   expect(dispose).not.toHaveBeenCalled()
 })

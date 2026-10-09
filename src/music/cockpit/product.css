@@ -55,6 +55,7 @@
 .cockpit .music-visit-actions { display: flex; flex-wrap: wrap; gap: 12px; }
 .cockpit .music-visit-incognito { margin-block: 24px; }
 .cockpit .music-galaxy-axis,.cockpit .music-galaxy-footer { position: relative; bottom: auto; left: auto; transform: none; margin: auto; background: transparent; }
+.cockpit .music-galaxy-axis { width: min(620px,calc(100% - 32px)); }
 .cockpit .music-galaxy-footer { width: fit-content; text-align: center; }
 .cockpit-appearance-editor .dither-editor { position: static; width: 100%; max-width: none; border: 0; padding: 0; background: transparent; }
 .cockpit-appearance-editor .dither-editor-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); overflow: visible; gap: 24px 32px; }
@@ -66,7 +67,7 @@
 .cockpit-appearance-preview { position: relative; height: 240px; max-width: 480px; margin: 16px auto 24px; overflow: hidden; border: 1px dotted var(--phosphor-muted); }
 .cockpit-appearance-preview canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
 .cockpit .music-galaxy-dimensions { display: none; }
-@media (max-width:760px) {
+@container music-viewport (max-width:760px) {
   .cockpit-pages:has(.cockpit-personal-heading) { grid-template-columns: minmax(0,1fr); gap: 24px; }
   .cockpit-personal-heading { border-right: 0; padding-right: 0; border-bottom: 1px dotted var(--phosphor-muted); padding-bottom: 24px; }
   .cockpit-appearance-editor .dither-editor-fields { grid-template-columns: minmax(0,1fr); }

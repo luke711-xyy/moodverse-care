@@ -3,6 +3,7 @@ import { effectiveDitherParameters, type DitherPlanetSpec } from './appearance'
 import { createDitherRenderer, type DitherFrame } from './renderer'
 import { advanceDitherPhase, renderDitherImage, type DitherAssetKind } from './sampler'
 import { createDitherMotion, DEFAULT_TIDE_BPM } from './motion'
+import { clientPoint, logicalSize } from '../viewport'
 import './dither.css'
 
 const thumbnailCache = new Map<string, HTMLCanvasElement>()
@@ -74,7 +75,7 @@ export function DitherCanvas({ getFrame, reducedMotion = false, forceFallback = 
       // back before ever reaching the far side. Each material clock below is
       // independent and remains bounded/periodic for shader precision.
       if (isRunning()) { const dt = Math.max(0, Math.min(.05, elapsed)); phase += dt * .2; seconds += dt }
-      const bounds = canvas.getBoundingClientRect(), width = Math.max(1, bounds.width), height = Math.max(1, bounds.height)
+      const { width, height } = logicalSize(canvas)
       const frame = latest.current.getFrame(width, height, phase)
       const visible = new Set(frame.assets.map((asset) => asset.id))
       // Keep bounded off-screen clocks so returning to a planet doesn't restart its texture.
@@ -117,7 +118,7 @@ export function DitherCanvas({ getFrame, reducedMotion = false, forceFallback = 
     // Visibility only pauses subsequent animation, never the initial content.
     const restart = () => { cancelAnimationFrame(raf); last = 0; paint(performance.now()) }
     restartRef.current = restart
-    const onPointer = (event: PointerEvent) => { if (!latest.current.interactive) return; const rect = canvas.getBoundingClientRect(); pointer = { x: event.clientX - rect.left, y: event.clientY - rect.top }; if (!isRunning()) restart() }
+    const onPointer = (event: PointerEvent) => { if (!latest.current.interactive) return; pointer = clientPoint(canvas, event.clientX, event.clientY); if (!isRunning()) restart() }
     const onLeave = () => { pointer = undefined; if (!isRunning()) restart() }
     const onLost = (event: Event) => { event.preventDefault(); renderer?.dispose(); renderer = null; report('canvas2d'); restart() }
     const onRestored = () => { initialize(); restart() }
