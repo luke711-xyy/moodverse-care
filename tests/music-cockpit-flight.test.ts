@@ -1,7 +1,20 @@
 import { expect, test } from 'vitest'
-import { advanceFlight, type CockpitFlight } from '../src/music/cockpit/flight'
+import { advanceFlight, getFlightSpeed, type CockpitFlight } from '../src/music/cockpit/flight'
 import { buildCockpitFlightFrame } from '../src/music/cockpit/flight-frame'
 import { createDitherSpec } from '../src/music/dither/appearance'
+
+test('speed follows the flight envelope, idles when absent, and eases down when holding for data', () => {
+  expect(getFlightSpeed).toBeTypeOf('function')
+  const flight: CockpitFlight = {token:1,from:'galaxy',to:'home',progress:0,ready:true,sourceVisitor:null,targetVisitor:null,returning:false}
+  expect(getFlightSpeed(null)).toBe(0)
+  expect(getFlightSpeed(flight)).toBe(0)
+  expect(getFlightSpeed({...flight,progress:.25})).toBeGreaterThan(.5)
+  expect(getFlightSpeed({...flight,progress:.5})).toBeCloseTo(1)
+  expect(getFlightSpeed({...flight,progress:.75})).toBeCloseTo(getFlightSpeed({...flight,progress:.25}))
+  expect(getFlightSpeed({...flight,progress:1})).toBe(0)
+  expect(getFlightSpeed({...flight,progress:.5,ready:false})).toBeLessThan(.2)
+  expect(getFlightSpeed({...flight,progress:NaN})).toBe(0)
+})
 
 test('slow flight holds in the cloud; reduced motion still waits for destination data', () => {
   expect(advanceFlight(.499, 50, false, false)).toBe(.5)

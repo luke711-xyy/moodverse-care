@@ -14,6 +14,7 @@ type Props = {
   crtEnabled: boolean
   signal: CockpitSignal
   heading: number
+  flightSpeed?: number
   planetName: string
   scene: ReactNode
   children: ReactNode
@@ -38,11 +39,11 @@ const pageNames: Record<CockpitPage, string> = {
   collision: '撞歌', roam: '漫游', bottles: '漂流瓶', galaxy: 'Galaxy', visitor: '星球档案',
   preflight: '访问确认', settings: '设置', moderation: '举报审核',
 }
-const signalNames: Record<CockpitSignal, string> = { idle: '就绪', loading: '搜索中', traveling: '航行中', error: '暂不可用' }
+const signalNames: Record<CockpitSignal, string> = { idle: '扫描待命', loading: '搜索中', traveling: '航行中', error: '暂不可用' }
 
 function Gauge({ label, value, state }: { label: string; value: number; state?: string }) {
   const angle = -110 + Math.max(0, Math.min(1, value)) * 220
-  return <div className="cockpit-gauge" role="img" aria-label={`${label}：${state ?? Math.round(value * 360) + '°'}`}>
+  return <div className="cockpit-gauge" data-gauge={label} data-value={value} role="img" aria-label={`${label}：${state ?? Math.round(value * 360) + '°'}`}>
     <svg viewBox="0 0 120 120" aria-hidden="true">
       <circle className="gauge-case" cx="60" cy="60" r="55" />
       <circle className="gauge-face" cx="60" cy="60" r="47" />
@@ -157,7 +158,6 @@ export function CockpitShell(props: Props) {
         <div className="cockpit-console-side cockpit-console-side-left">
         <section id="cockpit-personal" className="cockpit-wing cockpit-wing-left">
           <CaseDetails serial="PERSONAL / 01" />
-          <div className="cockpit-hardware-label">个人终端</div>
           <button className="cockpit-monitor cockpit-personal-monitor" aria-label="打开个人终端" disabled={traveling} onClick={event => open(activePersonal, event)}>
             <CrtScreen mini active={!focused} motion={!props.reducedMotion} enabled={props.crtEnabled}><span className="cockpit-monitor-content">{props.personalPreview ?? <span className="cockpit-mini-caption">{props.planetName}</span>}</span></CrtScreen>
             <span className="cockpit-monitor-channel">{pageNames[activePersonal]}</span>
@@ -165,11 +165,15 @@ export function CockpitShell(props: Props) {
           <div className="cockpit-keys">{personalPages.map(([page, label]) => <button key={page} disabled={traveling} aria-pressed={personal && props.state.console.page === page} onClick={event => open(page, event)}>{label}</button>)}</div>
           <Vent />
         </section>
-        <div className="cockpit-gauge-bay"><i className="cockpit-lamp" data-lit={props.connected !== false} /><Gauge label="航向" value={props.heading} /><button className="cockpit-flight-lever" disabled={traveling} aria-label={props.state.exterior === 'visitor' ? '返回出发地' : 'Galaxy'} onClick={event => props.state.exterior === 'visitor' ? props.onHome() : props.state.exterior === 'home' ? props.onGalaxy() : open('galaxy', event)}><span aria-hidden="true" /><small>{props.state.exterior === 'visitor' ? '返回' : 'Galaxy'}</small></button></div>
+        <div className="cockpit-gauge-bay">
+          <i className="cockpit-lamp" data-lit={props.connected !== false} />
+          <Gauge label="航向" value={props.heading} />
+          <Gauge label="航速" value={props.flightSpeed ?? 0} state={`${Math.round((props.flightSpeed ?? 0)*100)}%`} />
+          <button className="cockpit-flight-lever" disabled={traveling || props.connected === false} aria-label="跃迁" title={props.state.exterior === 'home' ? '穿过星云前往 Galaxy' : '穿过星云回到我的星球'} onClick={() => props.state.exterior === 'home' ? props.onGalaxy() : props.onHome()}><span aria-hidden="true" /><small>跃迁</small></button>
+        </div>
         </div>
         <section id="cockpit-exploration" className="cockpit-center">
           <CaseDetails serial="TRANSMISSION / 02" />
-          <div className="cockpit-hardware-label">探索终端 <span className="cockpit-signal" data-signal={props.signal}>{signalNames[props.signal]}</span></div>
           <button className="cockpit-monitor cockpit-exploration-monitor" aria-label="打开探索终端" disabled={traveling} onClick={event => open(activeExploration, event)}>
             <CrtScreen mini active={!focused} motion={!props.reducedMotion} enabled={props.crtEnabled}><span className="cockpit-monitor-content">{props.explorationPreview ?? <span className="cockpit-mini-caption">{signalNames[props.signal]}</span>}</span></CrtScreen>
             <span className="cockpit-monitor-channel">{pageNames[activeExploration]}</span>
@@ -182,7 +186,7 @@ export function CockpitShell(props: Props) {
         <RetroRadio />
         <section id="cockpit-controls" className="cockpit-wing cockpit-wing-right">
           <CaseDetails serial="NAVIGATION / 03" />
-          <div className="cockpit-hardware-label">Galaxy 分类</div>
+          <button className="cockpit-hardware-label cockpit-galaxy-list-key" aria-label="查看 Galaxy 星球列表" disabled={traveling} onClick={event => open('galaxy', event)}>Galaxy 分类</button>
           <div className="cockpit-knob" role="group" aria-label="Galaxy 分类旋钮" style={{ '--knob-angle': `${props.by === 'song' ? -55 : props.by === 'artist' ? 0 : 55}deg` } as CSSProperties}>
             {(['song', 'artist', 'genre'] as const).map((by, i) => <button key={by} className={`cockpit-knob-label knob-${by}`} disabled={traveling || props.classifying} aria-pressed={props.by === by} onClick={() => props.onClassify(by)}>{['歌曲', '艺人', '曲风'][i]}</button>)}
             <span className="cockpit-knob-body" aria-hidden="true"><i /></span>
@@ -198,7 +202,6 @@ export function CockpitShell(props: Props) {
       onKeyDown={trapFocus} onFocusCapture={event => setTyping(['INPUT', 'TEXTAREA'].includes(event.target.tagName))}
       onBlurCapture={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setTyping(false) }}>
       <header className="cockpit-terminal-header">
-        <span className="cockpit-terminal-name">{personal ? '个人终端' : '探索终端'}</span>
         <nav aria-label={personal ? '个人频道' : '探索频道'}>{(personal ? personalPages : explorationPages).map(([page, label]) => <button key={page} aria-pressed={props.state.console.page === page} onClick={() => open(page)}>{label}</button>)}</nav>
         <button className="cockpit-terminal-settings" aria-label="设置" onClick={() => open('settings')}>⚙</button><i className="cockpit-lamp" data-lit="true" />
       </header>

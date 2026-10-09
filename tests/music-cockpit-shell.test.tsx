@@ -3,15 +3,15 @@ import React, { useReducer } from 'react'
 import { afterEach, expect, test, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { CockpitShell } from '../src/music/cockpit/CockpitShell'
-import { cockpitReducer, initialCockpitState } from '../src/music/cockpit/state'
+import { cockpitReducer, initialCockpitState, type ExteriorDestination } from '../src/music/cockpit/state'
 afterEach(cleanup)
 
-function Harness({ reduced = false }: { reduced?: boolean }) {
-  const [state, dispatch] = useReducer(cockpitReducer, initialCockpitState)
+function Harness({ reduced = false, exterior = 'galaxy' }: { reduced?: boolean; exterior?: ExteriorDestination }) {
+  const [state, dispatch] = useReducer(cockpitReducer, { ...initialCockpitState, exterior })
   return <CockpitShell state={state} reducedMotion={reduced} crtEnabled signal="idle" heading={.5}
     planetName="夜航" scene={<div>真实宇宙</div>} onOpen={page => dispatch({ type: 'open', page })}
     onOverview={() => dispatch({ type: 'overview' })} onBack={() => dispatch({ type: 'back' })}
-    onGalaxy={vi.fn()} onHome={vi.fn()} by="genre" onClassify={vi.fn()}>
+    onGalaxy={() => dispatch({type:'exterior',destination:'galaxy'})} onHome={() => dispatch({type:'exterior',destination:'home'})} by="genre" onClassify={vi.fn()}>
     <label>Moment 草稿<input aria-label="Moment 草稿" /></label>
   </CockpitShell>
 }
@@ -39,8 +39,24 @@ test('reduced motion disables CRT motion without hiding functional controls', ()
   expect(container.querySelector('[data-crt="on"][data-crt-motion="false"]')).toBeTruthy()
   expect(container.querySelector('#moodverse-hardware-dither feComponentTransfer')).toBeTruthy()
   expect(container.querySelector('.crt-screen[data-crt-motion="true"]')).toBeNull()
-  expect(screen.getByRole('button', { name: 'Galaxy' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: '跃迁' })).toBeTruthy()
   expect(screen.getByRole('group', { name: 'Galaxy 分类旋钮' })).toBeTruthy()
+})
+test('jump control travels both ways instead of opening the Galaxy list channel', () => {
+  const { container } = render(<Harness />)
+  fireEvent.click(screen.getByRole('button', {name:'跃迁'}))
+  expect(container.querySelector('.cockpit')!.getAttribute('data-exterior')).toBe('home')
+  expect(screen.queryByRole('region', {name:'探索终端'})).toBeNull()
+  fireEvent.click(screen.getByRole('button', {name:'跃迁'}))
+  expect(container.querySelector('.cockpit')!.getAttribute('data-exterior')).toBe('galaxy')
+  expect(screen.getByRole('img', {name:'航速：0%'})).toBeTruthy()
+})
+test('casings omit terminal headings and ready text while retaining the Galaxy list entry', () => {
+  const { container } = render(<Harness />)
+  const console = container.querySelector('.cockpit-console')!
+  expect(console.textContent).not.toMatch(/个人终端|探索终端|就绪/)
+  fireEvent.click(screen.getByRole('button', {name:'查看 Galaxy 星球列表'}))
+  expect(screen.getByRole('region', {name:'探索终端'}).getAttribute('data-page')).toBe('galaxy')
 })
 test('desk replaces the redundant signal gauge with an honest radio ornament and noninteractive props', () => {
   const { container } = render(<Harness />)

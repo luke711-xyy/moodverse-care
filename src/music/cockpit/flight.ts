@@ -6,6 +6,15 @@ export type CockpitFlight = {
   token: number; from: ExteriorDestination; to: ExteriorDestination; progress: number; ready: boolean
   sourceVisitor: PublicMusicPlanet | null; targetVisitor: PublicMusicPlanet | null; returning: boolean
 }
+/** Relative visual speed, not a claimed physical velocity. Use the same flight
+ * progress as the nebula renderer; requests alone must never move the needle. */
+export function getFlightSpeed(flight: CockpitFlight | null) {
+  if (!flight || !Number.isFinite(flight.progress)) return 0
+  const progress = Math.max(0, Math.min(1, flight.progress))
+  if (progress === 0 || progress === 1) return 0
+  if (!flight.ready && progress >= .5) return .12
+  return Math.pow(Math.sin(Math.PI * progress), 1.4)
+}
 /** A slow response holds the view inside the cloud, never at a partially loaded destination. */
 export function advanceFlight(progress: number, elapsedMs: number, ready: boolean, reduced: boolean) {
   if (reduced) return ready ? 1 : .5

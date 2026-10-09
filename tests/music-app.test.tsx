@@ -26,9 +26,11 @@ async function renderCockpit() {
 }
 async function openGalaxyList() {
   if (screen.queryByRole('button', { name: '返回驾驶舱' })) fireEvent.click(screen.getByRole('button', { name: '返回驾驶舱' }))
-  fireEvent.click(screen.getByRole('button', { name: 'Galaxy' }))
-  await waitFor(() => expect(document.querySelector('.cockpit[data-exterior="galaxy"]:not(.is-in-flight)')).toBeTruthy())
-  if (screen.queryByRole('button', { name: '打开探索终端' })) fireEvent.click(screen.getByRole('button', { name: '打开探索终端' }))
+  if (document.querySelector('.cockpit')?.getAttribute('data-exterior') !== 'galaxy') {
+    fireEvent.click(screen.getByRole('button', { name: '跃迁' }))
+    await waitFor(() => expect(document.querySelector('.cockpit[data-exterior="galaxy"]:not(.is-in-flight)')).toBeTruthy())
+  }
+  fireEvent.click(screen.getByRole('button', { name: '查看 Galaxy 星球列表' }))
 }
 async function openExploration(page: '漫游' | '漂流瓶') {
   if (screen.queryByRole('button', { name: '返回驾驶舱' })) fireEvent.click(screen.getByRole('button', { name: '返回驾驶舱' }))
@@ -47,6 +49,29 @@ const tracks = [
   { id: 'song-d', title: '远岸', artistId: 'artist-d', artistName: '远岸', versionLabel: '', genres: ['folk'], moodTags: ['warm'], officialUrl: 'https://music.example/d', coverUrl: null, durationSeconds: 180 },
   { id: 'song-e', title: '月面信号', artistId: 'artist-e', artistName: '月面', versionLabel: '', genres: ['electronic'], moodTags: ['curious'], officialUrl: 'https://music.example/e', coverUrl: null, durationSeconds: 190 },
 ]
+
+test('jump lever switches the persistent windshield between Galaxy and home without opening a terminal', async () => {
+  const owner = { id:'jump-owner', displayName:'跃迁测试', tagline:'', visibility:'public', visualSchemaVersion:3,
+    visual:createDitherSpec({planetId:'jump-owner',tracks}), tracks:tracks.slice(0,3) }
+  vi.stubGlobal('fetch', vi.fn(async (request:RequestInfo|URL) => {
+    const path=new URL(String(request),'https://moodverse.test').pathname
+    if(path==='/api/music/catalog') return Response.json({tracks})
+    if(path==='/api/me/music-planet') return Response.json({planet:owner})
+    if(path==='/api/me/music-planet/moments') return Response.json({moments:[]})
+    if(path==='/api/music/galaxy') return Response.json({by:'genre',groups:[]})
+    throw Error(path)
+  }))
+  render(<MusicApp />)
+  const jump=await screen.findByRole('button',{name:'跃迁'})
+  expect(document.querySelector('.cockpit')!.getAttribute('data-exterior')).toBe('galaxy')
+  fireEvent.click(jump)
+  await waitFor(()=>expect(document.querySelector('.cockpit[data-exterior="home"]:not(.is-in-flight)')).toBeTruthy())
+  expect(document.querySelector('.cockpit')!.getAttribute('data-focus')).toBe('overview')
+  expect(screen.getByRole('img',{name:'航速：0%'})).toBeTruthy()
+  fireEvent.click(jump)
+  await waitFor(()=>expect(document.querySelector('.cockpit[data-exterior="galaxy"]:not(.is-in-flight)')).toBeTruthy())
+  expect(document.querySelector('.cockpit')!.getAttribute('data-focus')).toBe('overview')
+})
 
 test.each(['keyboard', 'drag', 'wheel'] as const)('Galaxy journey endpoint returns home with %s input', async (input) => {
   vi.stubGlobal('PointerEvent', MouseEvent)

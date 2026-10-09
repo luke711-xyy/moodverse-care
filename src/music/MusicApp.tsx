@@ -12,7 +12,7 @@ import { DitherButton, DitherTitle, DitherLoadingRing, DitherTrackMark, DitherPl
 import { resolveDitherSpec, type DitherPlanetSpec, type DitherOverrides } from './dither/appearance'
 import { CockpitShell } from './cockpit/CockpitShell'
 import { cockpitReducer, initialCockpitState, type CockpitPage } from './cockpit/state'
-import { useCockpitFlight } from './cockpit/flight'
+import { getFlightSpeed, useCockpitFlight } from './cockpit/flight'
 import { logicalSize } from './viewport'
 import './music-app.css'
 import './dither/product.css'
@@ -1483,12 +1483,13 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
       }
     }
   }
-  const goHome = () => {
-    const returning = cockpit.exterior === 'visitor'
+  const startHomeFlight = (returning: boolean) => {
     const target = returning ? cockpit.origins.at(-1)?.exterior ?? 'home' : 'home'
     const token = flightController.start({ from: cockpit.exterior, to: target, ready: true, sourceVisitor: visitedPlanet, targetVisitor: returning ? returnVisitors.current.at(-1) ?? null : null, returning })
     if (token !== null) dispatchCockpit(returning ? { type: 'return', token } : { type: 'depart', token, target: 'home' })
   }
+  const goHome = () => startHomeFlight(cockpit.exterior === 'visitor')
+  const jumpHome = () => startHomeFlight(false)
   goHomeRef.current = goHome
   const cancelFlight = () => {
     const token = flightController.cancel()
@@ -1504,10 +1505,11 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
   return <main className={`music-app${planet ? ' has-planet' : ' is-onboarding'}`}>
     <CockpitShell state={cockpit} reducedMotion={reducedMotion} crtEnabled={crtEnabled} signal={signal}
       planetName={planet?.displayName ?? '待命星球'} heading={Math.min(1, galaxyJourney / TOUR_END)}
+      flightSpeed={getFlightSpeed(flightController.flight)}
       by={galaxy.status === 'idle' ? 'genre' : galaxy.by} onClassify={by => { void regroupGalaxy(by) }}
       classifying={galaxy.status === 'loading' || galaxyRegrouping}
       onOpen={changeView} onOverview={() => dispatchCockpit({ type: 'overview' })} onBack={() => dispatchCockpit({ type: 'back' })}
-      onGalaxy={() => { void goGalaxy() }} onHome={goHome} onCancelTravel={cancelFlight}
+      onGalaxy={() => { void goGalaxy() }} onHome={jumpHome} onCancelTravel={cancelFlight}
       personalPreview={<span className="cockpit-personal-preview"><DitherPlanetMark planetId={planet?.id ?? null} visual={planet?.visual} /><strong>{planet?.displayName ?? '创建我的星球'}</strong><small>{planet ? `${planet.tracks.length} 首歌 · ${moments.length} Moments` : '选择三首歌'}</small></span>}
       explorationPreview={<span className="cockpit-radar-preview"><i /><span>{cockpit.exterior === 'visitor' ? visitedPlanet?.displayName : selectedGalaxyGroup?.label ?? '扫描待命'}</span><small>{songPortal.status === 'ready' ? `${songPortal.response.matches.length} 同歌信号` : discovery.status === 'ready' ? `${discovery.response.recommendations.length} 漫游信号` : '撞歌 / 漫游 / 漂流瓶'}</small></span>}
       scene={<Stage
