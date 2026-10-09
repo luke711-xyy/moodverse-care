@@ -120,6 +120,24 @@ test('default anonymous sessions persist in an HttpOnly device cookie', async ()
   expect(fixture.sqlite.prepare('SELECT count(*) AS count FROM music_friend_satellites').get()).toEqual({ count: 6 })
 })
 
+test('official music sessions preserve the legacy cookie and resume their own namespace', async () => {
+  const anonymousEnv = env({ MUSIC_ALLOW_LEGACY_ACCESS_AUTH: 'false', MUSIC_EMAIL_LOGIN_ENABLED: 'false', MUSIC_ANON_SESSION_COOKIE: 'mv_music_session' } as Partial<Env>)
+  const first = await onRequestGet({
+    request: new Request('https://moodverse.test/api/me/music-planet', { headers: { Cookie: 'mv_session=legacy-session' } }),
+    env: anonymousEnv,
+  } as never)
+  expect(first.status).toBe(200)
+  const cookie = first.headers.get('set-cookie')!
+  expect(cookie).toMatch(/^mv_music_session=/)
+  const returning = await onRequestGet({
+    request: new Request('https://moodverse.test/api/me/music-planet', { headers: { Cookie: `mv_session=legacy-session; ${cookie.split(';')[0]}` } }),
+    env: anonymousEnv,
+  } as never)
+  expect(returning.status).toBe(200)
+  expect(returning.headers.get('set-cookie')).toBeNull()
+  expect(fixture.sqlite.prepare('SELECT count(*) AS count FROM users').get()).toEqual({ count: 1 })
+})
+
 test('marks only the configured demo email without returning its email address', async () => {
   const demo = await call(onRequestGet, 'GET', undefined, 'hackathon-demo', {
     MUSIC_DEMO_EMAIL: '  HACKATHON-DEMO@example.com  ',

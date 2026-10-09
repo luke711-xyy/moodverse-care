@@ -7,6 +7,7 @@ export type Env = {
   CF_ACCESS_AUD?: string
   MUSIC_ALLOW_LEGACY_ACCESS_AUTH?: string
   MUSIC_EMAIL_LOGIN_ENABLED?: string
+  MUSIC_ANON_SESSION_COOKIE?: string
   MUSIC_AUTH_SECRET?: string
   MUSIC_EMAIL_ACCOUNT_ID?: string
   MUSIC_EMAIL_API_TOKEN?: string
@@ -22,6 +23,7 @@ export type Env = {
 }
 
 const COOKIE = 'mv_session'
+const anonymousCookieName = (env: Env) => env.MUSIC_ANON_SESSION_COOKIE === 'mv_music_session' ? 'mv_music_session' : COOKIE
 
 const now = () => new Date().toISOString()
 
@@ -193,7 +195,7 @@ function hasSameOrigin(request: Request) {
 }
 
 export async function session(request: Request, env: Env) {
-  const cookie = request.headers.get('Cookie')?.match(new RegExp(`${COOKIE}=([^;]+)`))?.[1]
+  const cookie = request.headers.get('Cookie')?.match(new RegExp(`(?:^|;\\s*)${anonymousCookieName(env)}=([^;]+)`))?.[1]
   if (!cookie) return createSession(env)
   const tokenHash = await sha256(cookie)
   const user = await env.DB.prepare('SELECT id FROM users WHERE token_hash = ?1').bind(tokenHash).first<{ id: string }>()
@@ -210,7 +212,7 @@ async function createSession(env: Env) {
     env.DB.prepare('INSERT INTO users (id, token_hash, created_at, updated_at) VALUES (?1, ?2, ?3, ?3)').bind(userId, tokenHash, timestamp),
     ...defaultFriendSatelliteStatements(env, userId, timestamp),
   ])
-  return { userId, token, setCookie: `${COOKIE}=${token}; Path=/; Max-Age=31536000; HttpOnly; Secure; SameSite=Lax` }
+  return { userId, token, setCookie: `${anonymousCookieName(env)}=${token}; Path=/; Max-Age=31536000; HttpOnly; Secure; SameSite=Lax` }
 }
 
 export const withCookie = (body: unknown, sessionInfo: { setCookie: string | null }, status = 200) => {

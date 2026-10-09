@@ -17,9 +17,11 @@ database_id = "58d7ea1b-aaaf-4639-8adb-5fb2136dddf4"
 migrations_dir = "./migrations-music-staging"
 
 [vars]
+MUSIC_ANON_SESSION_COOKIE = "mv_music_session"
 MUSIC_EMAIL_LOGIN_ENABLED = "false"
 MUSIC_ALLOW_LEGACY_ACCESS_AUTH = "false"
 
 [env.production.vars]
+MUSIC_ANON_SESSION_COOKIE = "mv_music_session"
 MUSIC_EMAIL_LOGIN_ENABLED = "false"
 MUSIC_ALLOW_LEGACY_ACCESS_AUTH = "false"
