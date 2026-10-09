@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import React from 'react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { MomentPhotoPicker, ditherMomentPhoto } from '../src/music/MomentPhoto'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { MomentContent, MomentPhotoPicker, ditherMomentPhoto } from '../src/music/MomentPhoto'
 import { MOMENT_PHOTO_MAX_BYTES, validateMomentPhoto, momentPhotoContentType } from '../src/music/moment-photo'
 
 beforeEach(() => {
@@ -50,4 +50,38 @@ test('photo dithering quantizes color with opaque pixels and different ordered t
   ditherMomentPhoto(transparent,1)
   expect(transparent[3]).toBe(255)
   expect(transparent[0]).toBeLessThan(52)
+})
+
+test('Moment thumbnails sit to the right of the copy and expand inside the same CRT without leaving the channel', () => {
+  const back = vi.fn()
+  const { container } = render(<div className="cockpit-terminal" onKeyDown={back}>
+    <header className="cockpit-terminal-header"><button>Moment</button></header>
+    <div className="crt-image"><div className="cockpit-terminal-content">
+      <MomentContent contentText="一段长条记录" photoUrl="/photo.png" />
+    </div></div>
+    <footer className="cockpit-terminal-footer"><button>返回驾驶舱</button></footer>
+  </div>)
+  const body = container.querySelector('.music-moment-body')!
+  expect(body.firstElementChild?.className).toBe('music-moment-copy')
+  expect(body.lastElementChild?.className).toBe('music-moment-photo')
+  const thumbnail = screen.getByRole('button', {name:'放大查看Moment 照片'})
+  expect(thumbnail.getAttribute('aria-haspopup')).toBe('dialog')
+  fireEvent.click(thumbnail)
+  const viewer = screen.getByRole('dialog', {name:'照片大图'})
+  expect(viewer.parentElement?.className).toBe('crt-image')
+  expect(container.querySelector('.cockpit-terminal-content')?.hasAttribute('inert')).toBe(true)
+  expect(within(viewer).getByAltText('Moment 照片').getAttribute('src')).toBe('/photo.png')
+  expect(viewer.querySelector('[data-photo-filter="ordered-dither-crt"]')).toBeTruthy()
+  const close = within(viewer).getByRole('button', {name:'返回 Moment'})
+  expect(document.activeElement).toBe(close)
+  fireEvent.keyDown(close, {key:'Tab',shiftKey:true})
+  expect(document.activeElement).toBe(close)
+  fireEvent.keyDown(close, {key:'Escape'})
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect(back).not.toHaveBeenCalled()
+  expect(container.querySelector('.cockpit-terminal-content')?.hasAttribute('inert')).toBe(false)
+  expect(document.activeElement).toBe(thumbnail)
+  fireEvent.click(thumbnail)
+  fireEvent.click(screen.getByRole('button', {name:'返回 Moment'}))
+  expect(screen.queryByRole('dialog')).toBeNull()
 })

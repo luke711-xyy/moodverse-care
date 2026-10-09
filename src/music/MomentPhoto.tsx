@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type SyntheticEvent } from 'react'
+import { createPortal } from 'react-dom'
 import { DitherButton } from './dither/components'
 import { ditherThreshold } from './dither/sampler'
 import { MOMENT_PHOTO_ACCEPT, momentPhotoError, validateMomentPhoto } from './moment-photo'
@@ -19,7 +20,7 @@ export function ditherMomentPhoto(data: Uint8ClampedArray, width: number) {
 
 /** Photos stay inside the shared CRT glass: curvature, scanlines, grain and lens
  * are inherited from the terminal, with this layer adding real image dithering. */
-export function MomentPhoto({ src, alt = 'Moment 照片' }: { src: string; alt?: string }) {
+function FilteredPhoto({ src, alt, enlarged = false }: { src: string; alt: string; enlarged?: boolean }) {
   const canvas = useRef<HTMLCanvasElement>(null)
   const [rendered, setRendered] = useState(false)
   const [failed, setFailed] = useState(false)
@@ -28,7 +29,7 @@ export function MomentPhoto({ src, alt = 'Moment 照片' }: { src: string; alt?:
     const image = event.currentTarget, target = canvas.current
     const ctx = target?.getContext('2d', { willReadFrequently: true })
     if (!target || !ctx || !image.naturalWidth || !image.naturalHeight) return
-    const scale = Math.min(1, 768 / image.naturalWidth, 480 / image.naturalHeight)
+    const scale = Math.min(1, (enlarged ? 1536 : 768) / image.naturalWidth, (enlarged ? 1024 : 480) / image.naturalHeight)
     target.width = Math.max(1, Math.round(image.naturalWidth * scale))
     target.height = Math.max(1, Math.round(image.naturalHeight * scale))
     ctx.fillStyle = '#11100d'; ctx.fillRect(0,0,target.width,target.height)
@@ -40,11 +41,58 @@ export function MomentPhoto({ src, alt = 'Moment 照片' }: { src: string; alt?:
       ctx.putImageData(pixels,0,0); setRendered(true)
     } catch { /* Older external photo URLs can lack CORS; keep the CRT-filtered image. */ }
   }
-  return <figure className="music-moment-photo" data-photo-filter="ordered-dither-crt">
-    {!failed && <img src={src} alt={alt} loading="lazy" hidden={rendered} onLoad={filter} onError={() => setFailed(true)} />}
+  return <>
+    {!failed && <img src={src} alt={alt} loading={enlarged ? 'eager' : 'lazy'} hidden={rendered} onLoad={filter} onError={() => setFailed(true)} />}
     <canvas ref={canvas} hidden={!rendered} role="img" aria-label={alt} />
     {failed && <span role="status">照片暂时无法显示。</span>}
+  </>
+}
+
+export function MomentPhoto({ src, alt = 'Moment 照片' }: { src: string; alt?: string }) {
+  const trigger = useRef<HTMLButtonElement>(null), close = useRef<HTMLButtonElement>(null)
+  const [viewerHost, setViewerHost] = useState<HTMLElement | null>(null)
+  useEffect(() => { setViewerHost(null) }, [src])
+  useEffect(() => {
+    if (!viewerHost) return
+    // The viewer is a sibling of the scrolling content, inside the same CRT.
+    // Keep its filters and mobile rotation, but disable the covered controls.
+    const controls = Array.from(trigger.current?.closest('.cockpit-terminal')?.querySelectorAll<HTMLElement>(
+      '.cockpit-terminal-header, .cockpit-terminal-content, .cockpit-terminal-footer',
+    ) ?? [])
+    const attributes = controls.map(element => [element, element.getAttribute('inert'), element.getAttribute('aria-hidden')] as const)
+    controls.forEach(element => { element.setAttribute('inert', ''); element.setAttribute('aria-hidden', 'true') })
+    close.current?.focus({ preventScroll: true })
+    return () => {
+      attributes.forEach(([element, inert, hidden]) => {
+        if (inert === null) element.removeAttribute('inert'); else element.setAttribute('inert', inert)
+        if (hidden === null) element.removeAttribute('aria-hidden'); else element.setAttribute('aria-hidden', hidden)
+      })
+      if (trigger.current?.isConnected) trigger.current.focus({ preventScroll: true })
+    }
+  }, [viewerHost])
+  return <figure className="music-moment-photo" data-photo-filter="ordered-dither-crt">
+    <button ref={trigger} className="music-moment-photo-button" type="button" aria-label={`放大查看${alt}`} aria-haspopup="dialog"
+      onClick={() => setViewerHost(trigger.current?.closest<HTMLElement>('.crt-image') ?? document.body)}>
+      <FilteredPhoto src={src} alt={alt} />
+    </button>
+    {viewerHost && createPortal(<div className="music-moment-photo-viewer" data-standalone={viewerHost === document.body} role="dialog" aria-modal="true" aria-label="照片大图"
+      onClick={event => { if (event.target === event.currentTarget) setViewerHost(null) }}
+      onKeyDown={event => {
+        event.stopPropagation()
+        if (event.key === 'Escape') { event.preventDefault(); setViewerHost(null) }
+        if (event.key === 'Tab') { event.preventDefault(); close.current?.focus() }
+      }}>
+      <button ref={close} className="music-moment-photo-close" type="button" aria-label="返回 Moment" onClick={() => setViewerHost(null)}>← 返回 Moment</button>
+      <figure className="music-moment-photo-full" data-photo-filter="ordered-dither-crt"><FilteredPhoto key={src} src={src} alt={alt} enlarged /></figure>
+    </div>, viewerHost)}
   </figure>
+}
+
+export function MomentContent({ contentText, photoUrl }: { contentText: string | null; photoUrl?: string | null }) {
+  return <div className="music-moment-body">
+    <div className="music-moment-copy">{contentText && <p>{contentText}</p>}</div>
+    {photoUrl && <MomentPhoto src={photoUrl} />}
+  </div>
 }
 
 export function MomentPhotoPicker({ file, error, busy, onChange }: { file: File | null; error: string; busy: boolean; onChange: (file: File | null, error: string) => void }) {
