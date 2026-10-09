@@ -150,7 +150,7 @@
 .gauge-tick { stroke: #b29b70; }.gauge-tick.major { stroke: #f1d293; }.gauge-needle { fill: #f4d898; filter: drop-shadow(0 0 2px #ffe3a0); }.gauge-needle circle { fill: #c5a56e; }.cockpit-gauge text { font-size: 15px; fill: #e7c88e; }
 .cockpit-lamp[data-lit=true] { background: radial-gradient(circle at 30% 25%,#ffeeb6,#efcb88 48%,#b5975d); box-shadow: 0 0 10px #ffe3a0a0,0 1px 3px #000; }
 .cockpit-flight-lever { color: var(--case-ink); }.cockpit-flight-lever > span { width: 22px; border-color: #30271a; border-radius: 6px; background: repeating-linear-gradient(0deg,transparent 0 4px,#30271a40 5px 6px),linear-gradient(90deg,#f1d293,#c9a66e 25%,#8c744c 65%,#51422d); box-shadow: inset 2px 0 0 #ffe3a0,5px 4px 0 #302719,8px 7px 5px #0008; }
-.cockpit-flight-lever small { margin-top: 9px; }.cockpit-signal-legend { color: #39362e; }.cockpit-signal[data-signal=error] { color: #4b3022; }
+.cockpit-flight-lever small { margin-top: 9px; color: #000; text-shadow: none; }.cockpit-signal-legend { color: #39362e; }.cockpit-signal[data-signal=error] { color: #4b3022; }
 .cockpit-knob-label { color: #302718; }.cockpit-knob-body { border: 5px solid #50422c; background: repeating-conic-gradient(#665336 0deg 5deg,#b69a65 6deg 10deg); box-shadow: inset 0 0 0 3px #e5c589,3px 5px 0 #433522,6px 8px 7px #0009; }
 .cockpit-knob-body::before { content: ''; position: absolute; inset: 7px; border-radius: 50%; background: linear-gradient(125deg,#f3d797,#cbaa72 48%,#82704b); border: 1px solid #dcc18a; }.cockpit-knob-body i { top: 8px; background: #41321d; box-shadow: 0 1px 1px #ffdfa0; }
 .cockpit-settings-key { bottom: 26px; }
