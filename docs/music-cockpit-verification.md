@@ -82,4 +82,6 @@ Wrangler 4.149.0 的 Pages 不接受自定义配置路径。因此将已检查�
 - `tests/browser/cockpit-geometry.js` 检查真实渲染后的螺钉角点距离、中央屏中心、边界、近远键宽及按键溢出；临时恢复 flat 时确认会失败，再恢复正确样式后通过。该验证脚本仅开发使用，不进入生产包。
 - 两路独立评审分别检查物理布局与机械布局扫描，扫描结果为空。设备几何/像素按键内部的小尺寸、厚边框和阴影保留为用户指定的实物风格，不套用普通平面卡片限制；没有趁本轮改写业务页的内容间距。
 - 全套自动检查：串行重跑 **61 个文件、396 项全部通过**。并行首跑受本机同时运行的重负载影响，旧地形随机生成（15 秒）和 Galaxy 键盘终点（20 秒）超时；未修改这两项逻辑或断言，串行重跑分别通过。Node SQLite 实验性提示为既有工具提示。
-- 本节发布待后续实际发布结果补充；范围仅隔离音乐 staging，不修改旧 Moodverse 站点或数据库。
+- 本节源码 `ba0455a` 已推送到 `origin/codex/music-cockpit-ui`，部署到隔离音乐 Pages 的 `main`。部署不可变地址 <https://31625219.moodverse-music-staging.pages.dev>，根域名仍为 <https://moodverse-music-staging.pages.dev>。未合并旧 Git `main`，未修改旧 Moodverse 站点或数据库。
+- 发布后的 TypeScript/Vite 构建和 staging 预检均通过。根页面、`index-BgTe11tD.js`、`MusicApp-JbTJd9xj.js`、`MusicApp-BPG-p6Q3.css` 均返回 HTTP 200。
+- 线上真实 Chrome：WebGL2 正常，默认 Galaxy 完成读取并出现八个曲风分组；中央屏偏差约 -0.000015px，左右近远边比约 1.079/1.068，页面宽度 1470/1470。390×844 线上横屏逻辑视口 844×390，画布 812×210，按钮无溢出，探索终端可打开和返回。仅查看现有账户的界面，没有发布 Moment、发信或修改账户设置；检查完已复原浏览器视口。
