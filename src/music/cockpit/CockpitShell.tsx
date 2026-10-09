@@ -59,8 +59,6 @@ function Gauge({ label, value, state }: { label: string; value: number; state?: 
   </div>
 }
 
-function Vent() { return <span className="cockpit-vent" aria-hidden="true">{Array.from({ length: 5 }, (_, i) => <i key={i} />)}</span> }
-
 function CaseDetails({ serial }: { serial: string }) {
   return <span className="case-details" aria-hidden="true"><span className="case-serial">{serial}</span>
     {['tl','tr','bl','br'].map(corner => <i key={corner} className={`case-screw screw-${corner}`} />)}
@@ -163,7 +161,6 @@ export function CockpitShell(props: Props) {
             <span className="cockpit-monitor-channel">{pageNames[activePersonal]}</span>
           </button>
           <div className="cockpit-keys">{personalPages.map(([page, label]) => <button key={page} disabled={traveling} aria-pressed={personal && props.state.console.page === page} onClick={event => open(page, event)}>{label}</button>)}</div>
-          <Vent />
         </section>
         <div className="cockpit-gauge-bay">
           <i className="cockpit-lamp" data-lit={props.connected !== false} />
@@ -179,7 +176,6 @@ export function CockpitShell(props: Props) {
             <span className="cockpit-monitor-channel">{pageNames[activeExploration]}</span>
           </button>
           <div className="cockpit-keys">{explorationPages.map(([page, label]) => <button key={page} disabled={traveling} aria-pressed={!personal && props.state.console.page === page} onClick={event => open(page, event)}>{label}</button>)}</div>
-          <Vent />
           <DeskSignals />
         </section>
         <div className="cockpit-console-side cockpit-console-side-right">
@@ -191,7 +187,7 @@ export function CockpitShell(props: Props) {
             {(['song', 'artist', 'genre'] as const).map((by, i) => <button key={by} className={`cockpit-knob-label knob-${by}`} disabled={traveling || props.classifying} aria-pressed={props.by === by} onClick={() => props.onClassify(by)}>{['歌曲', '艺人', '曲风'][i]}</button>)}
             <span className="cockpit-knob-body" aria-hidden="true"><i /></span>
           </div>
-          <button className="cockpit-settings-key" aria-label="设置" disabled={traveling} onClick={event => open('settings', event)}>⚙ <span>设置</span></button><Vent />
+          <button className="cockpit-settings-key" aria-label="设置" disabled={traveling} onClick={event => open('settings', event)}>⚙ <span>设置</span></button>
         </section>
         </div>
       </div>

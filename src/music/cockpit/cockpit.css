@@ -51,8 +51,6 @@
 .cockpit-keys button,.cockpit-settings-key,.cockpit-terminal :is(header,footer) button { flex: 1; min-height: 44px; padding: var(--space-xs) var(--space-sm); color: var(--case-ink); background: var(--case-light); border: 2px solid var(--case-shadow); border-top-color: #eee1b9; border-radius: 4px; box-shadow: 0 3px 0 #393125; font-size: .8125rem; white-space: nowrap; }
 .cockpit-keys button[aria-pressed=true],.cockpit-terminal header button[aria-pressed=true] { background: var(--lamp); box-shadow: inset 0 0 0 1px #ebcd8b,0 2px 0 #4e3114; }
 .cockpit :is(.cockpit-keys button,.cockpit-settings-key,.cockpit-terminal header button,.cockpit-terminal footer button):active { transform: translateY(2px); box-shadow: 0 1px 0 #393125; }
-.cockpit-vent { display: flex; flex-direction: column; gap: 3px; position: absolute; bottom: 5px; left: 36%; right: 36%; pointer-events: none; }
-.cockpit-vent i { height: 2px; background: #393125; border-bottom: 1px solid var(--case-light); border-radius: 1px; }
 .cockpit-gauge-bay { height: 90%; padding: var(--space-md) 3px; align-content: start; border-radius: 12px 12px 0 0; }
 .cockpit-gauge { width: 100%; }
 .cockpit-gauge svg { width: 100%; display: block; }
@@ -148,7 +146,6 @@
 .cockpit-keys button,.cockpit-settings-key,.cockpit-terminal :is(header,footer) button { color: #362a18; background: linear-gradient(140deg,#fbe0a0,#e0bd79 44%,#b39864);
   border: 2px solid #59472e; border-top-color: #ffe6ab; border-left-color: #ebcc8b; border-radius: 5px 5px 3px 3px; box-shadow: inset -2px -3px 0 #93764a,0 5px 0 #423522,2px 7px 0 #2a2116,0 8px 8px #0009; }
 .cockpit-keys button[aria-pressed=true],.cockpit-terminal header button[aria-pressed=true] { background: linear-gradient(145deg,#ffe8ac,#f0ce88 40%,#d4ad69); box-shadow: inset 0 0 4px #ffeeb6,0 3px 0 #5b472c,0 7px 14px #f7d38a33; color: #302516; }
-.cockpit-vent { left: 48%; right: 15%; }.cockpit-vent i { background: #25221d; border-bottom-color: #c4baa3; }
 .cockpit-gauge-bay { height: 89%; padding: 13px 4px; border-radius: 22px 22px 6px 6px; box-shadow: inset 1px 0 2px #fff8e65a,5px 9px 0 #3c3830,8px 15px 10px #000; }
 .cockpit-gauge svg { filter: drop-shadow(2px 5px 2px #000a); }.gauge-case { fill: #b49a65; stroke: #edce8e; }.gauge-face { fill: #29251d; stroke: #19150f; stroke-width: 3px; }
 .gauge-tick { stroke: #b29b70; }.gauge-tick.major { stroke: #f1d293; }.gauge-needle { fill: #f4d898; filter: drop-shadow(0 0 2px #ffe3a0); }.gauge-needle circle { fill: #c5a56e; }.cockpit-gauge text { font-size: 15px; fill: #e7c88e; }
@@ -197,7 +194,7 @@
   box-shadow: inset 0 0 0 2px #e4c485,inset 0 0 12px 5px #0008; filter: url(#moodverse-hardware-dither); }
 .cockpit-gauge-bay::before { background: linear-gradient(100deg,#d9b87c,#b49963 60%,#7b6846); }
 .case-details { z-index: -1; filter: url(#moodverse-hardware-dither); }
-.cockpit :is(.cockpit-hardware-label,.cockpit-keys,.cockpit-gauge,.cockpit-lamp,.cockpit-flight-lever,.cockpit-knob,.cockpit-settings-key,.cockpit-vent,.cockpit-signal-legend) { filter: url(#moodverse-hardware-dither); }
+.cockpit :is(.cockpit-hardware-label,.cockpit-keys,.cockpit-gauge,.cockpit-lamp,.cockpit-flight-lever,.cockpit-knob,.cockpit-settings-key,.cockpit-signal-legend) { filter: url(#moodverse-hardware-dither); }
 .cockpit-terminal { background: none; border-color: transparent; isolation: isolate; }
 .cockpit-terminal::before { content: ''; position: absolute; inset: -6px; z-index: -1; pointer-events: none; border: 6px solid #846c43; border-top-color: #f3d798; border-left-color: #dfbc7b; border-radius: inherit;
   background: linear-gradient(130deg,#f0d596,#d6b87d 35%,#b49a63 85%,#837047); filter: url(#moodverse-hardware-dither); }

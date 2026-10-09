@@ -16,11 +16,12 @@
 .cockpit-wing-left { transform: rotateY(23deg) rotateX(-9deg) rotateZ(-2deg); }
 .cockpit-wing-right { transform: rotateY(-23deg) rotateX(-9deg) rotateZ(2deg); }
 .cockpit-wing-left,.cockpit-center { display: flex; flex-direction: column; }
+.cockpit-wing,.cockpit-center { padding-bottom: 12px; }
 .cockpit-personal-monitor,.cockpit-exploration-monitor { flex: 1; height: auto; min-height: 0; }
 .cockpit-galaxy-list-key { width: 100%; padding: 0; border: 0; background: none; text-align: left; }
-.cockpit-keys { gap: 5px; }
-.cockpit-keys { flex-shrink: 0; }
-.cockpit-keys button { padding-inline: 5px; font-size: .75rem; }
+.cockpit-keys { gap: 5px; flex-shrink: 0; width: 70%; align-self: center; margin-top: 8px; }
+.cockpit-keys button { min-height: 31px; padding: 3px 4px; font-size: .6875rem; }
+.cockpit-settings-key { min-height: 31px; padding: 3px 8px; font-size: .6875rem; }
 .cockpit-gauge-bay { height: 90%; display: grid; grid-template-rows: 11px minmax(0,1fr) minmax(0,1fr) 54px; gap: 5px; }
 .cockpit-gauge-bay > .cockpit-lamp { margin: 0 auto; }
 .cockpit-gauge-bay .cockpit-gauge { min-height: 0; display: grid; place-items: center; }
@@ -55,7 +56,7 @@
   .cockpit-console-side-left { grid-template-columns: minmax(0,1fr) 66px; }
   .cockpit-console-side-right { grid-template-columns: 96px minmax(0,1fr); }
   .cockpit-wing,.cockpit-center { padding-inline: 9px; }
-  .cockpit-keys { flex-wrap: wrap; }
+  .cockpit-keys { width: 100%; }
   .cockpit-keys button { font-size: .6875rem; }
   .cockpit-personal-preview { grid-template-columns: 36px minmax(0,1fr); gap: 4px 7px; }
   .cockpit-personal-preview .dither-planet-mark { width: 36px; height: 36px; }
@@ -72,7 +73,7 @@
 }
 @container music-viewport (max-height:600px) and (min-width:640px) {
   .cockpit { --console-height: 230px; --desk-depth: 68px; }
-  .cockpit-wing,.cockpit-center { padding: 7px 10px 15px; }
+  .cockpit-wing,.cockpit-center { padding: 7px 10px 10px; }
   .cockpit-radio { height: 94%; }
   .cockpit-gauge-bay { padding-top: 5px; }
   .cockpit-flight-lever { height: 43px; }
@@ -90,11 +91,11 @@
   .cockpit-console-side-right { grid-template-columns: 65px minmax(0,1fr); }
   .cockpit-gauge-bay { grid-template-rows: 8px minmax(0,1fr) minmax(0,1fr) 44px; gap: 3px; padding: 5px 3px; }
   .cockpit-gauge-bay > .cockpit-lamp { width: 8px; height: 8px; }
-  .cockpit-wing,.cockpit-center { padding: 6px 7px 16px; }
+  .cockpit-wing,.cockpit-center { padding: 6px 7px 10px; }
   .cockpit-deck,.cockpit-desk-objects { width: 100%; }
   .cockpit-pan-nav { display: none; }
   .cockpit-hardware-label { font-size: 11px; }
-  .cockpit-keys { gap: 3px; margin-top: 6px; }
+  .cockpit-keys { gap: 3px; width: 100%; margin-top: 4px; }
   .cockpit-keys button { padding-inline: 2px; font-size: 11px; }
   .cockpit-keys button { min-width: 44px; }
   .cockpit-monitor { height: 48px; min-height: 48px; border-width: 5px; }
