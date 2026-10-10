@@ -1,0 +1,67 @@
+/* A satellite terminal: same casing, phosphor and CRT renderer as the cockpit. */
+.music-galaxy-dialog {
+  box-sizing: border-box; width: min(820px, 88vw); max-width: none;
+  height: min(760px, 84dvh); max-height: none; padding: 10px; margin: auto;
+  color: var(--phosphor); background: none; border: 6px solid transparent;
+  border-radius: 16px; font: 16px/1.65 var(--cockpit-body);
+  isolation: isolate; overflow: hidden; user-select: text;
+  box-shadow: inset 0 0 0 2px #efd196, inset 0 0 0 5px #706041, 0 0 0 5px #302718;
+}
+.music-galaxy-dialog::before { content: ''; position: absolute; inset: -6px; z-index: -1; pointer-events: none; border: 6px solid #846c43; border-top-color: #f3d798; border-left-color: #dfbc7b; border-radius: inherit; background: linear-gradient(130deg,#f0d596,#d6b87d 35%,#b49a63 85%,#837047); filter: url(#moodverse-hardware-dither); }
+.music-galaxy-dialog[open] { display: flex; flex-direction: column; }
+.music-galaxy-dialog::backdrop { background: #080703b8; }
+.music-galaxy-dialog-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 4px 10px 14px; flex-shrink: 0; color: #302718; }
+.music-galaxy-dialog-bar > div { display: flex; align-items: baseline; gap: 16px; min-width: 0; }
+.music-galaxy-terminal-brand { font: 700 21px/1 var(--cockpit-label); letter-spacing: .06em; }
+.music-galaxy-terminal-mode { font: 650 14px/1.4 var(--cockpit-body); }
+.music-galaxy-dialog button { font: inherit; cursor: pointer; }
+.music-galaxy-dialog-bar button { min-height: 40px; padding: 5px 16px; border: 1px solid #8e723f; border-radius: 5px; color: #302718; background: linear-gradient(140deg,#fbe0a0,#e0bd79 44%,#b39864); box-shadow: inset 0 1px #ffe6ab,0 2px 0 #564326; font: 650 14px var(--cockpit-body); }
+.music-galaxy-dialog-bar button:hover { background: #f3d798; }
+.music-galaxy-dialog :is(button,a):focus-visible { outline: 2px solid var(--phosphor); outline-offset: 3px; }
+.music-galaxy-dialog-bar button:focus-visible { outline-color: #302718; }
+.music-galaxy-dialog-glass { flex: 1; min-height: 0; overflow: hidden; position: relative; background: var(--crt); border: 10px solid #403522; border-top-color: #6c5937; border-left-color: #9f824f; border-right-color: #2d2519; border-radius: 8% / 10%; box-shadow: 0 0 0 2px #edcf8d,inset 0 0 0 2px #c0a16a; }
+.music-galaxy-dialog-body { box-sizing: border-box; height: 100%; padding: 26px 38px 32px; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; scrollbar-color: #9f885b #17160f; }
+.music-galaxy-dialog-footer { display: flex; align-items: center; justify-content: space-between; padding: 13px 12px 2px; flex-shrink: 0; color: #302718; font: 10px/1.4 var(--cockpit-label); letter-spacing: .08em; }
+.music-galaxy-terminal-lamp { width: 7px; height: 7px; border-radius: 50%; background: #ffe4a2; border: 1px solid #8e723f; box-shadow: 0 0 5px #ffe4a2; }
+.music-galaxy-dialog .music-galaxy-content { margin: 0; }
+.music-galaxy-dialog .dither-title { margin: 0; color: var(--phosphor) !important; background: none; background-clip: border-box; -webkit-background-clip: border-box; font: 650 24px/1.35 var(--cockpit-label); letter-spacing: 0; text-shadow: none; overflow-wrap: anywhere; }
+.music-galaxy-dialog .music-galaxy-content > .dither-title { margin: 26px 0 12px; padding-top: 18px; border-top: 1px dotted #bba77e70; font-size: 18px; }
+.music-galaxy-dialog .music-section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+.music-galaxy-dialog .music-section-heading > small { display: none; }
+.music-galaxy-dialog p { color: #efe6d2; margin-block: 14px; line-height: 1.7; }
+.music-galaxy-description { white-space: pre-line; overflow-wrap: anywhere; max-width: 68ch; }
+.music-galaxy-dialog .dither-button { min-height: 40px; padding: 7px 14px; border: 1px solid #b99a5c; border-radius: 4px; background: #251f14; color: var(--phosphor); font: 650 14px var(--cockpit-body); box-shadow: none; }
+.music-galaxy-dialog .dither-button:hover:not(:disabled) { background: #40341e; border-color: var(--phosphor); }
+.music-galaxy-dialog button:disabled { opacity: .48; cursor: not-allowed; }
+.music-galaxy-dialog a { color: var(--phosphor); text-underline-offset: 3px; }
+.music-galaxy-dialog .music-galaxy-track { grid-template-columns: 48px minmax(0,1fr) auto; gap: 14px; padding-block: 14px; border-bottom: 1px dotted #bba77e45; }
+.music-galaxy-dialog .music-galaxy-track > .music-cd-disc { width: 48px; height: 48px; }
+.music-galaxy-dialog .music-galaxy-track strong { font-size: 16px; font-weight: 650; color: #efe6d2; }
+.music-galaxy-dialog .music-galaxy-track small { font-size: 13px; color: var(--phosphor-muted); }
+.music-galaxy-dialog .music-galaxy-track [data-music-toggle], .music-galaxy-dialog .music-galaxy-song [data-music-toggle] { color: #302718; border-color: #c9a86c; background: linear-gradient(140deg,#f7dca0,#d1ad70); box-shadow: inset 0 1px #ffe6ab,0 2px 0 #564326; }
+.music-galaxy-dialog [data-music-toggle]:hover:not(:disabled) { background: #f3d798; }
+.music-galaxy-dialog .music-galaxy-song { grid-template-columns: 112px minmax(0,1fr); gap: 24px; padding-block: 22px 4px; }
+.music-galaxy-song-details dl { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px 24px; margin-block: 22px; }
+.music-galaxy-song-details dl > div { display: grid; grid-template-columns: 64px minmax(0,1fr); gap: 12px; }
+.music-galaxy-song-details dt { color: var(--phosphor-muted); }
+.music-galaxy-song-details dd { margin: 0; color: #efe6d2; overflow-wrap: anywhere; }
+.music-galaxy-tags { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 13px; }
+.music-galaxy-dialog .music-pagination { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 20px 0 0; font-size: 13px; background: transparent; }
+@media (max-width: 600px) {
+  .music-galaxy-dialog { width: 90vw; padding: 7px; font-size: 14px; }
+  .music-galaxy-dialog-bar { padding: 3px 6px 10px; }
+  .music-galaxy-dialog-body { padding: 20px 24px 28px; }
+  .music-galaxy-song-details dl { grid-template-columns: minmax(0,1fr); }
+  .music-galaxy-dialog .music-galaxy-song { grid-template-columns: 80px minmax(0,1fr); gap: 14px; }
+}
+/* Top-layer dialogs explicitly follow the cockpit's landscape orientation. */
+@media (orientation: portrait) {
+  .music-galaxy-dialog { position: fixed; inset: 50% auto auto 50%; margin: 0; width: min(820px,88dvh); height: 86dvw; transform-origin: center; transform: translate(-50%,-50%) rotate(90deg); }
+}
+@media (max-height: 540px), (orientation: portrait) and (max-width: 540px) {
+  .music-galaxy-dialog { padding: 6px; }
+  .music-galaxy-dialog-bar { padding: 0 6px 8px; }
+  .music-galaxy-dialog-glass { border-width: 7px; }
+  .music-galaxy-dialog-body { padding: 18px 28px 24px; }
+  .music-galaxy-dialog-footer { padding-top: 8px; font-size: 9px; }
+}

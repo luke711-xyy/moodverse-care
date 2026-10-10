@@ -1,5 +1,4 @@
-# Isolated scheduled Worker for the music MVP. It shares only the staging D1
-# database with Pages and deliberately has no workers.dev route.
+# Music scheduler shared by production and staging. No workers.dev route.
 name = "moodverse-music-staging-scheduler"
 main = "./cron-worker.ts"
 compatibility_date = "2026-09-22"
@@ -13,7 +12,8 @@ directory = "./scripts"
 binding = "ASSETS"
 
 [vars]
-MUSIC_DEMO_SEED_ENABLED = "true"
+MUSIC_DEMO_SEED_ENABLED = "false"
+MUSIC_DEMO_SOCIAL_ENABLED = "true"
 
 [[d1_databases]]
 binding = "DB"

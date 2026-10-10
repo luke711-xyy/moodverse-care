@@ -1,28 +1,83 @@
 // @vitest-environment jsdom
-import React, { useReducer } from 'react'
-import { afterEach, expect, test, vi } from 'vitest'
+import React, { useReducer, useState } from 'react'
+import type { GalaxyGroupBy } from '../src/music-api'
+import { afterEach, expect, test } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { CockpitShell } from '../src/music/cockpit/CockpitShell'
 import { cockpitReducer, initialCockpitState, type ExteriorDestination } from '../src/music/cockpit/state'
 afterEach(cleanup)
 
-function Harness({ reduced = false, exterior = 'galaxy', heading = .5 }: { reduced?: boolean; exterior?: ExteriorDestination; heading?: number }) {
+function Harness({ reduced = false, exterior = 'galaxy', heading = .5, galaxyLabel = '环境音乐', classifying = false }: { reduced?: boolean; exterior?: ExteriorDestination; heading?: number; galaxyLabel?: string; classifying?: boolean }) {
   const [state, dispatch] = useReducer(cockpitReducer, { ...initialCockpitState, exterior })
+  const [by, setBy] = useState<GalaxyGroupBy>('genre')
   return <CockpitShell state={state} reducedMotion={reduced} crtEnabled signal="idle" heading={heading}
-    planetName="夜航" scene={<div>真实宇宙</div>} onOpen={page => dispatch({ type: 'open', page })}
+    planetName="夜航" galaxyLabel={galaxyLabel} scene={<div>真实宇宙</div>} onOpen={page => dispatch({ type: 'open', page })}
     onOverview={() => dispatch({ type: 'overview' })} onBack={() => dispatch({ type: 'back' })}
-    onGalaxy={() => dispatch({type:'exterior',destination:'galaxy'})} onHome={() => dispatch({type:'exterior',destination:'home'})} by="genre" onClassify={vi.fn()}>
+    onGalaxy={() => dispatch({type:'exterior',destination:'galaxy'})} onHome={() => dispatch({type:'exterior',destination:'home'})} by={by} onClassify={setBy} classifying={classifying}>
     <label>Moment 草稿<input aria-label="Moment 草稿" /></label>
   </CockpitShell>
 }
-test('windshield compass and console heading share the same angle and easing at every journey position', () => {
+test('Galaxy display tracks all three English selector windows and retains the list entry', () => {
+  render(<Harness reduced />)
+  const display = screen.getByRole('button', { name: '查看 Galaxy 星球列表' })
+  expect(display.textContent).toBe('Galaxy 分类：曲风')
+  expect(display.querySelector('.crt-screen[data-crt-enabled="true"]')).toBeTruthy()
+  for (const [label, title] of [['SONG', '歌曲'], ['ARTIST', '艺人'], ['GENRE', '曲风']]) {
+    const selector = screen.getByRole('button', { name: label, exact: true })
+    fireEvent.click(selector)
+    expect(display.textContent).toBe(`Galaxy 分类：${title}`)
+    expect(selector.getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByRole('group', { name: 'Galaxy 分类旋钮' }).querySelectorAll('[aria-pressed="true"]').length).toBe(1)
+  }
+  fireEvent.click(display)
+  expect(screen.getByRole('region', { name: '探索终端' }).dataset.page).toBe('galaxy')
+})
+test('Galaxy selector windows cannot change the displayed classification while a change is pending', () => {
+  render(<Harness reduced classifying />)
+  for (const label of ['SONG', 'ARTIST', 'GENRE']) {
+    const selector = screen.getByRole('button', { name: label, exact: true }) as HTMLButtonElement
+    expect(selector.disabled).toBe(true)
+    fireEvent.click(selector)
+  }
+  expect(screen.getByRole('button', { name: '查看 Galaxy 星球列表' }).textContent).toBe('Galaxy 分类：曲风')
+})
+test('curved Galaxy labels resolve their own text tracks without losing their visible names', () => {
+  const { container } = render(<Harness reduced />)
+  const tracks = new Set<string>()
+  for (const label of ['SONG', 'ARTIST', 'GENRE']) {
+    const selector = screen.getByRole('button', { name: label, exact: true })
+    const text = selector.querySelector('textPath')
+    expect(text?.textContent).toBe(label)
+    const reference = text!.getAttribute('href')!
+    const track = container.querySelector(`[id="${reference.slice(1)}"]`)
+    expect(track?.tagName.toLowerCase()).toBe('path')
+    expect(selector.contains(track)).toBe(true)
+    tracks.add(reference)
+  }
+  expect(tracks.size).toBe(3)
+})
+test('exploration monitor omits the duplicate channel caption while the collision key still works', () => {
+  render(<Harness reduced />)
+  expect(screen.getByRole('button', { name: '打开探索终端' }).textContent).not.toContain('撞歌')
+  fireEvent.click(screen.getByRole('button', { name: '撞歌', exact: true }))
+  expect(screen.getByRole('region', { name: '探索终端' }).dataset.page).toBe('collision')
+})
+test('current galaxy name updates in the top bar and becomes the planet name when returning home', () => {
+  const { container, rerender } = render(<Harness galaxyLabel="环境音乐" />)
+  expect(container.querySelector('.window-hud-top [aria-label="当前星系"]')?.textContent).toBe('环境音乐')
+  rerender(<Harness galaxyLabel="独立摇滚" />)
+  expect(container.querySelector('.window-hud-galaxy')?.textContent).toBe('独立摇滚')
+  fireEvent.click(screen.getByRole('button', { name: '跃迁' }))
+  expect(container.querySelector('.window-hud-top [aria-label="当前星球"]')?.textContent).toBe('夜航')
+})
+test('windshield full-turn compass and bounded console gauge track the same journey progress', () => {
   const { container, rerender } = render(<Harness heading={0} />)
   for (const heading of [-.2, 0, .25, .5, .75, 1, 1.2]) {
     rerender(<Harness heading={heading} />)
     const compass = container.querySelector<SVGGElement>('.window-hud-needle')!
     const dial = container.querySelector<SVGGElement>('[data-gauge="航向"] .gauge-needle')!
-    expect(compass.style.transform).toBe(`rotate(${-110 + Math.max(0, Math.min(1, heading)) * 220}deg)`)
-    expect(compass.style.transform).toBe(dial.style.transform)
+    expect(compass.style.transform).toBe(`rotate(${Math.max(0, Math.min(1, heading)) * 360}deg)`)
+    expect(dial.style.transform).toBe(`rotate(${-110 + Math.max(0, Math.min(1, heading)) * 220}deg)`)
     expect(compass.classList.contains('instrument-needle')).toBe(true)
     expect(dial.classList.contains('instrument-needle')).toBe(true)
   }
@@ -52,6 +107,11 @@ test('settings are available only on the main console and escape returns to the 
   fireEvent.click(settings)
   expect(screen.getByRole('region', { name: '探索终端' }).dataset.page).toBe('settings')
   expect(screen.queryByRole('button', { name: '设置' })).toBeNull()
+  expect(screen.queryByRole('navigation', { name: '探索频道' })).toBeNull()
+  for (const name of ['撞歌', '漫游', '漂流瓶']) {
+    expect(screen.queryByRole('button', { name, exact: true })).toBeNull()
+  }
+  expect(screen.getByRole('button', { name: '返回驾驶舱' })).toBeTruthy()
   fireEvent.keyDown(screen.getByRole('region', { name: '探索终端' }), { key: 'Escape' })
   expect(screen.queryByRole('region')).toBeNull()
   expect(document.activeElement).toBe(settings)

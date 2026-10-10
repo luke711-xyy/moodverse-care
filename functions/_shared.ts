@@ -1,9 +1,9 @@
 import { emailMusicSession } from './_music-email-auth'
-import { defaultFriendSatelliteStatements } from './_music-friend-satellites'
 
 export type Env = {
   DB: D1Database
   MUSIC_MEDIA?: R2Bucket
+  AUDIUS_API_KEY?: string
   CF_ACCESS_TEAM_DOMAIN?: string
   CF_ACCESS_AUD?: string
   MUSIC_ALLOW_LEGACY_ACCESS_AUTH?: string
@@ -14,6 +14,7 @@ export type Env = {
   MUSIC_EMAIL_API_TOKEN?: string
   MUSIC_EMAIL_FROM?: string
   MUSIC_DEMO_EMAIL?: string
+  MUSIC_DEMO_SOCIAL_ENABLED?: string
   MUSIC_MODERATOR_EMAILS?: string
   MUSIC_AI_GATEWAY_URL?: string
   MUSIC_AI_SONG_PORTAL_URL?: string
@@ -160,13 +161,10 @@ export async function authenticatedMusicUser(request: Request, env: Env) {
     const createdAt = now()
     const unusedTokenHash = await sha256(`music-access-placeholder:${crypto.randomUUID()}`)
 
-    const userInsert = await env.DB.prepare(`
+    await env.DB.prepare(`
       INSERT OR IGNORE INTO users (id, token_hash, created_at, updated_at)
       VALUES (?1, ?2, ?3, ?3)
     `).bind(userId, unusedTokenHash, createdAt).run()
-    if (userInsert.meta.changes) {
-      await env.DB.batch(defaultFriendSatelliteStatements(env, userId, createdAt))
-    }
 
     await env.DB.prepare(`
       INSERT INTO music_access_identities
@@ -211,7 +209,6 @@ async function createSession(env: Env) {
   const timestamp = now()
   await env.DB.batch([
     env.DB.prepare('INSERT INTO users (id, token_hash, created_at, updated_at) VALUES (?1, ?2, ?3, ?3)').bind(userId, tokenHash, timestamp),
-    ...defaultFriendSatelliteStatements(env, userId, timestamp),
   ])
   return { userId, token, setCookie: `${anonymousCookieName(env)}=${token}; Path=/; Max-Age=31536000; HttpOnly; Secure; SameSite=Lax` }
 }

@@ -1,26 +1,76 @@
-import type { CSSProperties } from 'react'
+import { useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
+
+export type RadioPlayer = { playing: boolean; blocked: boolean; currentTrack?: { title: string; artistName: string; coverUrl?: string | null }; toggle: () => void; canSkip?: boolean; previous?: () => void; next?: () => void }
 
 /** Lightweight, reusable 2.5D desk props. Their entire painted surface passes
  * through the opaque hardware dither; these ornaments never intercept input. */
-export function RetroRadio({ player }: { player?: { playing: boolean; blocked: boolean; toggle: () => void } }) {
-  return <div className="cockpit-radio" role={player ? 'group' : 'img'} aria-label={player ? 'FM 电台 · Cosmos · The_mountain' : '装饰用复古 FM 电台，未接入音源'}>
-    <svg viewBox="0 0 150 220" aria-hidden="true">
+export function RetroRadio({ player }: { player?: RadioPlayer }) {
+  const label = player?.currentTrack ? `${player.currentTrack.title} · ${player.currentTrack.artistName}` : 'Cosmos · The_mountain'
+  const [failedCover, setFailedCover] = useState<string | null>(null)
+  const cover = player?.currentTrack?.coverUrl
+  const trackRef = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const track = trackRef.current
+    if (!track) return
+    let active = true
+    const fit = () => {
+      if (!active) return
+      const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16
+      for (const text of track.querySelectorAll<HTMLElement>('strong, span')) {
+        // Reset before measuring so shorter songs and wider screens grow back.
+        text.style.fontSize = ''
+        const maximum = parseFloat(getComputedStyle(text).fontSize)
+        if (!Number.isFinite(maximum) || !text.clientWidth) continue
+        const minimum = Math.min(maximum, Math.max(rem * .1875, maximum * .72))
+        const fits = () => text.scrollWidth <= text.clientWidth + 1 && text.scrollHeight <= Math.min(text.clientHeight, parseFloat(getComputedStyle(text).lineHeight) * 2) + 1
+        if (fits()) continue
+        text.style.fontSize = `${minimum}px`
+        // At the floor, the two-line CSS clamp supplies the ellipsis.
+        if (!fits()) continue
+        let low = minimum, high = maximum
+        while (high - low > .125) {
+          const middle = (low + high) / 2
+          text.style.fontSize = `${middle}px`
+          if (fits()) low = middle; else high = middle
+        }
+        text.style.fontSize = `${low}px`
+      }
+    }
+    fit()
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(fit)
+    observer?.observe(track)
+    window.addEventListener('resize', fit)
+    void document.fonts?.ready.then(fit)
+    return () => { active = false; observer?.disconnect(); window.removeEventListener('resize', fit) }
+  }, [player?.playing, player?.currentTrack?.title, player?.currentTrack?.artistName])
+  return <div className="cockpit-radio" role={player ? 'group' : 'img'} aria-label={player ? `FM 电台 · ${label}` : '装饰用复古 FM 电台，未接入音源'}>
+    <div className="cockpit-radio-body">
+    <svg className="cockpit-radio-case" viewBox="0 0 150 220" aria-hidden="true">
       <defs><linearGradient id="radio-case" x2=".8" y2="1"><stop stopColor="#f0d596" /><stop offset=".4" stopColor="#b79b68" /><stop offset="1" stopColor="#655032" /></linearGradient></defs>
       <path d="M10 13 L139 13 L146 215 L5 215Z" fill="#302518" stroke="#1a130d" strokeWidth="3" />
       <rect x="3" y="3" width="136" height="204" rx="9" fill="url(#radio-case)" stroke="#ead095" strokeWidth="2" />
       <text x="13" y="23" className="radio-brand">FM / ANALOG</text>
-      <rect x="12" y="34" width="116" height="54" rx="3" fill="#282318" stroke="#ead095" />
-      <text x="19" y="51" className="radio-scale">88  92  98  104 108</text>
-      {Array.from({length:23},(_,i)=><path key={i} d={`M${18+i*4.7} 60 V${i%4===0?74:68}`} stroke="#bea575" />)}
-      <path d="M73 55 V79" stroke="#f3d390" strokeWidth="2" /><circle cx="118" cy="23" r="3" fill={player?.playing ? '#9abd60' : '#ad8050'} />
-      <rect x="12" y="99" width="68" height="87" rx="4" fill="#423520" stroke="#947442" />
-      {Array.from({length:12},(_,i)=><path key={i} d={`M19 ${105+i*6.3} H73`} stroke="#19150d" strokeWidth="3" />)}
-      <circle cx="105" cy="121" r="17" fill="#493722" stroke="#e5be7d" strokeWidth="3" /><circle cx="105" cy="121" r="11" fill="#c9a86b" /><path d="M105 121 L111 112" stroke="#44311c" strokeWidth="2" />
-      <circle cx="105" cy="163" r="12" fill="#4d3921" stroke="#dfb979" strokeWidth="2" /><path d="M104 163 L100 154" stroke="#ebca8c" strokeWidth="2" />
+      <rect x="12" y="34" width="116" height="76" rx="3" fill="#211f18" stroke="#ead095" />
+      {!player?.playing && <g><text x="19" y="61" className="radio-scale">88  92  98  104 108</text>
+        {Array.from({length:23},(_,i)=><path key={i} d={`M${18+i*4.7} 70 V${i%4===0?89:82}`} stroke="#bea575" />)}
+        <path d="M73 65 V95" stroke="#f3d390" strokeWidth="2" /></g>}
+      <circle cx="118" cy="23" r="3" fill={player?.playing ? '#9abd60' : '#ad8050'} />
+      <rect x="12" y="160" width="68" height="30" rx="4" fill="#423520" stroke="#947442" />
+      {Array.from({length:5},(_,i)=><path key={i} d={`M19 ${165+i*5} H73`} stroke="#19150d" strokeWidth="2" />)}
+      <circle cx="105" cy="170" r="12" fill="#4d3921" stroke="#dfb979" strokeWidth="2" /><path d="M104 170 L100 161" stroke="#ebca8c" strokeWidth="2" />
       <text x="88" y="190" className="radio-scale">TUNE</text>
       <path d="M8 196 H129" stroke="#675034" /><circle cx="9" cy="10" r="2" fill="#5b492d" /><circle cx="132" cy="10" r="2" fill="#5b492d" />
     </svg>
-    {player && <button data-music-toggle className="cockpit-radio-play" aria-label={player.playing ? '暂停 Cosmos' : '播放 Cosmos'} aria-pressed={player.playing} onClick={player.toggle} title={player.blocked ? '点击播放 Cosmos · The_mountain' : 'Cosmos · The_mountain'}>{player.playing ? 'Ⅱ' : '▶'}</button>}
+    {player?.playing && player.currentTrack && <div className="cockpit-radio-screen" aria-live="polite">
+      {cover && failedCover !== cover ? <img src={cover} alt={`${player.currentTrack.title}的专辑封面`} referrerPolicy="no-referrer" onError={() => setFailedCover(cover)} /> : <span className="cockpit-radio-no-cover">暂无封面</span>}
+      <div ref={trackRef} className="cockpit-radio-track"><strong title={player.currentTrack.title}>{player.currentTrack.title}</strong><span title={player.currentTrack.artistName}>{player.currentTrack.artistName}</span></div>
+    </div>}
+    {player && <div className="cockpit-radio-transport">
+      <button data-music-toggle className="cockpit-radio-skip" aria-label="上一首" title="上一首" disabled={!player.canSkip} onClick={player.previous}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 4v12M16 4 7 10l9 6Z" /></svg></button>
+      <button data-music-toggle className="cockpit-radio-play" aria-label={`${player.playing ? '暂停' : '播放'} ${label}`} aria-pressed={player.playing} onClick={() => player.toggle()} title={label}>{player.playing ? 'Ⅱ' : '▶'}</button>
+      <button data-music-toggle className="cockpit-radio-skip" aria-label="下一首" title="下一首" disabled={!player.canSkip} onClick={player.next}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M15 4v12M4 4l9 6-9 6Z" /></svg></button>
+    </div>}
+    </div>
   </div>
 }
 

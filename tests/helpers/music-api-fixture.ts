@@ -92,6 +92,10 @@ export function createMusicApiFixture() {
   const friendSatelliteMigration = new URL('../../migrations/0018_music_friend_satellites.sql', import.meta.url)
   if (existsSync(friendSatelliteMigration)) sqlite.exec(readFileSync(friendSatelliteMigration, 'utf8'))
   sqlite.exec(readFileSync(new URL('../../migrations-music-staging/0002_dither_appearance.sql', import.meta.url), 'utf8'))
+  sqlite.exec(readFileSync(new URL('../../migrations-music-staging/0003_audius_catalog.sql', import.meta.url), 'utf8'))
+  sqlite.exec(readFileSync(new URL('../../migrations-music-staging/0004_galaxy_selection_preferences.sql', import.meta.url), 'utf8'))
+  sqlite.exec(readFileSync(new URL('../../migrations-music-staging/0005_direct_message_attachments.sql', import.meta.url), 'utf8'))
+  sqlite.exec(readFileSync(new URL('../../migrations-music-staging/0006_demo_social.sql', import.meta.url), 'utf8'))
 
   return {
     db: createD1Adapter(sqlite),

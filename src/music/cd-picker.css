@@ -3,6 +3,13 @@
 .music-cd-picker { --cd-size: clamp(170px,25cqw,270px); --z-cd-flight: 10; position: relative; isolation: isolate; container: cd-picker / inline-size; margin-block: 24px; }
 .music-cd-toolbar { display: grid; grid-template-columns: minmax(0,1fr) minmax(280px,360px); align-items: start; gap: 40px; }
 .music-cd-search { min-width: 0; display: grid; gap: 8px; }
+.music-cd-filters { display: flex; align-items: end; gap: 12px; min-width: 0; }
+.music-cd-search-field { display: grid; gap: 8px; flex: 1; min-width: 0; }
+.music-cd-genre-field { display: grid; gap: 8px; flex: 0 1 140px; min-width: 100px; }
+.music-cd-filters :is(input,select) { width: 100%; min-width: 0; min-height: 44px; margin: 0; }
+.music-cd-genre-field select { padding: .5rem; background: #13110e; color: #e9cc8b; border: 1px solid #76633d; border-radius: 4px; font: inherit; }
+.music-cd-genre-field select:focus-visible { outline: 2px solid var(--phosphor,#efd79f); outline-offset: 3px; }
+.music-cd-genre-field select:disabled { opacity: .5; cursor: not-allowed; }
 .cockpit .music-cd-search .dither-title { margin: 0 0 12px; }
 .music-cd-collection { min-width: 0; }
 .music-cd-collection-head { display: flex; justify-content: space-between; gap: 16px; color: var(--phosphor,#efd79f); font-size: 14px; font-variant-numeric: tabular-nums; padding: 0 4px 12px; }
@@ -23,8 +30,11 @@
 .music-cd-primary span { font-size: 10px; white-space: nowrap; }
 .music-cd-browser { display: grid; grid-template-columns: minmax(0,1fr) 240px; align-items: center; gap: 32px; margin-top: 16px; }
 .music-cd-browse-panel { min-width: 0; }
-.music-cd-stage { position: relative; height: 330px; overflow: hidden; perspective: 950px; touch-action: pan-y; border-radius: 8px;
-  background: radial-gradient(ellipse at 50% 53%,#4c3f50 0,#302a34 26%,#171612 62%,transparent 85%); }
+.music-cd-stage-frame { position: relative; isolation: isolate; }
+/* The halo fades completely outside the carousel's independent clipping layer. */
+.music-cd-stage-frame::before { content: ''; position: absolute; inset: -32px -20px; z-index: -1; pointer-events: none;
+  background: radial-gradient(ellipse closest-side at 50% 53%,#4c3f50 0,#302a34 26%,#171612 62%,transparent 100%); }
+.music-cd-stage { position: relative; height: 330px; overflow: hidden; perspective: 950px; touch-action: pan-y; border-radius: 8px; }
 .music-cd-stage:focus-visible { outline: 1px dotted var(--phosphor,#efd79f); outline-offset: 4px; }
 .music-cd-position { width: var(--cd-size); height: var(--cd-size); position: absolute; top: 50%; left: 50%; opacity: var(--cd-opacity);
   transform: translate(-50%,-50%) translate3d(calc(var(--cd-offset) * var(--cd-size) * .62),calc(var(--cd-distance) * -22px),var(--cd-depth)) rotateX(-14deg) rotateY(var(--cd-turn)) scale(var(--cd-scale));
@@ -77,9 +87,16 @@
 .cockpit .music-cd-info .music-cd-select { display: block; width: 100%; margin-top: 12px; }
 .music-cd-flight { position: absolute; left: 0; top: 0; z-index: var(--z-cd-flight); pointer-events: none; transform-origin: 0 0; }
 .music-cd-flight .music-cd-disc { position: absolute; left: -50%; top: -50%; }
+.music-catalog-controls { display:flex;align-items:center;gap:1rem;flex-wrap:wrap;margin-top:1rem;color:#e9cc8b }
+.music-catalog-controls span { flex:1;font-size:.85rem }
+.music-genre-preferences { display:flex;flex-wrap:wrap;gap:.6rem;margin-top:1rem }
+.music-genre-preferences label { display:flex;gap:.4rem;align-items:center;padding:.35rem .65rem;background:#19160f;color:#edcf91 }
+.music-song-pages { display: flex; align-items: center; justify-content: center; gap: 16px; margin-block: 16px; }
+.music-song-pages span { color: #e4c897; font-size: 13px; font-variant-numeric: tabular-nums; }
+.music-song-pages button { min-height: 44px; }
 @keyframes cd-info-arrive { from { opacity: .25; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 @container cd-picker (max-width:740px) {
-  .music-cd-toolbar { grid-template-columns: minmax(0,1fr) 270px; gap: 20px; }
+  .music-cd-toolbar { grid-template-columns: minmax(0,1fr) minmax(220px,40%); gap: 20px; }
   .music-cd-rack { gap: 4px; padding-inline: 8px; }
   .music-cd-primary span { font-size: 9px; }
   .music-cd-browser { grid-template-columns: minmax(0,1fr) 190px; gap: 20px; }

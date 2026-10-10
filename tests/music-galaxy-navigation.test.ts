@@ -11,19 +11,15 @@ test('axis and camera use the same fractional stop, excluding the separate home 
   expect(galaxyTourPosition(.51,7).currentIndex).toBe(3)
 })
 
-test('node routes accelerate, cruise at a fixed sector rate, brake, and arrive exactly in either direction', () => {
+test('node routes accelerate, cruise, brake, and arrive exactly in either direction', () => {
   const route = createGalaxyJourneyMotion(0, TOUR_END, 5)
   const sample = (time: number) => sampleGalaxyJourneyMotion(route, time)
   expect(sample(0)).toBe(0)
   expect(sample(route.durationMs)).toBe(TOUR_END)
-  expect(sample(100)).toBeLessThan(TOUR_END * .02)
-  expect(sample(200) - sample(150)).toBeGreaterThan(sample(100) - sample(50))
-  expect(sample(700) - sample(600)).toBeCloseTo(sample(1200) - sample(1100))
-  expect(sample(route.durationMs) - sample(route.durationMs - 100)).toBeCloseTo(sample(100))
-  const short = createGalaxyJourneyMotion(0, TOUR_END / 4, 5)
-  expect((sample(700) - sample(600)) * 4 / TOUR_END).toBeCloseTo(
-    (sampleGalaxyJourneyMotion(short, 500) - sampleGalaxyJourneyMotion(short, 400)) * 4 / TOUR_END,
-  )
+  expect(sample(30)).toBeLessThan(TOUR_END * .01)
+  expect(sample(120) - sample(90)).toBeGreaterThan(sample(60) - sample(30))
+  expect(sample(route.durationMs * .5) - sample(route.durationMs * .4)).toBeCloseTo(sample(route.durationMs * .6) - sample(route.durationMs * .5))
+  expect(sample(route.durationMs) - sample(route.durationMs - 30)).toBeCloseTo(sample(30))
   const reverse = createGalaxyJourneyMotion(TOUR_END, 0, 5)
   let last = TOUR_END
   for (let time = 0; time <= reverse.durationMs + 100; time += 100) {
@@ -33,4 +29,18 @@ test('node routes accelerate, cruise at a fixed sector rate, brake, and arrive e
     last = current
   }
   expect(last).toBe(0)
+})
+
+test('distant node clicks gain speed instead of accumulating seconds per sector', () => {
+  let previousSpeed = 0
+  for (const stops of [1, 4, 9, 20, 39]) {
+    const route = createGalaxyJourneyMotion(0, TOUR_END * stops / 39, 40)
+    expect(route.durationMs).toBeLessThanOrEqual(1200)
+    expect(route.durationMs).toBeGreaterThanOrEqual(350)
+    if (stops === 1) expect(route.durationMs).toBeLessThanOrEqual(450)
+    const cruiseSpeed = (sampleGalaxyJourneyMotion(route, route.durationMs * .6) - sampleGalaxyJourneyMotion(route, route.durationMs * .4)) / (route.durationMs * .2)
+    expect(cruiseSpeed).toBeGreaterThan(previousSpeed)
+    previousSpeed = cruiseSpeed
+    expect(sampleGalaxyJourneyMotion(route, 1200)).toBe(route.to)
+  }
 })

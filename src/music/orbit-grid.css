@@ -1,0 +1,4 @@
+.music-orbit-grid { display: grid; grid-template-columns: repeat(var(--orbit-columns, 3), minmax(0, 1fr)); gap: 14px; align-items: stretch; }
+.music-orbit-grid .music-planet-card-actions { margin-top: auto; }
+.music-orbit-grid strong, .music-orbit-grid p { overflow-wrap: anywhere; }
+.music-orbit-grid .music-pagination { margin-top: 4px; }

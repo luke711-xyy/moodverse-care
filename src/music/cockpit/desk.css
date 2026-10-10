@@ -4,20 +4,26 @@
 .cockpit-console {
   padding: 0 4% var(--desk-depth); gap: 18px;
   grid-template-columns: minmax(0,1fr) clamp(330px,34cqw,540px) minmax(0,1fr);
+  grid-template-rows: minmax(0,1fr);
   perspective: max(1100px,100cqw);
 }
 /* These wrappers are layout only. Flattening here discards the shared camera's
    perspective and makes both side screens look like outward-facing stickers. */
-.cockpit-console-side { display: grid; height: 100%; min-width: 0; width: 100%; align-items: end; gap: 12px; transform-style: preserve-3d; }
+.cockpit-console-side { display: grid; height: 100%; min-height: 0; min-width: 0; width: 100%; grid-template-rows: minmax(0,1fr); align-items: end; gap: 12px; transform-style: preserve-3d; }
 .cockpit-console-side-left { grid-template-columns: minmax(0,1fr) 78px; max-width: 390px; justify-self: end; }
-.cockpit-console-side-right { grid-template-columns: 132px minmax(0,1fr); max-width: 410px; justify-self: start; }
+/* Optical inset includes the right-facing case thickness and shared perspective. */
+.cockpit-console-side-right { grid-template-columns: 132px minmax(0,1fr); max-width: 382px; justify-self: start; }
 .cockpit-center { height: 95%; transform: rotateX(-7deg); transform-origin: center bottom; }
 .cockpit-wing { height: 103%; }
 .cockpit-wing-left { transform: rotateY(23deg) rotateX(-9deg) rotateZ(-2deg); }
 .cockpit-wing-right { transform: rotateY(-23deg) rotateX(-9deg) rotateZ(2deg); }
-.cockpit-wing-left,.cockpit-center { display: flex; flex-direction: column; }
+.cockpit-wing-left,.cockpit-center { display: flex; flex-direction: column; height: 100%; min-height: 0; max-height: 100%; }
 .cockpit-wing,.cockpit-center { padding-bottom: 12px; }
 .cockpit-personal-monitor,.cockpit-exploration-monitor { flex: 1; height: auto; min-height: 0; }
+.cockpit .cockpit-monitor-content { min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; align-items: safe center; justify-content: safe center; }
+.cockpit .cockpit-monitor-content > * { flex-shrink: 0; }
+.cockpit .cockpit-personal-preview strong { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; line-height: 1.25; }
+.cockpit .cockpit-radar-preview { height: auto; min-height: 100%; padding-block: 10px; padding-right: 10px; overflow-wrap: anywhere; }
 .cockpit-galaxy-list-key { width: 100%; padding: 0; border: 0; background: none; text-align: left; }
 .cockpit-keys { gap: 5px; flex-shrink: 0; width: 70%; align-self: center; margin-top: 8px; }
 .cockpit-keys button { min-height: 31px; padding: 3px 4px; font-size: .6875rem; }
@@ -35,11 +41,24 @@
    height ratio preserves every desk prop's scale and bottom alignment. */
 .cockpit-desk-objects { position: absolute; left: 0; bottom: 0; width: 100%; height: calc(var(--desk-depth) * 285 / 170); pointer-events: none; filter: url(#moodverse-hardware-dither); overflow: visible; }
 .desk-signals { position: absolute; left: 12px; bottom: -17px; width: calc(100% - 24px); height: 14px; pointer-events: none; filter: url(#moodverse-hardware-dither); }
-.cockpit-radio { height: 93%; width: 100%; align-content: end; transform: rotateX(-7deg); transform-origin: center bottom; filter: url(#moodverse-hardware-dither); }
-.cockpit-radio svg { width: 100%; max-height: 100%; display: block; filter: drop-shadow(5px 8px 3px #0009); }
-.cockpit-radio { position: relative; }
-.cockpit-radio-play { position: absolute; right: 11%; top: 48%; width: 26%; aspect-ratio: 1; padding: 0; border: 2px solid #e5be7d; border-radius: 50%; background: #493722; color: #efd293; cursor: pointer; box-shadow: 2px 3px 2px #21180d; font-size: 12px; }
-.cockpit-radio-play:focus-visible { outline: 2px solid #f3d390; outline-offset: 3px; }
+.cockpit-radio { height: 93%; width: 100%; display: flex; align-items: end; transform: rotateX(-7deg); transform-origin: center bottom; }
+.cockpit-radio-body { position: relative; width: 100%; aspect-ratio: 150 / 220; container-type: inline-size; }
+.cockpit-radio-case { width: 100%; display: block; filter: url(#moodverse-hardware-dither) drop-shadow(5px 8px 3px #0009); }
+.cockpit-radio-transport { position: absolute; left: 8%; top: 54%; width: 77.33%; height: 16%; display: flex; align-items: center; justify-content: space-between; gap: 5%; }
+.cockpit-radio-transport button { display: grid; place-items: center; width: 29%; aspect-ratio: 1; padding: 0; min-height: 0; border: 2px solid #e5be7d; border-radius: 50%; background: #493722; color: #efd293; cursor: pointer; box-shadow: 2px 3px 2px #21180d; font-size: 9cqw; filter: url(#moodverse-hardware-dither); }
+.cockpit-radio-transport .cockpit-radio-play { width: 34%; background: #5c4426; }
+.cockpit-radio-transport button:hover:not(:disabled) { background: #705634; }
+.cockpit-radio-transport button:active:not(:disabled) { transform: translateY(1px); box-shadow: 1px 1px 1px #21180d; }
+.cockpit-radio-transport button:disabled { opacity: .45; cursor: default; }
+.cockpit-radio-transport button:focus-visible { outline: 2px solid #f3d390; outline-offset: 3px; }
+.cockpit-radio-skip svg { width: 58%; height: 58%; fill: currentColor; stroke: currentColor; stroke-width: 1.6; }
+.cockpit-radio-screen { position: absolute; left: 9%; top: 16%; width: 75.33%; height: 33.5%; box-sizing: border-box; padding: 5%; display: grid; grid-template-columns: 32% minmax(0,1fr); grid-template-rows: minmax(0,1fr); gap: 6%; align-items: start; overflow: hidden; color: #f3dca8; font-family: var(--cockpit-label); }
+.cockpit-radio-screen img { display: block; width: 100%; height: auto; aspect-ratio: 1; object-fit: cover; border-radius: 1px; align-self: start; }
+.cockpit-radio-no-cover { display: grid; place-items: center; aspect-ratio: 1; background: #3b3425; font-size: 6cqw; text-align: center; }
+.cockpit-radio-track { min-width: 0; min-height: 0; height: 100%; display: grid; grid-template-rows: minmax(0,1fr) minmax(0,1fr); gap: 2cqw; }
+.cockpit-radio-track strong,.cockpit-radio-track span { min-width: 0; min-height: 0; max-height: 100%; margin: 0; align-self: start; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; text-overflow: ellipsis; line-height: 1.2; }
+.cockpit-radio-track strong { font-size: clamp(.1875rem,6.2cqw,.5625rem); font-weight: 700; }
+.cockpit-radio-track span { font-size: clamp(.1875rem,5.4cqw,.5rem); color: #d7c49b; }
 .radio-brand { fill: #3f2f1c; font: 700 10px var(--cockpit-label); }
 .radio-scale { fill: #d9ba7d; font: 7px var(--cockpit-label); }
 .coffee-steam-layer { transform-origin: 59px 23px; animation: coffee-vapor var(--steam-duration) linear var(--steam-phase) infinite; }
@@ -73,6 +92,10 @@
   .cockpit-deck,.cockpit-desk-objects { width: 1100px; }
   .cockpit-pan-nav { bottom: calc(var(--console-height) + 20px); }
   .cockpit-window-nav { bottom: 70px; }
+  .cockpit :is(.cockpit-keys button,.cockpit-settings-key,.cockpit-knob-label,.cockpit-hardware-label,.cockpit-pan-nav button,.cockpit-radio-play) { font-size: 10px; line-height: 1.2; }
+  .cockpit .cockpit-terminal :is(button,.music-primary-button,.music-secondary-button,.music-track-portal-button) { font-size: 12px; line-height: 1.25; }
+  .cockpit .cockpit-personal-preview strong { font-size: 11px; }
+  .cockpit .cockpit-radar-preview { font-size: 11px; line-height: 1.25; }
 }
 @container music-viewport (max-height:600px) and (min-width:640px) {
   .cockpit { --console-height: 230px; --desk-depth: 68px; }
@@ -100,7 +123,7 @@
   .cockpit-hardware-label { font-size: 11px; }
   .cockpit-keys { gap: 3px; width: 100%; margin-top: 4px; }
   .cockpit-keys button { padding-inline: 2px; font-size: 11px; }
-  .cockpit-keys button { min-width: 44px; }
+  .cockpit-keys button { min-width: 0; }
   .cockpit-monitor { height: 48px; min-height: 48px; border-width: 5px; }
   .cockpit-personal-monitor,.cockpit-exploration-monitor { height: auto; min-height: 0; }
   .cockpit-flight-lever { height: 44px; }

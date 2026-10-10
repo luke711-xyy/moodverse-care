@@ -29,13 +29,25 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   if (!identity) return socialResponse({ error: 'UNAUTHENTICATED' }, 401)
   const payload = await json<unknown>(request)
   const planetId = isSocialRecord(payload) && typeof payload.planetId === 'string' ? payload.planetId.trim() : ''
-  if (!isSocialRecord(payload) || Object.keys(payload).length !== 1 || !planetId || planetId.length > 128) {
+  const userId = isSocialRecord(payload) && typeof payload.userId === 'string' ? payload.userId.trim() : ''
+  if (!isSocialRecord(payload) || Object.keys(payload).length !== 1 || (!planetId && !userId)
+    || planetId.length > 128 || userId.length > 128 || userId === identity.userId) {
     return socialResponse({ error: 'INVALID_BLOCK' }, 400)
   }
-  const target = await env.DB.prepare(`
+  // Settings can manage a known friend even when their planet is private.
+  // Unknown user IDs are not an alternative way to look up private accounts.
+  const target = userId ? await env.DB.prepare(`
+    SELECT u.id AS owner_user_id FROM users u WHERE u.id = ?2 AND (
+      EXISTS (SELECT 1 FROM music_friendships f
+        WHERE f.user_a_id = MIN(?1, ?2) AND f.user_b_id = MAX(?1, ?2))
+      OR EXISTS (SELECT 1 FROM music_user_blocks b
+        WHERE (b.blocker_user_id = ?1 AND b.blocked_user_id = ?2)
+           OR (b.blocker_user_id = ?2 AND b.blocked_user_id = ?1))
+    )
+  `).bind(identity.userId, userId).first<{ owner_user_id: string }>() : await env.DB.prepare(`
     SELECT owner_user_id FROM music_planets WHERE id = ?1 AND visibility = 'public'
   `).bind(planetId).first<{ owner_user_id: string }>()
-  if (!target) return socialResponse({ error: 'PLANET_NOT_FOUND' }, 404)
+  if (!target) return socialResponse({ error: userId ? 'FRIEND_NOT_FOUND' : 'PLANET_NOT_FOUND' }, 404)
   if (target.owner_user_id === identity.userId) return socialResponse({ error: 'INVALID_BLOCK' }, 400)
 
   const now = new Date().toISOString()

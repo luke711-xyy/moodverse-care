@@ -10,7 +10,7 @@ export type MomentVisibility = 'public' | 'private'
 
 /** Sourced metadata, never inferred from duration or an unauthorized audio stream. */
 export type MusicVisualFeatures = {
-  source: 'curated' | 'demo' | 'tag-derived' | 'unknown'
+  source: 'curated' | 'audius' | 'demo' | 'tag-derived' | 'unknown'
   tempoBpm?: number | null
   energy?: number
   hardness?: number
@@ -28,7 +28,7 @@ export type MusicTrackSummary = {
   officialUrl: string | null
   coverUrl: string | null
   durationSeconds: number | null
-  /** An allowlisted, first-party recording; never an arbitrary remote URL. */
+  /** First-party recording or a validated, same-origin provider stream route. */
   audioUrl?: string
   /** True only for fictional, non-playable catalog rows used in isolated staging. */
   isDemo?: boolean

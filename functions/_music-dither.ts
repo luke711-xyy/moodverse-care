@@ -18,7 +18,8 @@ export function catalogTrack(row: CatalogTrackRow): MusicTrackSummary {
   return { id: row.id, title: row.title, artistId: row.artist_id, artistName: row.artist_name, versionLabel: row.version_label,
     genres: array(row.genres_json), moodTags: array(row.mood_tags_json), officialUrl: safeHttpsUrl(row.official_url),
     coverUrl: safeHttpsUrl(row.cover_url), durationSeconds: row.duration_seconds,
-    ...(row.id === DEFAULT_TRACK_ID ? { audioUrl: DEFAULT_AUDIO_URL } : {}),
+    ...(row.id === DEFAULT_TRACK_ID ? { audioUrl: DEFAULT_AUDIO_URL } : row.provider === 'audius' && /^audius:[a-zA-Z0-9]+$/.test(row.id)
+      ? { audioUrl: `/api/music/tracks/${encodeURIComponent(row.id)}/stream` } : {}),
     ...(features.ok ? { visualFeatures: features.value } : {}), ...(row.provider === 'moodverse-demo' ? { isDemo: true } : {}),
   }
 }
@@ -32,7 +33,7 @@ export async function readVisualCatalogTracks(env: Env, ids: string[], primaryId
 
 /** Authoritative read adapter. Batch only legacy/malformed rows, never N+1.
  * No Moment text, account details or arbitrary legacy JSON enters the spec. */
-export async function readPlanetDitherVisuals(env: Env, planets: Array<{ id: string; visual_json: string }>) {
+export async function readPlanetDitherVisuals(env: Pick<Env, 'DB'>, planets: Array<{ id: string; visual_json: string }>) {
   const output = new Map<string, DitherPlanetSpec>(), pending: typeof planets = []
   for (const row of planets) {
     const parsed = parseVisualJson(row.visual_json)

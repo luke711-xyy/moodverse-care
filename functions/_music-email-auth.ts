@@ -1,6 +1,5 @@
 import type { Env } from './_shared'
 
-import { ensureDefaultFriendSatellites } from './_music-friend-satellites'
 
 const SESSION_COOKIE = 'mv_music_session'
 const encoder = new TextEncoder()
@@ -427,7 +426,6 @@ export async function verifyMusicEmailCode(request: Request, env: Env) {
     ORDER BY i.updated_at DESC, i.email LIMIT 1
   `).bind(tokenHash).first<{ user_id: string; email: string }>()
   if (!sessionRow) return invalidCode()
-  await ensureDefaultFriendSatellites(env, sessionRow.user_id, createdAt)
   const headers = new Headers()
   headers.set('set-cookie', `${SESSION_COOKIE}=${token}; Path=/; Max-Age=${SESSION_TTL_MS / 1000}; HttpOnly; Secure; SameSite=Lax`)
   return response({ authenticated: true, email: sessionRow.email }, 200, headers)

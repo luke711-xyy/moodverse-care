@@ -1,14 +1,15 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import type { GalaxyGroupBy } from '../../music-api'
 import { pageTerminal, type CockpitPage, type CockpitState } from './state'
 import './cockpit.css'
 import { DitherSurfaceDefinitions } from './surface'
 import { CrtScreen } from './CrtScreen'
-import { DeskObjects, DeskSignals, RetroRadio } from './DeskObjects'
+import { DeskObjects, DeskSignals, RetroRadio, type RadioPlayer } from './DeskObjects'
 import './desk.css'
 import { WindowHud, type WindowTelemetry } from './WindowHud'
 import type { CockpitFlight } from './flight'
 import { gaugeNeedleAngle } from './instruments'
+import './galaxy-classifier.css'
 
 export type CockpitSignal = 'idle' | 'loading' | 'traveling' | 'error'
 type Props = {
@@ -21,11 +22,13 @@ type Props = {
   flight?: CockpitFlight | null
   telemetry?: WindowTelemetry
   planetName: string
+  galaxyLabel?: string
   scene: ReactNode
   children: ReactNode
   personalPreview?: ReactNode
   explorationPreview?: ReactNode
   windowNavigation?: ReactNode
+  terminalActions?: ReactNode
   by: GalaxyGroupBy
   onClassify: (by: GalaxyGroupBy) => void
   onOpen: (page: CockpitPage) => void
@@ -35,7 +38,7 @@ type Props = {
   onHome: () => void
   connected?: boolean
   classifying?: boolean
-  musicPlayer?: { playing: boolean; blocked: boolean; toggle: () => void }
+  musicPlayer?: RadioPlayer
 }
 const personalPages: Array<[CockpitPage, string]> = [['planet', '我的星球'], ['orbit', 'Orbit'], ['moment', 'Moment']]
 const explorationPages: Array<[CockpitPage, string]> = [['collision', '撞歌'], ['roam', '漫游'], ['bottles', '漂流瓶']]
@@ -45,6 +48,28 @@ const pageNames: Record<CockpitPage, string> = {
   preflight: '访问确认', settings: '设置', moderation: '举报审核',
 }
 const signalNames: Record<CockpitSignal, string> = { idle: '扫描待命', loading: '搜索中', traveling: '航行中', error: '暂不可用' }
+const classificationNames: Record<GalaxyGroupBy, string> = { song: '歌曲', artist: '艺人', genre: '曲风' }
+
+function GalaxyDialWindow({ label }: { label: string }) {
+  const glass = `dial-glass-${useId().replace(/:/g, '')}`
+  const labelTrack = `${glass}-label`
+  return <svg viewBox="0 0 200 200" aria-hidden="true">
+    <defs><linearGradient id={glass} x1="0" y1="0" x2=".3" y2="1">
+      <stop stopColor="#b6ba9855" /><stop offset=".38" stopColor="#a6b7a017" /><stop offset=".4" stopColor="#101b1510" /><stop offset="1" stopColor="#030704aa" />
+    </linearGradient><path id={labelTrack} d="M63.3 47.6 A64 64 0 0 1 136.7 47.6" /></defs>
+    <path className="galaxy-dial-bezel" d="M47.8 25.5 A91 91 0 0 1 152.2 25.5 L131.5 54.9 A55 55 0 0 0 68.5 54.9 Z" />
+    <path className="galaxy-dial-face" d="M52 26.3 A88 88 0 0 1 148 26.3 L130.5 51.8 A57 57 0 0 0 69.5 51.8 Z" />
+    {Array.from({ length: 11 }, (_, i) => {
+      const angle = (-120 + i * 6) * Math.PI / 180
+      return <line key={i} className={i % 5 === 0 ? 'galaxy-dial-tick major' : 'galaxy-dial-tick'}
+        x1={100 + Math.cos(angle) * 83} y1={100 + Math.sin(angle) * 83}
+        x2={100 + Math.cos(angle) * (i % 5 === 0 ? 79 : 81)} y2={100 + Math.sin(angle) * (i % 5 === 0 ? 79 : 81)} />
+    })}
+    <text textAnchor="middle"><textPath href={`#${labelTrack}`} startOffset="50%">{label}</textPath></text>
+    <path d="M52 26.3 A88 88 0 0 1 148 26.3 L130.5 51.8 A57 57 0 0 0 69.5 51.8 Z" fill={`url(#${glass})`} />
+    <path className="galaxy-dial-glint" d="M57 26 A85 85 0 0 1 140 23" />
+  </svg>
+}
 
 function Gauge({ label, value, state }: { label: string; value: number; state?: string }) {
   const angle = gaugeNeedleAngle(value)
@@ -148,7 +173,7 @@ export function CockpitShell(props: Props) {
     <div className="cockpit-viewport" inert={focused || undefined} aria-hidden={focused || undefined}>
       {props.scene}
       <div className="cockpit-window-nav">{props.windowNavigation}</div>
-      <WindowHud state={props.state} connected={props.connected !== false} signal={props.signal} heading={props.heading} telemetry={props.telemetry} flight={props.flight} />
+      <WindowHud state={props.state} connected={props.connected !== false} signal={props.signal} heading={props.heading} telemetry={props.telemetry} flight={props.flight} galaxyLabel={props.galaxyLabel} planetName={props.planetName} />
     </div>
     <div className="cockpit-pan-nav" hidden={focused} aria-label="控制台区域">
       {(['personal', 'exploration', 'controls'] as const).map((zone, i) => <button key={zone} aria-pressed={pan === zone} onClick={() => {
@@ -178,7 +203,6 @@ export function CockpitShell(props: Props) {
           <CaseDetails serial="TRANSMISSION / 02" />
           <button className="cockpit-monitor cockpit-exploration-monitor" aria-label="打开探索终端" disabled={traveling} onClick={event => open(activeExploration, event)}>
             <CrtScreen mini active={!focused} motion={!props.reducedMotion} enabled={props.crtEnabled}><span className="cockpit-monitor-content">{props.explorationPreview ?? <span className="cockpit-mini-caption">{signalNames[props.signal]}</span>}</span></CrtScreen>
-            <span className="cockpit-monitor-channel">{pageNames[activeExploration]}</span>
           </button>
           <div className="cockpit-keys">{explorationPages.map(([page, label]) => <button key={page} disabled={traveling} aria-pressed={focused && props.state.console.focus === 'exploration' && props.state.console.page === page} onClick={event => open(page, event)}>{label}</button>)}</div>
           <DeskSignals />
@@ -187,9 +211,15 @@ export function CockpitShell(props: Props) {
         <RetroRadio player={props.musicPlayer} />
         <section id="cockpit-controls" className="cockpit-wing cockpit-wing-right">
           <CaseDetails serial="NAVIGATION / 03" />
-          <button className="cockpit-hardware-label cockpit-galaxy-list-key" aria-label="查看 Galaxy 星球列表" disabled={traveling} onClick={event => open('galaxy', event)}>Galaxy 分类</button>
-          <div className="cockpit-knob" role="group" aria-label="Galaxy 分类旋钮" style={{ '--knob-angle': `${props.by === 'song' ? -55 : props.by === 'artist' ? 0 : 55}deg` } as CSSProperties}>
-            {(['song', 'artist', 'genre'] as const).map((by, i) => <button key={by} className={`cockpit-knob-label knob-${by}`} disabled={traveling || props.classifying} aria-pressed={props.by === by} onClick={() => props.onClassify(by)}>{['歌曲', '艺人', '曲风'][i]}</button>)}
+          <button className="cockpit-monitor cockpit-galaxy-display" aria-label="查看 Galaxy 星球列表" disabled={traveling} onClick={event => open('galaxy', event)}>
+            <CrtScreen mini active={!focused} motion={!props.reducedMotion} enabled={props.crtEnabled}>
+              <span className="cockpit-galaxy-readout" aria-live="polite">Galaxy 分类：{classificationNames[props.by]}</span>
+            </CrtScreen>
+          </button>
+          <div className="cockpit-galaxy-dial" role="group" aria-label="Galaxy 分类旋钮" aria-busy={props.classifying || undefined} style={{ '--knob-angle': `${props.by === 'song' ? -78 : props.by === 'artist' ? 0 : 78}deg` } as CSSProperties}>
+            {(['song', 'artist', 'genre'] as const).map((by, i) => <button key={by} className={`cockpit-galaxy-sector sector-${by}`} aria-label={by.toUpperCase()} title={classificationNames[by]} disabled={traveling || props.classifying} aria-pressed={props.by === by} onClick={() => props.onClassify(by)} style={{ '--sector-angle': `${(i - 1) * 78}deg` } as CSSProperties}>
+              <GalaxyDialWindow label={by.toUpperCase()} />
+            </button>)}
             <span className="cockpit-knob-body" aria-hidden="true"><i /></span>
           </div>
           <button className="cockpit-settings-key" aria-label="设置" disabled={traveling} onClick={event => open('settings', event)}>⚙ <span>设置</span></button>
@@ -203,11 +233,11 @@ export function CockpitShell(props: Props) {
       onKeyDown={trapFocus} onFocusCapture={event => setTyping(['INPUT', 'TEXTAREA'].includes(event.target.tagName))}
       onBlurCapture={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setTyping(false) }}>
       <header className="cockpit-terminal-header">
-        <nav aria-label={personal ? '个人频道' : '探索频道'}>{(personal ? personalPages : explorationPages).map(([page, label]) => <button key={page} aria-pressed={props.state.console.page === page} onClick={() => open(page)}>{label}</button>)}</nav>
+        {props.state.console.page !== 'settings' && <nav aria-label={personal ? '个人频道' : '探索频道'}>{(personal ? personalPages : explorationPages).map(([page, label]) => <button key={page} aria-pressed={props.state.console.page === page} onClick={() => open(page)}>{label}</button>)}</nav>}
         <i className="cockpit-lamp" data-lit="true" />
       </header>
       <div className="cockpit-terminal-glass"><CrtScreen active={focused} motion={!props.reducedMotion} enabled={props.crtEnabled}><div ref={content} className="cockpit-terminal-content">{props.children}</div></CrtScreen></div>
-      <footer className="cockpit-terminal-footer"><button aria-label="返回驾驶舱" onClick={props.onOverview}>← 返回驾驶舱</button>{props.state.history.length > 1 && <button onClick={props.onBack}>← 返回</button>}<span>{pageNames[props.state.console.page]} <small>匿名体验账号</small></span></footer>
+      <footer className="cockpit-terminal-footer"><button aria-label="返回驾驶舱" onClick={props.onOverview}>← 返回驾驶舱</button>{props.terminalActions}{props.state.history.length > 1 && <button onClick={props.onBack}>← 返回</button>}<span>{pageNames[props.state.console.page]} <small>匿名体验账号</small></span></footer>
     </div>
   </div>
 }

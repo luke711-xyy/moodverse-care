@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react'
 import type { GalaxyGroupBy } from '../../music-api'
 import type { CockpitFlight } from './flight'
 import type { CockpitState } from './state'
-import { gaugeNeedleAngle } from './instruments'
 import './window-hud.css'
 
 export type WindowTelemetry = {
@@ -22,6 +21,8 @@ type Props = {
   heading?: number
   telemetry?: WindowTelemetry
   flight?: CockpitFlight | null
+  galaxyLabel?: string
+  planetName?: string
 }
 type FlightLog = { key: string; time: string; text: string }
 const clock = (date: Date) => date.toLocaleTimeString('en-GB', { hour12: false })
@@ -31,7 +32,7 @@ const destinations = { home: 'MY PLANET', galaxy: 'GALAXY', visitor: 'VISITOR PL
 /** Read-only bridge instruments. Coordinates are virtual sector units, not
  * real-world coordinates; every count and flight percentage comes from the app.
  * History is bounded to this cockpit session, never sent to a server or stored. */
-export function WindowHud({ state, connected, signal, heading = 0, telemetry, flight }: Props) {
+export function WindowHud({ state, connected, signal, heading = 0, telemetry, flight, galaxyLabel, planetName }: Props) {
   const [now, setNow] = useState(() => new Date())
   const [logs, setLogs] = useState<FlightLog[]>([])
   const lastEvent = useRef('')
@@ -41,6 +42,8 @@ export function WindowHud({ state, connected, signal, heading = 0, telemetry, fl
   const traveling = Boolean(travel)
   const sector = telemetry?.sector
   const inGalaxy = state.exterior === 'galaxy'
+  const planetLocation = state.exterior === 'visitor' ? 'REMOTE' : 'LOCAL'
+  const title = inGalaxy ? galaxyLabel ?? sector?.label ?? '' : state.exterior === 'home' ? planetName ?? '我的星球' : telemetry?.visitor?.name ?? ''
   const location = inGalaxy ? sector?.label ?? 'GALAXY' : state.exterior === 'visitor' ? telemetry?.visitor?.name ?? 'VISITOR PLANET' : 'MY PLANET'
   const destination = flight ? telemetry?.targetName ?? destinations[flight.to] : travel ? destinations[travel.target] : location
   const percent = flight ? Math.floor(Math.max(0, Math.min(1, flight.progress)) * 100) : 0
@@ -71,8 +74,8 @@ export function WindowHud({ state, connected, signal, heading = 0, telemetry, fl
     previousFlight.current = flight ?? null
     setLogs(current => [...(changedAccount ? [] : current).slice(-4), { key: eventKey, time: clock(new Date()), text }])
   }, [eventKey, eventText, telemetry?.ownerId, traveling, state.exterior, flight?.token])
-  const orbit = telemetry?.orbitRotation
-  const yaw = orbit == null ? null : ((orbit * 180 / Math.PI) % 360 + 360) % 360
+  const angle = (Number.isFinite(heading) ? Math.max(0, Math.min(1, heading)) : 0) * 360
+  const needleAngle = angle
   const command = traveling ? `nebula --progress ${String(percent).padStart(3, '0')}%`
     : !connected ? 'link --connect' : signal === 'error' ? 'link --status degraded'
     : state.exterior === 'home' ? 'jump --galaxy' : 'jump --home'
@@ -87,10 +90,15 @@ export function WindowHud({ state, connected, signal, heading = 0, telemetry, fl
       <path d="M4 20h8m16 0h8M20 4v8m0 16v8" />
     </svg>
     <header className="window-hud-top">
+      <div className="window-hud-identity">
       <strong className="window-hud-brand">MOSIC</strong>
       <span className="window-hud-sector">{inGalaxy ? `SECTOR ${sector ? number(sector.index + 1) : '—'} / ${telemetry?.systemCount == null ? '—' : number(telemetry.systemCount)}` : destinations[state.exterior]}</span>
+      </div>
+      <span className="window-hud-galaxy" aria-label={inGalaxy ? '当前星系' : '当前星球'} title={title}>{title}</span>
+      <div className="window-hud-status">
       <span className="window-hud-link" aria-live="polite"><i aria-hidden="true" />{link}</span>
       <time className="window-hud-clock" dateTime={now.toISOString()} aria-label="当前本地时间">{clock(now)}<small>LT</small></time>
+      </div>
     </header>
     <aside className="window-hud-navigation" aria-label="导航遥测">
       <div className="window-hud-instrument-label">NAV / SECTOR MAP</div>
@@ -98,15 +106,15 @@ export function WindowHud({ state, connected, signal, heading = 0, telemetry, fl
         <circle cx="60" cy="48" r="37" /><circle cx="60" cy="48" r="27" />
         <path d="M16 48h88M60 4v88" />
         {Array.from({length:12},(_,i) => <path key={i} d="M60 8v5" transform={`rotate(${i*30} 60 48)`} />)}
-        <g className="window-hud-needle instrument-needle" style={{ transform: `rotate(${gaugeNeedleAngle(heading)}deg)` }}><path className="window-hud-course" d="M60 16 64 48 60 55 56 48Z" /><circle cx="60" cy="48" r="3" /></g>
-        <text x="60" y="99" textAnchor="middle">{inGalaxy ? 'SECTOR VECTOR' : 'LOCAL LOCK'}</text>
+        <g className="window-hud-needle instrument-needle" style={{ transform: `rotate(${needleAngle}deg)` }}><path className="window-hud-course" d="M60 16 64 48 60 55 56 48Z" /><circle cx="60" cy="48" r="3" /></g>
+        <text x="60" y="99" textAnchor="middle">{inGalaxy ? 'SECTOR VECTOR' : `${planetLocation} LOCK`}</text>
       </svg>
       <dl>
-        <div><dt>COORD / X</dt><dd>{inGalaxy && telemetry ? telemetry.sectorPosition.toFixed(3).padStart(7,'0') : 'LOCAL'}</dd></div>
-        <div><dt>ORBIT / θ</dt><dd>{yaw == null ? '—' : `${yaw.toFixed(1)}°`}</dd></div>
+        <div><dt>COORD / X</dt><dd>{inGalaxy ? telemetry ? telemetry.sectorPosition.toFixed(3).padStart(7,'0') : '—' : planetLocation}</dd></div>
+        <div><dt>ANGLE / θ</dt><dd>{inGalaxy ? `${angle.toFixed(1)}°` : planetLocation}</dd></div>
         <div><dt>PLANETS</dt><dd>{inGalaxy ? sector ? `${number(sector.visiblePlanets)} / ${number(sector.totalPlanets)}` : '—' : connected ? '01' : '—'}</dd></div>
       </dl>
-      <small className="window-hud-count-note">{inGalaxy ? 'VISIBLE / IN SECTOR' : 'LOCAL PLANET'}</small>
+      <small className="window-hud-count-note">{inGalaxy ? 'VISIBLE / IN SECTOR' : `${planetLocation} PLANET`}</small>
       <div className="window-hud-grouping">{inGalaxy ? `MAP BY ${telemetry?.grouping.toUpperCase() ?? 'GENRE'}` : state.exterior === 'visitor' ? 'VISITOR ORBIT' : 'HOME ORBIT'}</div>
     </aside>
     <aside className="window-hud-terminal" aria-label="航行日志">

@@ -1,6 +1,7 @@
 import { pairIsBlocked, isSocialRecord, socialResponse } from './_music-social'
 import { safeHttpsUrl, type Env } from './_shared'
 import { isManagedMomentPhoto } from '../src/music/moment-photo'
+import { catalogTrack, CATALOG_VISUAL_COLUMNS, type CatalogTrackRow } from './_music-dither'
 
 const MAX_BOTTLE_TEXT = 500
 const MAX_BOTTLE_COMMENTS_PER_MINUTE = 30
@@ -565,24 +566,18 @@ async function accessIsAllowed(env: Env, bottle: BottleRow, userId: string, deli
 async function detailsForRecipient(env: Env, bottle: BottleRow, delivery: DeliveryRow, viewerId: string) {
   let topic: Record<string, unknown>
   if (bottle.topic_type === 'song') {
-    const trackRow = await env.DB.prepare(`SELECT id, title, artist_name, official_url, cover_url, version_label FROM music_track_catalog WHERE id = ?1`)
-      .bind(bottle.track_id).first<Record<string, unknown>>()
-    topic = { type: 'song', track: trackRow ? {
-      id: trackRow.id, title: trackRow.title, artistName: trackRow.artist_name,
-      officialUrl: trackRow.official_url, coverUrl: trackRow.cover_url, versionLabel: trackRow.version_label,
-    } : null }
+    const trackRow = await env.DB.prepare(`SELECT ${CATALOG_VISUAL_COLUMNS} FROM music_track_catalog c WHERE c.id = ?1`)
+      .bind(bottle.track_id).first<CatalogTrackRow>()
+    topic = { type: 'song', track: trackRow ? catalogTrack(trackRow) : null }
   } else if (bottle.topic_type === 'info') {
     topic = { type: 'info', title: bottle.info_title, url: bottle.info_url, summary: bottle.info_summary }
   } else {
     const moment = await env.DB.prepare(`
-      SELECT m.id, m.content_text, m.photo_url, c.id AS track_id, c.title AS track_title, c.artist_name, c.official_url, c.cover_url
+      SELECT m.content_text, m.photo_url, ${CATALOG_VISUAL_COLUMNS}
       FROM music_moments m JOIN music_planets p ON p.id = m.planet_id JOIN music_track_catalog c ON c.id = m.track_id
       WHERE m.id = ?1 AND p.owner_user_id = ?2 AND m.visibility = 'public' AND m.published_at IS NOT NULL
-    `).bind(bottle.moment_id, bottle.sender_user_id).first<Record<string, unknown>>()
-    topic = { type: 'moment', momentId: bottle.moment_id, contentText: moment?.content_text ?? '', photoUrl: isManagedMomentPhoto(moment?.photo_url) ? moment.photo_url : safeHttpsUrl(moment?.photo_url), track: moment ? {
-      id: moment.track_id, title: moment.track_title, artistName: moment.artist_name,
-      officialUrl: moment.official_url, coverUrl: moment.cover_url,
-    } : null }
+    `).bind(bottle.moment_id, bottle.sender_user_id).first<CatalogTrackRow & { content_text: string; photo_url: string | null }>()
+    topic = { type: 'moment', momentId: bottle.moment_id, contentText: moment?.content_text ?? '', photoUrl: isManagedMomentPhoto(moment?.photo_url) ? moment.photo_url : safeHttpsUrl(moment?.photo_url), track: moment ? catalogTrack(moment) : null }
   }
   const sender = await env.DB.prepare(`
     SELECT p.id AS planet_id, p.display_name, p.tagline FROM music_planets p

@@ -18,14 +18,19 @@ uniform vec4 uStyle; // form, motif, threshold, pointer strength
 uniform vec4 uField; // scale, warp, density, pulse
 uniform vec4 uTone; // exposure, contrast, gamma, glow
 uniform vec3 uPalette;
+uniform sampler2D uAlbum;
+uniform float uHasAlbum;
 uniform vec2 uPointer;
 uniform float uPhase;
 uniform float uSeed;
 uniform float uRotation;
+uniform vec4 uOrientation;
 uniform float uGrid;
+uniform float uDetail;
 uniform float uOpacity;
 uniform float uMaskOnly;
 uniform float uBackdrop;
+uniform vec3 uBackdropView;
 uniform int uKind;
 float hashAt(vec2 p,float seed){return fract(sin(dot(p,vec2(127.1,311.7))+seed*.013)*43758.5453);}
 float hash(vec2 p){return hashAt(p,uSeed);}
@@ -34,24 +39,31 @@ float noiseAt(vec2 p,float seed){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
 float noise(vec2 p){return noiseAt(p,uSeed);}
 float fbm(vec2 p){float n=0.,a=.5;for(int i=0;i<4;i++){n+=noiseAt(p,uSeed+float(i)*17.)*a;p=p*2.02+vec2(3.4,4.1);a*=.5;}return n;}
 float line(vec2 p,vec2 a,vec2 b){vec2 d=b-a;return length(p-a-d*clamp(dot(p-a,d)/dot(d,d),0.,1.));}
-// Orthographic ellipsoid projection, with rim detail fixed in body coordinates.
+vec3 viewToBody(vec3 p){
+ vec3 q=-uOrientation.xyz,t=2.*cross(q,p);
+ return p+uOrientation.w*t+cross(q,t);
+}
+// Near-spherical projection; match sphere.ts for previews and hit testing.
 float bodyRadius(float form,float angle,float phase,float pulse){
  float c=cos(phase),s=sin(phase),x=cos(angle),y=sin(angle);
- float zAxis=form<.5?.78:form<1.5?.88:form<2.5?.83:.9;
- float width=sqrt(c*c+zAxis*zAxis*s*s);
- float radius=(.85+sin(phase)*pulse*.035)/length(vec2(x/width,y));
- float rayA=s*s+c*c/(zAxis*zAxis),rayB=x*c*s*(1.-1./(zAxis*zAxis));
- float tangentZ=-rayB/rayA;vec3 body=vec3(x*c+tangentZ*s,y,(-x*s+tangentZ*c)/zAxis);
+ float zAxis=form<.5?.97:form<1.5?.985:form<2.5?.98:.99;
+ vec3 a=viewToBody(vec3(x,y,0.)),b=viewToBody(vec3(0.,0.,1.));
+ a=vec3(a.x*c+a.z*s,a.y,(-a.x*s+a.z*c)/zAxis);
+ b=vec3(b.x*c+b.z*s,b.y,(-b.x*s+b.z*c)/zAxis);
+ float rayA=dot(b,b),rayB=dot(a,b),rayC=dot(a,a);
+ float radius=(.85+sin(phase)*pulse*.035)/sqrt(max(.00000001,rayC-rayB*rayB/rayA));
+ float tangentZ=-rayB/rayA;vec3 body=a+tangentZ*b;
  float bodyAngle=atan(body.y,body.x),weight=length(body.xy)/length(body);
- if(form<.5)radius+=(.055*sin(bodyAngle*3.)+.035*cos(bodyAngle*7.))*weight;
- else if(form>1.5&&form<2.5)radius+=.04*cos(bodyAngle*8.)*weight;
+ if(form<.5)radius+=(.018*sin(bodyAngle*3.)+.01*cos(bodyAngle*7.))*weight;
+ else if(form>1.5&&form<2.5)radius+=.018*cos(bodyAngle*8.)*weight;
  return radius;
 }
 // Match sphere.ts: view-space light, rotating surface-space texture, no seam.
 vec4 sphereSurface(vec2 p,float radius,float phase){
  vec2 n=p/max(radius,length(p));float z=sqrt(max(0.,1.-dot(n,n)));
- float c=cos(phase),s=sin(phase),sx=n.x*c+z*s,sz=-n.x*s+z*c;
- float sy=n.y*cos(.22)-sz*sin(.22);
+ vec3 body=viewToBody(vec3(n,z));
+ float c=cos(phase),s=sin(phase),sx=body.x*c+body.z*s,sz=-body.x*s+body.z*c;
+ float sy=body.y*cos(.22)-sz*sin(.22);
  vec2 lit=mat2(cos(uRotation),sin(uRotation),-sin(uRotation),cos(uRotation))*n;
  float diffuse=max(0.,dot(vec3(lit,z),vec3(-.46,-.48,.74)));
  float highlight=pow(max(0.,dot(vec3(lit,z),vec3(-.29,-.3,.91))),24.)*.2;
@@ -70,7 +82,8 @@ void main(){
  if(uBackdrop>0.){
   // Live domain-warped field. Time and a local pointer vortex affect the field
   // BEFORE tone quantization; the pixel grid itself stays crisp and stable.
-  vec2 cells=floor((vAsset+1.2)*uGrid);
+  vec2 sky=(vAsset-uBackdropView.xy)/uBackdropView.z;
+  vec2 cells=floor((sky+1.2)*uGrid);
   vec2 p=(cells+.5)/uGrid-1.2;
   vec2 d=p-uPointer;
   float influence=exp(-dot(d,d)*8.)*uStyle.w;
@@ -85,7 +98,7 @@ void main(){
   float hue=clamp(haze+.22*sin(flow.y*2.+t),0.,1.);
   vec3 color=mix(vec3(.424,.616,1.),vec3(.557,.42,1.),smoothstep(.15,.7,hue));
   color=mix(color,vec3(.949,.475,.773),smoothstep(.65,1.,hue)*.6);
-  fragColor=vec4(color,q*.22*uOpacity);return;
+  fragColor=vec4(color,q*.34*uOpacity);return;
  }
 #ifdef DITHER_POINTS
  if(vPointOpacity<=0.)discard;
@@ -105,7 +118,7 @@ void main(){
  if(uStyle.w>0.){vec2 delta=coord-uPointer;coord+=delta*exp(-dot(delta,delta)*6.)*uStyle.w;}
  float ct=cos(uRotation),st=sin(uRotation);coord=mat2(ct,-st,st,ct)*coord;
  vec2 cells=floor((coord+1.2)*uGrid);
- vec2 uv=(cells+.5)/uGrid-1.2;
+ vec2 uv=mix((cells+.5)/uGrid-1.2,coord,uDetail);
  float screenR=length(uv),screenAngle=atan(uv.y,uv.x),t=uPhase;
  float radius=.85+sin(t)*uField.w*.035;
  if(uStyle.x<.5)radius+=.055*sin(screenAngle*3.+t)+.035*cos(screenAngle*7.-t*2.);
@@ -115,12 +128,26 @@ void main(){
  float alpha=1.-smoothstep(radius-.015,radius+.025,screenR);
  float halo=exp(-max(0.,screenR-radius)*22.)*uTone.w*.16;
  alpha=max(alpha,screenR<1.15?halo:0.);
-#ifndef DITHER_CELLS
- if(uMaskOnly>0.){if(alpha<.36)discard;fragColor=vec4(0);return;}
+ if(uMaskOnly>0.){
+  float coverage=alpha*uOpacity;
+#ifdef DITHER_CELLS
+  coverage*=vPointOpacity;
 #endif
+  if(coverage<.36)discard;fragColor=vec4(0);return;
+ }
  if(alpha<.008)discard;
  vec4 surface=spherical?sphereSurface(uv,radius,t):vec4(uv,1.,0.);
  vec2 textureUV=surface.xy;
+ if(uHasAlbum>.5&&(uKind==0||uKind==4)){
+  vec3 color=texture(uAlbum,clamp(textureUV*.5+.5,0.,1.)).rgb*surface.z+vec3(surface.w);
+  color=clamp((pow(clamp(color,0.,1.),vec3(uTone.z))-.5)*uTone.y+.5,0.,1.);
+  color=clamp(color*uTone.x,0.,1.);
+  color=mix(floor(color*16.+threshold(cells))/16.,color,uDetail);
+#ifdef DITHER_CELLS
+  alpha*=vPointOpacity;
+#endif
+  fragColor=vec4(color,clamp(alpha*uOpacity,0.,1.));return;
+ }
  float r=length(textureUV),ang=atan(textureUV.y,textureUV.x);
  float warp=fbm(textureUV*3.+vec2(cos(t),sin(t))*.4)-.5;
  vec2 w=textureUV+warp*uField.y*vec2(.35,.25);
@@ -151,7 +178,7 @@ void main(){
  if(spherical)tone=(.22+.78*tone)*surface.z+surface.w;
  tone=clamp((pow(clamp(tone,0.,1.),uTone.z)-.5)*uTone.y+.5,0.,1.);
  tone=clamp(tone*uTone.x,0.,1.);
- float q=floor(tone*4.+threshold(cells))/4.;
+ float q=mix(floor(tone*4.+threshold(cells))/4.,tone,uDetail);
  float hue=.5+.5*sin(ang+warp*3.+sin(t));
  vec3 weights=uPalette*vec3(.05+2.*pow(1.-hue,2.),.25+.5*(1.-abs(.5-hue)*2.),.05+2.*hue*hue);weights/=dot(weights,vec3(1));
  vec3 color=vec3(.424,.616,1.)*weights.x+vec3(.557,.42,1.)*weights.y+vec3(.949,.475,.773)*weights.z;

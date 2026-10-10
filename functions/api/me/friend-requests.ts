@@ -1,59 +1,20 @@
 import { authenticatedMusicUser, json, type Env } from '../../_shared'
 import { isSocialRecord, pairIsBlocked, pairIsFriends, socialResponse } from '../../_music-social'
-
-type RequestRow = {
-  id: string
-  user_id: string
-  planet_id: string | null
-  display_name: string
-  tagline: string
-  status: 'pending' | 'rejected'
-  created_at: string
-}
-
-async function requestsFor(env: Env, userId: string) {
-  const [incoming, outgoing] = await Promise.all([
-    env.DB.prepare(`
-      SELECT r.id, r.requester_user_id AS user_id,
-             p.id AS planet_id,
-             CASE WHEN p.id IS NULL THEN '星球暂不可见' ELSE p.display_name END AS display_name,
-             CASE WHEN p.id IS NULL THEN '' ELSE p.tagline END AS tagline,
-             r.status, r.created_at
-      FROM music_friend_requests r
-      LEFT JOIN music_planets p ON p.owner_user_id = r.requester_user_id AND p.visibility = 'public'
-      WHERE r.recipient_user_id = ?1 AND r.status = 'pending'
-      ORDER BY r.created_at DESC, r.id DESC
-      LIMIT 50
-    `).bind(userId).all<RequestRow>(),
-    env.DB.prepare(`
-      SELECT r.id, r.recipient_user_id AS user_id,
-             p.id AS planet_id,
-             CASE WHEN p.id IS NULL THEN '星球暂不可见' ELSE p.display_name END AS display_name,
-             CASE WHEN p.id IS NULL THEN '' ELSE p.tagline END AS tagline,
-             r.status, r.created_at
-      FROM music_friend_requests r
-      LEFT JOIN music_planets p ON p.id = r.planet_id AND p.visibility = 'public'
-      WHERE r.requester_user_id = ?1 AND r.status IN ('pending', 'rejected')
-      ORDER BY r.created_at DESC, r.id DESC
-      LIMIT 50
-    `).bind(userId).all<RequestRow>(),
-  ])
-  const map = (row: RequestRow) => ({
-    id: row.id,
-    userId: row.user_id,
-    planetId: row.planet_id,
-    displayName: row.display_name,
-    tagline: row.tagline,
-    status: row.status,
-    createdAt: row.created_at,
-  })
-  return { incoming: incoming.results.map(map), outgoing: outgoing.results.map(map) }
-}
+import { musicSocialStream, readMusicSocialState } from '../../_music-social-state'
+import { autoAcceptDemoRequest } from '../../_music-demo-social'
 
 export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   const identity = await authenticatedMusicUser(request, env)
   if (!identity) return socialResponse({ error: 'UNAUTHENTICATED' }, 401)
-  return socialResponse(await requestsFor(env, identity.userId))
+  const url = new URL(request.url)
+  const origin = request.headers.get('origin')
+  if ((origin && origin !== url.origin) || request.headers.get('sec-fetch-site') === 'cross-site') {
+    return socialResponse({ error: 'FORBIDDEN' }, 403)
+  }
+  const snapshot = await readMusicSocialState(env, identity.userId)
+  if (url.searchParams.get('stream') === '1') return musicSocialStream(request, env, identity.userId, snapshot)
+  if (url.searchParams.get('live') === '1') return socialResponse(snapshot)
+  return socialResponse({ incoming: snapshot.incoming, outgoing: snapshot.outgoing })
 }
 
 export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
@@ -105,5 +66,6 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     WHERE music_friend_requests.status IN ('accepted', 'cancelled')
   `).bind(requestId, identity.userId, planetId, now).run()
   if (!inserted.meta.changes) return socialResponse({ error: 'REQUEST_NOT_AVAILABLE' }, 409)
-  return socialResponse({ request: { id: requestId, status: 'pending', planetId } }, 201)
+  const accepted = await autoAcceptDemoRequest(env, requestId, now)
+  return socialResponse({ request: { id: requestId, status: accepted ? 'accepted' : 'pending', planetId } }, 201)
 }

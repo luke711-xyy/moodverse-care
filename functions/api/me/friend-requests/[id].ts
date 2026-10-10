@@ -1,23 +1,31 @@
 import { authenticatedMusicUser, json, type Env } from '../../../_shared'
-import { isSocialRecord, normalizedPair, pairIsBlocked, socialResponse } from '../../../_music-social'
-
-type Action = 'accept' | 'reject'
+import { decodeSocialRouteId, isSocialRecord, normalizedPair, pairIsBlocked, pairIsFriends, socialResponse } from '../../../_music-social'
+import { demoGreetingStatements } from '../../../_music-demo-social'
 
 export const onRequestPatch: PagesFunction<Env> = async ({ request, env, params }) => {
   const identity = await authenticatedMusicUser(request, env)
   if (!identity) return socialResponse({ error: 'UNAUTHENTICATED' }, 401)
-  const requestId = typeof params?.id === 'string' ? params.id.trim() : ''
+  const requestId = decodeSocialRouteId(params?.id)
   const payload = await json<unknown>(request)
   const action = isSocialRecord(payload) && Object.keys(payload).length === 1 ? payload.action : undefined
-  if (!requestId || requestId.length > 128 || (action !== 'accept' && action !== 'reject')) {
+  if (!requestId || (action !== 'accept' && action !== 'reject')) {
     return socialResponse({ error: 'INVALID_FRIEND_REQUEST' }, 400)
   }
 
   const pending = await env.DB.prepare(`
-    SELECT requester_user_id FROM music_friend_requests
-    WHERE id = ?1 AND recipient_user_id = ?2 AND status = 'pending'
-  `).bind(requestId, identity.userId).first<{ requester_user_id: string }>()
+    SELECT requester_user_id, status FROM music_friend_requests
+    WHERE id = ?1 AND recipient_user_id = ?2
+  `).bind(requestId, identity.userId).first<{ requester_user_id: string; status: string }>()
   if (!pending) return socialResponse({ error: 'FRIEND_REQUEST_NOT_FOUND' }, 404)
+  if (pending.status !== 'pending') {
+    if (action === 'accept' && pending.status === 'accepted'
+      && await pairIsFriends(env, identity.userId, pending.requester_user_id)
+      && !await pairIsBlocked(env, identity.userId, pending.requester_user_id)) {
+      return socialResponse({ requestId, status: 'accepted' })
+    }
+    if (action === 'reject' && pending.status === 'rejected') return socialResponse({ requestId, status: 'rejected' })
+    return socialResponse({ error: 'FRIEND_REQUEST_NOT_FOUND' }, 404)
+  }
   if (action === 'reject') {
     const now = new Date().toISOString()
     const result = await env.DB.prepare(`
@@ -52,9 +60,10 @@ export const onRequestPatch: PagesFunction<Env> = async ({ request, env, params 
     `).bind(requestId, identity.userId, now, userA, userB),
     env.DB.prepare(`
       UPDATE music_friend_requests SET status = 'accepted', updated_at = ?3, responded_at = ?3
-      WHERE requester_user_id = ?2 AND recipient_user_id = ?1 AND status = 'pending'
+      WHERE requester_user_id = ?1 AND recipient_user_id = ?2 AND status = 'pending'
         AND EXISTS (SELECT 1 FROM music_friendships WHERE user_a_id = ?4 AND user_b_id = ?5)
     `).bind(identity.userId, pending.requester_user_id, now, userA, userB),
+    ...demoGreetingStatements(env, pending.requester_user_id, identity.userId, requestId, now),
   ])
   const friends = await env.DB.prepare(`
     SELECT 1 AS friends FROM music_friendships WHERE user_a_id = ?1 AND user_b_id = ?2

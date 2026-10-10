@@ -7,6 +7,16 @@ const song = (id: string, genres: string[] = [], extras: Partial<MusicTrackSumma
 })
 
 describe('deterministic dither appearance', () => {
+  test('album texture follows a selected song and clears when that song is removed', () => {
+    const tracks = [song('a', [], { coverUrl: 'https://example.com/album.jpg' }), song('b')]
+    const spec = createDitherSpec({ planetId: 'cover', tracks, overrides: { coverTrackId: 'a' } })
+    expect(spec.coverTexture).toEqual({ trackId: 'a', url: 'https://example.com/album.jpg' })
+    expect(isDitherSpec(spec)).toBe(true)
+    expect(createDitherSpec({ planetId: 'cover', tracks, previous: spec }).coverTexture).toEqual(spec.coverTexture)
+    const removed = createDitherSpec({ planetId: 'cover', tracks: [song('b')], previous: spec })
+    expect(removed.coverTexture).toBeUndefined()
+    expect(removed.overrides.coverTrackId).toBeUndefined()
+  })
   test('same stable identity and songs yields the same spec, not new random assets', () => {
     const input = { planetId: 'p-1', tracks: [song('a', ['ambient']), song('b', ['piano'])] }
     expect(createDitherSpec(input)).toEqual(createDitherSpec(input))

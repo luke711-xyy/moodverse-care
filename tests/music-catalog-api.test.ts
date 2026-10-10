@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test } from 'vitest'
+import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { onRequestGet } from '../functions/api/music/catalog'
 import {
   createMusicApiEnv,
@@ -12,12 +12,23 @@ beforeEach(() => {
   fixture = createMusicApiFixture()
 })
 
-afterEach(() => fixture.close())
+afterEach(() => { fixture.close(); vi.unstubAllGlobals() })
 
 async function getCatalog(query = '') {
   const request = new Request(`https://moodverse.test/api/music/catalog${query ? `?q=${encodeURIComponent(query)}` : ''}`)
   return onRequestGet({ request, env: createMusicApiEnv(fixture.db) } as never)
 }
+
+test('local catalog provides a next cursor and reaches entries beyond the first fifty', async () => {
+  for (let i = 0; i < 52; i++) insertCatalogTrack(fixture.sqlite, { id: `page-${i}`, title: `曲目 ${String(i).padStart(2, '0')}` })
+  const first = await (await getCatalog()).json() as any
+  expect(first.tracks).toHaveLength(50)
+  expect(first.nextOffset).toBe(50)
+  expect(first.hasMore).toBe(true)
+  const second = await (await onRequestGet({ request: new Request('https://moodverse.test/api/music/catalog?offset=50'), env: createMusicApiEnv(fixture.db) } as never)).json() as any
+  expect(second.tracks.map((t: any) => t.id)).toEqual(['page-50', 'page-51'])
+  expect(second.hasMore).toBe(false)
+})
 
 test('catalog returns only active tracks and maps safe music metadata without writing', async () => {
   insertCatalogTrack(fixture.sqlite, { id: 'track-live', title: 'The 100% Real Song', artistName: 'A_Artist' })
@@ -79,7 +90,7 @@ test('catalog omits HTTPS URLs containing embedded credentials', async () => {
   expect(result.tracks[0]).toMatchObject({ officialUrl: null, coverUrl: null })
 })
 
-test('catalog marks fictional staging tracks and never exposes a fake playback URL', async () => {
+test('catalog excludes fictional staging tracks from selectable music', async () => {
   insertCatalogTrack(fixture.sqlite, { id: 'demo:shoreline', title: '沿海线', artistName: '雾中航线' })
   fixture.sqlite.prepare(`
     UPDATE music_track_catalog
@@ -90,15 +101,29 @@ test('catalog marks fictional staging tracks and never exposes a fake playback U
   const response = await getCatalog()
   const result = await response.json() as { tracks: Array<Record<string, unknown>> }
 
-  expect(result.tracks).toEqual([expect.objectContaining({
-    id: 'demo:shoreline',
-    title: '沿海线',
-    artistName: '雾中航线',
-    isDemo: true,
-    officialUrl: null,
-  })])
-  expect(result.tracks[0]).not.toHaveProperty('provider')
-  expect(result.tracks[0]).not.toHaveProperty('providerTrackId')
+  expect(result.tracks).toEqual([])
+})
+
+test('Audius search persists canonical playable tracks, rejects gated tracks and never exposes the API key', async () => {
+  vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
+    const url = new URL(String(input))
+    expect(url.origin).toBe('https://api.audius.co')
+    expect(url.searchParams.get('query')).toBe('night')
+    expect(url.searchParams.get('api_key')).toBe('test-key')
+    return Response.json({ data: [
+      { id: 'Ab123', title: 'Night Drive', user: { id: 'Us3r', name: 'Real Artist' }, genre: 'Rock', mood: 'Upbeat', bpm: 128,
+        duration: 185, permalink: '/real-artist/night-drive', artwork: { '480x480': 'https://content.audius.co/cover.jpg' }, is_streamable: true },
+      { id: 'Gate1', title: 'Paid', user: { id: 'Usr', name: 'Artist' }, is_stream_gated: true, is_streamable: true },
+    ] })
+  })
+  const response = await onRequestGet({ request: new Request('https://moodverse.test/api/music/catalog?q=night'),
+    env: createMusicApiEnv(fixture.db, { AUDIUS_API_KEY: 'test-key' }) } as never)
+  const body = await response.json() as any
+  expect(body.tracks).toHaveLength(1)
+  expect(body.tracks[0]).toMatchObject({ id: 'audius:Ab123', title: 'Night Drive', artistId: 'audius:Us3r', artistName: 'Real Artist',
+    audioUrl: '/api/music/tracks/audius%3AAb123/stream', visualFeatures: { source: 'audius', tempoBpm: 128 } })
+  expect(JSON.stringify(body)).not.toContain('test-key')
+  expect(fixture.sqlite.prepare("SELECT provider, provider_track_id FROM music_track_catalog WHERE id='audius:Ab123'").get()).toMatchObject({ provider: 'audius', provider_track_id: 'Ab123' })
 })
 
 test('catalog exposes only bounded features with provenance, missing tempo stays missing', async () => {

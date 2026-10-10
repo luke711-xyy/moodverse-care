@@ -71,6 +71,24 @@ async function createPlanet(body: unknown, subject = 'owner-subject-1') {
   return { response, body: await response.json() as Record<string, any> }
 }
 
+test('new planet creation atomically enrolls two delayed demo invitations and GET or edits do not enroll again', async () => {
+  const now = '2026-10-10T00:00:00.000Z'
+  for (const id of ['demo:one', 'demo:two', 'demo:three']) {
+    fixture.sqlite.prepare('INSERT INTO users (id, token_hash, created_at, updated_at) VALUES (?, ?, ?, ?)').run(id, `demo-disabled:${id}`, now, now)
+    fixture.sqlite.prepare("INSERT INTO music_planets (id, owner_user_id, display_name, tagline, visibility, created_at, updated_at) VALUES (?, ?, ?, '', 'public', ?, ?)").run(`p:${id}`, id, id, now, now)
+    fixture.sqlite.prepare('INSERT INTO music_demo_actors (user_id, identity_marker, greeting) VALUES (?, ?, ?)').run(id, `demo-disabled:${id}`, '你好。')
+  }
+  const enabled = { MUSIC_DEMO_SOCIAL_ENABLED: 'true' }
+  await call(onRequestGet, 'GET', undefined, 'new-owner', enabled)
+  expect(fixture.sqlite.prepare('SELECT count(*) AS n FROM music_demo_welcome_jobs').get()).toEqual({ n: 0 })
+  const created = await call(onRequestPost, 'POST', { displayName: '新星球', trackIds: ['track-a', 'track-b', 'track-c'] }, 'new-owner', enabled)
+  expect(created.status).toBe(201)
+  expect(fixture.sqlite.prepare('SELECT count(*) AS n FROM music_demo_welcome_jobs').get()).toEqual({ n: 2 })
+  await call(onRequestGet, 'GET', undefined, 'new-owner', enabled)
+  await call(onRequestPatch, 'PATCH', { tagline: '更新' }, 'new-owner', enabled)
+  expect(fixture.sqlite.prepare('SELECT count(*) AS n FROM music_demo_welcome_jobs').get()).toEqual({ n: 2 })
+})
+
 test('music planet GET requires verified Access identity and returns an empty owner state', async () => {
   const missingAuth = await onRequestGet({
     request: new Request('https://moodverse.test/api/me/music-planet'), env: env(),
@@ -81,11 +99,9 @@ test('music planet GET requires verified Access identity and returns an empty ow
   expect(response.status).toBe(200)
   expect(body.planet).toBeNull()
   expect(body.isDemoAccount).toBe(false)
-  expect(body.friendSatellites).toHaveLength(3)
-  expect(body.friendSatellites.map((friend) => friend.displayName)).toEqual(['小满', '星野', '阿澄'])
-  expect(body.friendSatellites.every((friend) => friend.isVirtual && friend.canRemove)).toBe(true)
+  expect(body.friendSatellites).toEqual([])
   expect(fixture.sqlite.prepare('SELECT count(*) AS count FROM music_planets').get()).toEqual({ count: 0 })
-  expect(fixture.sqlite.prepare('SELECT count(*) AS count FROM music_friend_satellites').get()).toEqual({ count: 3 })
+  expect(fixture.sqlite.prepare('SELECT count(*) AS count FROM music_friend_satellites').get()).toEqual({ count: 0 })
 })
 
 test('default anonymous sessions persist in an HttpOnly device cookie', async () => {
@@ -97,7 +113,7 @@ test('default anonymous sessions persist in an HttpOnly device cookie', async ()
   const cookie = first.headers.get('set-cookie')
   expect(cookie).toMatch(/^mv_session=.*; Path=\/; Max-Age=31536000; HttpOnly; Secure; SameSite=Lax$/)
   const firstBody = await first.json() as { friendSatellites: Array<{ id: string }> }
-  expect(firstBody.friendSatellites).toHaveLength(3)
+  expect(firstBody.friendSatellites).toEqual([])
   const firstUser = fixture.sqlite.prepare('SELECT id FROM users').get() as { id: string }
 
   const returningDevice = await onRequestGet({
@@ -110,14 +126,14 @@ test('default anonymous sessions persist in an HttpOnly device cookie', async ()
   expect(returningBody.friendSatellites.map((friend) => friend.id)).toEqual(firstBody.friendSatellites.map((friend) => friend.id))
   expect(fixture.sqlite.prepare('SELECT count(*) AS count FROM users').get()).toEqual({ count: 1 })
   expect(fixture.sqlite.prepare('SELECT id FROM users').get()).toEqual(firstUser)
-  expect(fixture.sqlite.prepare('SELECT count(*) AS count FROM music_friend_satellites').get()).toEqual({ count: 3 })
+  expect(fixture.sqlite.prepare('SELECT count(*) AS count FROM music_friend_satellites').get()).toEqual({ count: 0 })
 
   const anotherDevice = await onRequestGet({
     request: new Request('https://moodverse.test/api/me/music-planet'), env: anonymousEnv,
   } as never)
   expect(anotherDevice.headers.get('set-cookie')).toMatch(/^mv_session=/)
   expect(fixture.sqlite.prepare('SELECT count(*) AS count FROM users').get()).toEqual({ count: 2 })
-  expect(fixture.sqlite.prepare('SELECT count(*) AS count FROM music_friend_satellites').get()).toEqual({ count: 6 })
+  expect(fixture.sqlite.prepare('SELECT count(*) AS count FROM music_friend_satellites').get()).toEqual({ count: 0 })
 })
 
 test('official music sessions preserve the legacy cookie and resume their own namespace', async () => {
@@ -271,6 +287,21 @@ test('changing selected tracks immediately saves deterministic appearance withou
   expect(pending).toHaveLength(0)
   expect((await updated.json() as any).planet.visual.schemaVersion).toBe(3)
   expect(fixture.sqlite.prepare(`SELECT count(*) AS count FROM music_ai_tasks WHERE kind = 'planet_composer'`).get()).toEqual({ count: 0 })
+})
+
+test('album texture persists on owner and public views, rejects unselected songs, and clears on removal', async () => {
+  fixture.sqlite.prepare('UPDATE music_track_catalog SET cover_url=? WHERE id=?').run('https://example.com/album.jpg', 'track-b')
+  const created = await createPlanet({ displayName: '封面星球', trackIds: ['track-a', 'track-b', 'track-c'] })
+  const edit = await call(onRequestPatch, 'PATCH', { appearanceOverrides: { coverTrackId: 'track-b' } })
+  expect(edit.status).toBe(200)
+  expect((await readPlanet()).body.planet?.visual.coverTexture).toEqual({ trackId: 'track-b', url: 'https://example.com/album.jpg' })
+  expect((await readPublicPlanet(env(), created.body.planet.id))?.visual).toEqual((await readPlanet()).body.planet?.visual)
+  for (const coverTrackId of ['track-d', 'track-a', 'https://evil.test/image']) {
+    expect((await call(onRequestPatch, 'PATCH', { appearanceOverrides: { coverTrackId } })).status).toBe(400)
+  }
+  expect((await readPlanet()).body.planet?.visual.overrides.coverTrackId).toBe('track-b')
+  await call(onRequestPatch, 'PATCH', { trackIds: ['track-a', 'track-c'] })
+  expect((await readPlanet()).body.planet?.visual.coverTexture).toBeUndefined()
 })
 
 test('appearance overrides persist across song updates, reject malformed inputs, and reset explicitly', async () => {

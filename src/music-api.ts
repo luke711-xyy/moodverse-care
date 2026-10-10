@@ -1,6 +1,8 @@
 import type { MusicTrackSummary, MomentVisibility } from './music-domain'
 import type { PlanetTerrainFeatureCounts } from './types'
 import type { DitherOverrides, DitherPlanetSpec } from './music/dither/appearance'
+import { sampleGalaxyNodes, type GalaxyPreferences, type GalaxyPreferencesPatch, type GalaxyOptionsPage, type GalaxySelectionKind } from './music/galaxy-preferences'
+import { dailyRandom, musicDayKey } from './music/daily-selection'
 
 export type MusicPlanetVisual = {
   schemaVersion: number
@@ -33,6 +35,7 @@ export type MusicPlanet = {
 
 export type MusicFriendSatellite = {
   id: string
+  planetId?: string
   displayName: string
   tagline: string
   color: string
@@ -41,6 +44,7 @@ export type MusicFriendSatellite = {
   orbitPhase: number
   isVirtual: boolean
   canRemove: boolean
+  visual?: DitherPlanetSpec
 }
 
 export type MusicMoment = {
@@ -55,9 +59,10 @@ export type MusicMoment = {
   updatedAt: string
 }
 
-export type PublicMusicPlanet = MusicPlanet & { moments: MusicMoment[] }
+export type PublicMusicPlanet = MusicPlanet & { moments: MusicMoment[]; friendSatellites?: MusicFriendSatellite[] }
 
 export type SongPortalMatch = {
+  visual?: DitherPlanetSpec
   planetId: string
   displayName: string
   tagline: string
@@ -101,6 +106,29 @@ export type MusicGalaxyResponse = {
   groups: GalaxyGroup[]
 }
 
+export type GalaxySongDetails = {
+  description?: string | null
+  releasedAt?: string | null
+  bpm?: number | null
+  musicalKey?: string | null
+  tags?: string[]
+  playCount?: number | null
+  favoriteCount?: number | null
+  repostCount?: number | null
+}
+export type MusicGalaxyContent = {
+  by: GalaxyGroupBy
+  key: string
+  label: string
+  description: string | null
+  tracks: MusicTrackSummary[]
+  songDetails?: GalaxySongDetails
+  relatedTracks?: MusicTrackSummary[]
+  hasMore: boolean
+  nextOffset: number | null
+  status: 'live' | 'cached' | 'local' | 'offline'
+}
+
 export type MusicDiscoveryResponse = {
   ranking: {
     mode: 'model' | 'stable_fallback'
@@ -109,6 +137,7 @@ export type MusicDiscoveryResponse = {
     taskId: string | null
   }
   recommendations: Array<{
+    visual?: DitherPlanetSpec
     planetId: string
     displayName: string
     tagline: string
@@ -129,7 +158,7 @@ export type MusicOrbitResponse = {
   date: string
   groups: {
     songEncounters: MusicOrbitCard[]
-    friends: Array<Omit<MusicOrbitCard, 'planetId'> & { userId: string; planetId: string | null; canVisit: boolean; unreadCount: number }>
+    friends: Array<Omit<MusicOrbitCard, 'planetId'> & { userId: string; planetId: string | null; canVisit: boolean; unreadCount: number; lastMessageAt?: string | null }>
     visitedByMe: Array<MusicOrbitCard & { isIncognito: boolean }>
     visitorsToMe: Array<MusicOrbitCard & { userId: string }>
     dailyRoam: Array<MusicOrbitCard & {
@@ -147,6 +176,7 @@ export type MusicFriendRequestCard = {
   tagline: string
   status: 'pending' | 'rejected'
   createdAt: string
+  visual?: DitherPlanetSpec
 }
 
 export type MusicFriendRequestsResponse = {
@@ -154,17 +184,24 @@ export type MusicFriendRequestsResponse = {
   outgoing: MusicFriendRequestCard[]
 }
 
+export type MusicSocialSnapshot = MusicFriendRequestsResponse & { friends: MusicOrbitResponse['groups']['friends'] }
+
 export type MusicDirectMessage = {
   id: string
   contentText: string
   createdAt: string
   readAt: string | null
   isOwn: boolean
+  kind?: 'text' | 'song' | 'photo'
+  track?: MusicTrackSummary | null
+  photoUrl?: string
 }
 
 export type MusicDirectMessagesResponse = {
   peerUserId: string
   messages: MusicDirectMessage[]
+  hasMore?: boolean
+  nextCursor?: string | null
 }
 
 export type MusicDriftBottleTopicInput =
@@ -173,9 +210,9 @@ export type MusicDriftBottleTopicInput =
   | { type: 'moment'; momentId: string }
 
 export type MusicDriftBottleTopic =
-  | { type: 'song'; track: { id: string; title: string; artistName: string; officialUrl: string | null; coverUrl: string | null; versionLabel: string } | null }
+  | { type: 'song'; track: MusicTrackSummary | null }
   | { type: 'info'; title: string; url: string; summary: string }
-  | { type: 'moment'; momentId: string | null; contentText: string; photoUrl?: string | null; track: { id: string; title: string; artistName: string; officialUrl: string | null; coverUrl: string | null } | null }
+  | { type: 'moment'; momentId: string | null; contentText: string; photoUrl?: string | null; track: MusicTrackSummary | null }
 
 export type MusicDriftBottleComment = {
   id: string
@@ -269,6 +306,8 @@ export type MusicSocialSettings = {
   allowFriendRequests: boolean
   allowDriftBottles: boolean
 }
+export type MusicUserBlock = { userId: string; planetId: string | null; displayName: string; createdAt: string }
+export type MusicCatalogPage = { tracks: MusicTrackSummary[]; status?: 'live' | 'cached' | 'offline' | 'local'; hasMore?: boolean; nextOffset?: number | null }
 
 export type MusicMomentDraft = {
   trackId: string
@@ -289,7 +328,7 @@ function errorCode(value: unknown) {
     : 'REQUEST_FAILED'
 }
 
-export function createMusicApi(fetcher: typeof fetch = fetch) {
+export function createMusicApi(fetcher: typeof fetch = fetch, options: { liveSocial?: boolean } = {}) {
   async function request<T>(url: string, init?: RequestInit): Promise<T> {
     const response = await fetcher(url, {
       ...init,
@@ -312,6 +351,44 @@ export function createMusicApi(fetcher: typeof fetch = fetch) {
   }
 
   return {
+    liveSocial: options.liveSocial !== false,
+    async loadSocialState(signal?: AbortSignal) {
+      const state = await request<MusicSocialSnapshot>('/api/me/friend-requests?live=1', { signal })
+      if (!state || !Array.isArray(state.incoming) || !Array.isArray(state.outgoing) || !Array.isArray(state.friends)) {
+        throw new MusicApiError(502, 'INVALID_SOCIAL_STATE')
+      }
+      return state
+    },
+    subscribeSocialState(onState: (state: MusicSocialSnapshot) => void, onConnection: (connected: boolean) => void) {
+      if (options.liveSocial === false || typeof EventSource === 'undefined') return null
+      const source = new EventSource('/api/me/friend-requests?stream=1')
+      const receive = (event: Event) => {
+        try {
+          const state = JSON.parse((event as MessageEvent).data) as MusicSocialSnapshot
+          if (Array.isArray(state.incoming) && Array.isArray(state.outgoing) && Array.isArray(state.friends)) onState(state)
+        } catch { onConnection(false) }
+      }
+      const open = () => onConnection(true), error = () => onConnection(false)
+      source.addEventListener('social', receive)
+      source.addEventListener('open', open)
+      source.addEventListener('error', error)
+      return () => {
+        source.removeEventListener('social', receive); source.removeEventListener('open', open); source.removeEventListener('error', error)
+        source.close()
+      }
+    },
+    searchCatalog(query = '', genre = '', offset = 0, signal?: AbortSignal) {
+      return request<MusicCatalogPage>(`/api/music/catalog?${new URLSearchParams({ q: query, genre, offset: String(offset) })}`, { signal })
+    },
+    loadGalaxyPreferences() {
+      return request<GalaxyPreferences>('/api/me/galaxy-preferences')
+    },
+    updateGalaxyPreferences(value: string[] | GalaxyPreferencesPatch) {
+      return request<GalaxyPreferences>('/api/me/galaxy-preferences', { method: 'PATCH', body: JSON.stringify(Array.isArray(value) ? { genres: value } : value) })
+    },
+    searchGalaxyOptions(by: GalaxySelectionKind, query = '', offset = 0, signal?: AbortSignal) {
+      return request<GalaxyOptionsPage>(`/api/music/galaxy-options?${new URLSearchParams({ by, q: query, offset: String(offset) })}`, { signal })
+    },
     async loadHome() {
       const [catalog, owned] = await Promise.all([
         request<{ tracks: MusicTrackSummary[] }>('/api/music/catalog'),
@@ -358,8 +435,12 @@ export function createMusicApi(fetcher: typeof fetch = fetch) {
     findSongMatches(trackId: string) {
       return request<SongPortalResponse>(`/api/music/song-portal?trackId=${encodeURIComponent(trackId)}`)
     },
-    loadGalaxy(by: GalaxyGroupBy) {
-      return request<MusicGalaxyResponse>(`/api/music/galaxy?by=${encodeURIComponent(by)}`)
+    async loadGalaxy(by: GalaxyGroupBy) {
+      const response = await request<MusicGalaxyResponse>(`/api/music/galaxy?by=${encodeURIComponent(by)}`)
+      return { ...response, groups: sampleGalaxyNodes(response.groups, dailyRandom(`${musicDayKey()}:galaxy:${by}`)) }
+    },
+    loadGalaxyContent(by: GalaxyGroupBy, key: string, offset = 0, signal?: AbortSignal) {
+      return request<MusicGalaxyContent>(`/api/music/galaxy-content?${new URLSearchParams({ by, key, offset: String(offset) })}`, { signal })
     },
     loadDiscovery() {
       return request<MusicDiscoveryResponse>('/api/music/discovery')
@@ -371,7 +452,7 @@ export function createMusicApi(fetcher: typeof fetch = fetch) {
       return request<MusicFriendRequestsResponse>('/api/me/friend-requests')
     },
     createFriendRequest(planetId: string) {
-      return request<{ request: { id: string; status: 'pending'; planetId: string } }>('/api/me/friend-requests', {
+      return request<{ request: { id: string; status: 'pending' | 'accepted'; planetId: string } }>('/api/me/friend-requests', {
         method: 'POST', body: JSON.stringify({ planetId }),
       })
     },
@@ -385,19 +466,31 @@ export function createMusicApi(fetcher: typeof fetch = fetch) {
         method: 'POST', body: JSON.stringify({ planetId }),
       })
     },
+    async loadBlocks(signal?: AbortSignal) {
+      const response = await request<{ blocks: MusicUserBlock[] }>('/api/me/blocks', { signal })
+      if (!response || !Array.isArray(response.blocks)) throw new MusicApiError(502, 'INVALID_BLOCK_LIST')
+      return response.blocks
+    },
+    blockUser(userId: string) {
+      return request<{ ok: true }>('/api/me/blocks', { method: 'POST', body: JSON.stringify({ userId }) })
+    },
     unblockUser(userId: string) {
       return request<{ ok: true }>(`/api/me/blocks/${encodeURIComponent(userId)}`, { method: 'DELETE' })
     },
     unfriend(userId: string) {
       return request<{ ok: true }>(`/api/me/friends/${encodeURIComponent(userId)}`, { method: 'DELETE' })
     },
-    loadDirectMessages(userId: string) {
-      return request<MusicDirectMessagesResponse>(`/api/me/friends/${encodeURIComponent(userId)}/messages`)
+    loadDirectMessages(userId: string, options: { before?: string; signal?: AbortSignal } = {}) {
+      return request<MusicDirectMessagesResponse>(`/api/me/friends/${encodeURIComponent(userId)}/messages${options.before ? `?before=${encodeURIComponent(options.before)}` : ''}`, { signal: options.signal })
     },
-    sendDirectMessage(userId: string, contentText: string) {
+    sendDirectMessage(userId: string, input: string | { contentText?: string; trackId?: string }) {
       return request<{ message: MusicDirectMessage }>(`/api/me/friends/${encodeURIComponent(userId)}/messages`, {
-        method: 'POST', body: JSON.stringify({ contentText }),
+        method: 'POST', body: JSON.stringify(typeof input === 'string' ? { contentText: input } : input),
       })
+    },
+    sendDirectPhoto(userId: string, photo: File, contentText = '') {
+      const body = new FormData(); body.append('photo', photo); body.append('contentText', contentText)
+      return request<{ message: MusicDirectMessage }>(`/api/me/friends/${encodeURIComponent(userId)}/messages`, { method: 'POST', body })
     },
     hideDirectMessage(messageId: string) {
       return request<{ ok: true }>(`/api/me/messages/${encodeURIComponent(messageId)}`, { method: 'DELETE' })

@@ -61,7 +61,7 @@ export function cockpitReducer(state: CockpitState, action: CockpitAction): Cock
   const returned = trip.returning ? state.origins.at(-1) : undefined
   const page = trip.target === 'visitor' ? 'visitor' : trip.target === 'galaxy' ? 'galaxy' : 'planet'
   return {
-    ...state, exterior: trip.target, console: returned?.console ?? { focus: 'overview', page }, history: [],
+    ...state, exterior: trip.target, console: trip.target === 'visitor' ? { focus: 'overview', page: 'visitor' } : returned?.console ?? { focus: 'overview', page }, history: [],
     channels: { ...state.channels, [pageTerminal(returned?.console.page ?? page)]: returned?.console.page ?? page },
     origins: trip.returning ? state.origins.slice(0, -1) : trip.target === 'visitor' ? [...state.origins, trip.origin] : [],
     travel: { status: 'idle' },

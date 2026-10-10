@@ -9,12 +9,12 @@ export function galaxyTourPosition(progress: number, count: number) {
 }
 
 export type GalaxyJourneyMotion = { from: number; to: number; durationMs: number }
-const RAMP_MS = 300
-/** A shared cruise rate (650 ms per sector) with gentle acceleration/braking.
- * This moves the actual tour coordinate, not a separate visual-only offset. */
+const RAMP_MS = 140
+/** Sublinear travel time makes longer trips cruise faster, capped at 1.2 seconds.
+ * Short acceleration/braking ramps move the real camera, axis, and HUD together. */
 export function createGalaxyJourneyMotion(from: number, to: number, count: number): GalaxyJourneyMotion {
   const stops = Math.abs(to - from) / TOUR_END * Math.max(0, count - 1)
-  return { from, to, durationMs: Math.max(RAMP_MS * 2, stops * 650 + RAMP_MS) }
+  return { from, to, durationMs: Math.min(1200, Math.max(420, 260 + 160 * Math.sqrt(stops))) }
 }
 export function sampleGalaxyJourneyMotion(motion: GalaxyJourneyMotion, elapsedMs: number) {
   const p = Math.max(0, Math.min(1, elapsedMs / motion.durationMs))

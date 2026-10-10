@@ -2,6 +2,8 @@
 .music-app { --music-panel: #100d17ed; --music-panel-soft: #211a31d9; --music-line: #f2eff829; --music-line-strong: #8e6bff66; background: var(--dither-black); min-height: 560px; }
 .music-app::before,.music-app::after { display: none; }
 .dither-stage { position: absolute; inset: 0; z-index: 0; touch-action: none; transition: filter 320ms; overflow: hidden; }
+/* Magnify one finished universe picture inside the stationary cockpit window. */
+.dither-stage-scene { position: absolute; inset: 0; isolation: isolate; transform-origin: 50% 50%; will-change: transform; }
 .dither-stage.is-regrouping { filter: blur(7px); }
 .dither-stage-lines { position: absolute; inset: 0; width: 100%; height: 100%; fill: var(--dither-white); pointer-events: none; }
 .dither-travel-caption { position: absolute; top: 78%; width: 100%; text-align: center; color: var(--dither-pink); letter-spacing: .15em; font: 14px var(--pixel); pointer-events: none; }

@@ -27,7 +27,7 @@ test('node animation progresses through the real journey; retargeting and manual
   const { result, unmount } = renderHook(() => useGalaxyJourney(false, true))
   act(() => result.current.animateTo(TOUR_END, 5))
   expect(result.current.journey).toBe(0)
-  advance(600)
+  advance(200)
   const middle = result.current.journey
   expect(middle).toBeGreaterThan(0)
   expect(middle).toBeLessThan(TOUR_END)
@@ -46,6 +46,18 @@ test('node animation progresses through the real journey; retargeting and manual
   expect(frames.size).toBe(0)
   act(() => result.current.animateTo(0, 5))
   unmount()
+  expect(frames.size).toBe(0)
+})
+
+test('a far node reaches the actual camera coordinate within 1.2 seconds', () => {
+  const { result } = renderHook(() => useGalaxyJourney(false, true))
+  act(() => result.current.animateTo(TOUR_END, 40))
+  advance(300)
+  expect(result.current.journey).toBeGreaterThan(0)
+  expect(result.current.journey).toBeLessThan(TOUR_END)
+  advance(900)
+  expect(result.current.journey).toBe(TOUR_END)
+  expect(result.current.journeyRef.current).toBe(TOUR_END)
   expect(frames.size).toBe(0)
 })
 

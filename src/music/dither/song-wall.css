@@ -1,0 +1,23 @@
+.dither-song-wall { container-type: inline-size; }
+.music-cd-pile { position: relative; isolation: isolate; height: 250px; margin-block: 12px 20px; }
+.music-cd-pile .music-cd-pile-record {
+  position: absolute; left: calc(50% + var(--pile-x)); top: calc(50% + var(--pile-y));
+  width: clamp(108px,42cqw,160px); aspect-ratio: 1; height: auto; min-height: 0;
+  padding: 0; border: 0; border-radius: 50%; background: none; box-shadow: none;
+  z-index: var(--pile-layer); cursor: pointer;
+  transform: translate(-50%,-50%) rotate(var(--pile-angle));
+  transition: transform 180ms ease-out, filter 180ms ease-out;
+}
+.music-cd-pile .music-cd-pile-record[aria-pressed=true] {
+  z-index: 8; transform: translate(-50%,calc(-50% - 8px)) rotate(var(--pile-angle)) scale(1.06);
+}
+.music-cd-pile .music-cd-pile-record:hover { z-index: 9; filter: brightness(1.13); }
+.music-cd-pile .music-cd-pile-record:focus-visible { z-index: 9; outline: 2px solid var(--phosphor,#efd79f); outline-offset: 5px; }
+.music-focused-cd-art { display: block; width: 92px; height: 92px; }
+.music-focused-cd > div { min-width: 0; }
+.music-focused-cd strong { overflow-wrap: anywhere; }
+.music-focused-cd-art .music-cd-no-art strong { font-size: 10px; }
+.music-focused-cd-art .music-cd-no-art small { font-size: 7px; }
+@media (prefers-reduced-motion: reduce) {
+  .music-cd-pile .music-cd-pile-record { transition: none; }
+}

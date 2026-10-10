@@ -1,11 +1,13 @@
 import { careCardInsert, makeCareCard } from './functions/_care'
 import { processDriftBottleQueue } from './functions/_music-drift-bottles'
 import { oneSqlStatementPerLine } from './functions/_music-demo-seed'
+import { processDemoSocialQueue } from './functions/_music-demo-social'
 
 type Env = {
   DB: D1Database
   ASSETS: Fetcher
   MUSIC_DEMO_SEED_ENABLED?: string
+  MUSIC_DEMO_SOCIAL_ENABLED?: string
 }
 type CheckInRow = {
   user_id: string
@@ -89,6 +91,7 @@ export async function scheduled(event: ScheduledEvent, env: Env) {
   // five minutes while keeping daily care-card generation on the hour.
   let careCardError: unknown
   let demoSeedError: unknown
+  let demoSocialError: unknown
   try {
     await seedDemoMusicWorld(env)
   } catch (error) {
@@ -104,9 +107,15 @@ export async function scheduled(event: ScheduledEvent, env: Env) {
 
   // These are independent scheduled jobs: a care-card query/write failure
   // must not keep the drift-bottle queue from expiring and re-routing bottles.
+  try {
+    await processDemoSocialQueue(env)
+  } catch (error) {
+    demoSocialError = error
+  }
   await processDriftBottleQueue(env)
   if (careCardError) throw careCardError
   if (demoSeedError) throw demoSeedError
+  if (demoSocialError) throw demoSocialError
 }
 
 export default {

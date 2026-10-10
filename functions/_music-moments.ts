@@ -1,4 +1,5 @@
 import { safeHttpsUrl, type Env } from './_shared'
+import { catalogTrack } from './_music-dither'
 import { isManagedMomentPhoto } from '../src/music/moment-photo'
 
 export type MomentInput = {
@@ -26,6 +27,8 @@ export type MomentRow = {
   official_url: string
   cover_url: string | null
   duration_seconds: number | null
+  provider?: string
+  visual_features_json?: string | null
 }
 
 export const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -65,6 +68,7 @@ export function mapMoment(row: MomentRow) {
     id: row.id,
     trackId: row.track_id,
     track: {
+      ...catalogTrack({ ...row, id: row.track_id }),
       id: row.track_id,
       title: row.title,
       artistId: row.artist_id,
@@ -95,7 +99,7 @@ export async function readMoment(env: Env, planetId: string, momentId: string) {
   return env.DB.prepare(`
     SELECT m.id, m.track_id, m.content_text, m.photo_url, m.visibility, m.published_at, m.created_at, m.updated_at,
            c.title, c.artist_id, c.artist_name, c.version_label, c.genres_json, c.mood_tags_json,
-           c.official_url, c.cover_url, c.duration_seconds
+           c.official_url, c.cover_url, c.duration_seconds, c.provider, c.visual_features_json
     FROM music_moments m
     JOIN music_track_catalog c ON c.id = m.track_id
     WHERE m.id = ?1 AND m.planet_id = ?2

@@ -3,9 +3,11 @@ import type { MusicTrackSummary } from '../../../../src/music-domain'
 import { mapMoment, type MomentRow } from '../../../_music-moments'
 import { catalogTrack, readPlanetDitherVisuals, CATALOG_VISUAL_COLUMNS } from '../../../_music-dither'
 import { decodePlanetRouteId } from './_route'
+import { readFriendSatellites } from '../../../_music-friend-satellites'
 
 type PublicPlanetRow = {
   id: string
+  owner_user_id: string
   display_name: string
   tagline: string
   visibility: 'public' | 'private'
@@ -55,7 +57,7 @@ function trackSummary(row: PublicTrackRow): MusicTrackSummary & {
 
 export async function readPublicPlanet(env: Env, planetId: string, viewerUserId?: string | null) {
   const row = await env.DB.prepare(`
-    SELECT id, display_name, tagline, visibility, visual_schema_version, visual_json, created_at, updated_at
+    SELECT id, owner_user_id, display_name, tagline, visibility, visual_schema_version, visual_json, created_at, updated_at
     FROM music_planets
     WHERE id = ?1 AND visibility = 'public'
       AND (?2 IS NULL OR NOT EXISTS (
@@ -66,19 +68,20 @@ export async function readPublicPlanet(env: Env, planetId: string, viewerUserId?
   `).bind(planetId, viewerUserId ?? null).first<PublicPlanetRow>()
   if (!row) return null
 
-  const [{ results: trackRows }, { results: momentRows }] = await Promise.all([
+  const [{ results: trackRows }, { results: momentRows }, friendSatellites] = await Promise.all([
     env.DB.prepare(`
       SELECT ${CATALOG_VISUAL_COLUMNS},
              t.position, t.is_primary, t.selected_at
       FROM music_planet_tracks t
       JOIN music_track_catalog c ON c.id = t.track_id
-      WHERE t.planet_id = ?1 AND c.is_active = 1
+      WHERE t.planet_id = ?1
       ORDER BY t.position
+      LIMIT 5
     `).bind(row.id).all<PublicTrackRow>(),
     env.DB.prepare(`
       SELECT m.id, m.track_id, m.content_text, m.photo_url, m.visibility, m.published_at,
              m.created_at, m.updated_at, c.title, c.artist_id, c.artist_name, c.version_label,
-             c.genres_json, c.mood_tags_json, c.official_url, c.cover_url, c.duration_seconds
+             c.genres_json, c.mood_tags_json, c.official_url, c.cover_url, c.duration_seconds, c.provider, c.visual_features_json
       FROM music_moments m
       JOIN music_planets p ON p.id = m.planet_id
       JOIN music_track_catalog c ON c.id = m.track_id
@@ -86,9 +89,10 @@ export async function readPublicPlanet(env: Env, planetId: string, viewerUserId?
         AND p.visibility = 'public'
         AND m.visibility = 'public'
         AND m.published_at IS NOT NULL
-        AND c.is_active = 1
+        AND (c.is_active = 1 OR c.provider = 'moodverse-demo')
       ORDER BY m.published_at DESC, m.created_at DESC, m.id DESC
     `).bind(row.id).all<MomentRow>(),
+    readFriendSatellites(env, row.owner_user_id, { publicOnly: true, viewerUserId }),
   ])
 
   const visuals = await readPlanetDitherVisuals(env, [row])
@@ -103,6 +107,7 @@ export async function readPublicPlanet(env: Env, planetId: string, viewerUserId?
     updatedAt: row.updated_at,
     tracks: trackRows.map(trackSummary),
     moments: momentRows.map(mapMoment),
+    friendSatellites,
   }
 }
 

@@ -29,7 +29,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   const { results } = await env.DB.prepare(`
     SELECT m.id, m.track_id, m.content_text, m.photo_url, m.visibility, m.published_at, m.created_at, m.updated_at,
            c.title, c.artist_id, c.artist_name, c.version_label, c.genres_json, c.mood_tags_json,
-           c.official_url, c.cover_url, c.duration_seconds
+           c.official_url, c.cover_url, c.duration_seconds, c.provider, c.visual_features_json
     FROM music_moments m
     JOIN music_track_catalog c ON c.id = m.track_id
     WHERE m.planet_id = ?1

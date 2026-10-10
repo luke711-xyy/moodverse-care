@@ -1,7 +1,7 @@
 /** Shared by the browser, Pages APIs and the plain-Node catalog importer. */
 export function validateMusicFeatures(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)
-    || !['curated', 'demo', 'tag-derived', 'unknown'].includes(value.source)) return { ok: false }
+    || !['curated', 'audius', 'demo', 'tag-derived', 'unknown'].includes(value.source)) return { ok: false }
   const bounded = (n, min, max) => typeof n === 'number' && Number.isFinite(n) && n >= min && n <= max
   for (const [key, item] of Object.entries(value)) {
     if (key === 'source') continue

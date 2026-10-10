@@ -1,15 +1,17 @@
 import type { MusicGalaxySceneSystem } from '../galaxy-scene'
-import { createDitherSpec, type DitherPlanetSpec } from './appearance'
+import { createDitherSpec, resolveAlbumCover, type DitherPlanetSpec } from './appearance'
 import { depthOrderedAssets, orbitDepth, orbitPoint, satelliteAsset, type DitherOrbitGeometry } from './layout'
 import type { DitherAsset, DitherFrame } from './renderer'
 import { galaxyTourPosition } from '../galaxy-navigation'
+import type { Orientation } from './arcball'
 
 const clamp = (n: number) => Math.max(0, Math.min(1, n))
 export function sampleHomeTransition(progress: number) {
   const p = clamp(progress)
   return { homeScale: .025 + .975 * p * p, homeOpacity: p, cloudOpacity: p === 0 || p === 1 ? 0 : Math.sin(p * Math.PI) }
 }
-export type StageLayoutInput = { width: number; height: number; phase: number; owner: DitherPlanetSpec; visitor?: DitherPlanetSpec; systems: MusicGalaxySceneSystem[]; home: number; journey: number; rotation: number; focusedGalaxy?: string; friends: { id: string }[]; music: { id: string }[] }
+type StageFriend = { id: string; isVirtual?: boolean; visual?: DitherPlanetSpec; visualSeed?: string }
+export type StageLayoutInput = { width: number; height: number; phase: number; owner: DitherPlanetSpec; visitor?: DitherPlanetSpec; orientation?: Orientation; systems: MusicGalaxySceneSystem[]; home: number; journey: number; rotation: number; focusedGalaxy?: string; friends: StageFriend[]; visitorFriends?: StageFriend[]; music: { id: string; coverUrl?: string | null }[] }
 export type StageFrame = DitherFrame & { orbits: DitherOrbitGeometry[]; systemTargets: { id: string; x: number; y: number; radius: number }[] }
 export function buildDitherStageFrame(input: StageLayoutInput): StageFrame {
   const { width, height, phase, owner, visitor, systems, focusedGalaxy, rotation } = input
@@ -37,18 +39,24 @@ export function buildDitherStageFrame(input: StageLayoutInput): StageFrame {
     assets.push(...depthOrderedAssets([center, ...bodies]))
   }
   if (input.home > 0 || visitor) {
-    const spec = visitor ?? owner, k = visitor ? 1 : home.homeScale * .85, opacity = visitor ? 1 : home.homeOpacity
-    const bodies: DitherAsset[] = [{ id: visitor ? 'visitor:' + spec.seed : 'home:' + spec.seed, spec, x, y, radius: radius * k, opacity, rotation: rotation * .25, depth: 0 }]
+    const spec = visitor ?? owner, k = visitor ? 1 : home.homeScale * .85 * .9, opacity = visitor ? 1 : home.homeOpacity
+    const bodies: DitherAsset[] = [{ id: visitor ? 'visitor:' + spec.seed : 'home:' + spec.seed, spec, x, y, radius: radius * k, opacity, rotation: rotation * .25, orientation: input.orientation, depth: 0 }]
     const orbit = { x, y, rx: radius * 1.32 * k, ry: radius * .63 * k, tilt: -.33 }
     orbits.push(orbit)
-    for (const [i, track] of input.music.entries()) {
-      const asset = satelliteAsset(spec, { id: 'music:' + track.id, kind: 'music', orbit, phase: i * Math.PI * 2 / Math.max(1, input.music.length) + phase * .2, radius: radius * .105 * k })
-      bodies.push({ ...asset, opacity })
+    const music = [...new Map(input.music.filter(track => track.id !== spec.coverTexture?.trackId).map(track => [track.id, track])).values()].slice(0, 5)
+    for (const [i, track] of music.entries()) {
+      const asset = satelliteAsset(spec, { id: 'music:' + track.id, kind: 'music', orbit, phase: i * Math.PI * 2 / Math.max(1, music.length) + phase * .2, radius: radius * .105 * k })
+      const coverTexture = resolveAlbumCover([track], track.id)
+      // Never inherit the main planet's cover for another song, including missing-cover fallbacks.
+      bodies.push({ ...asset, spec: { ...asset.spec, coverTexture, overrides: { ...asset.spec.overrides, coverTrackId: coverTexture ? track.id : null } }, opacity })
     }
-    if (!visitor) for (const [i, friend] of input.friends.entries()) {
+    const sceneFriends = visitor ? input.visitorFriends ?? [] : input.friends
+    const friends = [...new Map(sceneFriends.filter(friend => friend.isVirtual === false).map(friend => [friend.id, friend])).values()].slice(0, 5)
+    for (const [i, friend] of friends.entries()) {
       const friendOrbit = { ...orbit, rx: orbit.rx * 1.26, ry: orbit.ry * 1.1 }
       if (!i) orbits.push(friendOrbit)
-      bodies.push({ ...satelliteAsset(spec, { id: 'friend:' + friend.id, kind: 'friend', orbit: friendOrbit, phase: i * Math.PI * 2 / Math.max(1, input.friends.length) + phase * .16 + .7, radius: radius * .1 * k }), opacity })
+      const visual = friend.visual ?? createDitherSpec({planetId:friend.visualSeed ?? friend.id,tracks:[]})
+      bodies.push({ ...satelliteAsset(visual, { id: 'friend:' + friend.id, kind: 'friend', orbit: friendOrbit, phase: i * Math.PI * 2 / Math.max(1, friends.length) + phase * .16 + .7, radius: radius * .1 * k }), spec: { ...visual, overrides: { ...visual.overrides, size: 1 } }, opacity })
     }
     assets.push(...depthOrderedAssets(bodies))
   }

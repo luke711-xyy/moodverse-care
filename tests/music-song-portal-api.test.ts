@@ -2,6 +2,7 @@ import { afterEach, beforeAll, beforeEach, expect, test, vi } from 'vitest'
 import { authenticatedMusicUser } from '../functions/_shared'
 import { onRequestGet as onRequestSongPortal } from '../functions/api/music/song-portal'
 import { createAccessTestAuthority } from './helpers/cloudflare-access-jwt'
+import { createDitherSpec, type DitherPlanetSpec } from '../src/music/dither/appearance'
 import {
   createMusicApiEnv,
   createMusicApiFixture,
@@ -199,6 +200,7 @@ test('song portal returns only exact-track evidence from other public planets wi
         latestPublicMomentAt: '2026-09-29T10:00:00.000Z',
         rankScore: null,
         reasonCode: 'shared_selection_and_moment',
+        visual: expect.objectContaining({ schemaVersion: 3, seed: 'planet-selected' }),
       },
       {
         planetId: 'planet-moment-only',
@@ -209,6 +211,7 @@ test('song portal returns only exact-track evidence from other public planets wi
         latestPublicMomentAt: '2026-09-29T11:00:00.000Z',
         rankScore: null,
         reasonCode: 'shared_public_moment',
+        visual: expect.objectContaining({ schemaVersion: 3, seed: 'planet-moment-only' }),
       },
     ],
   })
@@ -226,6 +229,51 @@ test('song portal rejects malformed and inactive canonical track IDs without sea
   const inactive = await getSongPortal('track-inactive')
   expect(inactive.status).toBe(404)
   expect(await inactive.json()).toEqual({ error: 'TRACK_NOT_AVAILABLE' })
+})
+
+test('song portal returns every eligible non-primary match beyond the first hundred', async () => {
+  const expectedIds: string[] = []
+  for (let index = 0; index < 205; index += 1) {
+    const id = `full-song-${String(index).padStart(3, '0')}`
+    fixture.sqlite.prepare("INSERT INTO users (id, token_hash, created_at, updated_at) VALUES (?, ?, 'now', 'now')").run(id, `hash-${id}`)
+    createPlanet(id, id, index === 0 ? 'private' : 'public')
+    addSelection(id, 'track-unselected')
+    addSelection(id, 'track-b')
+    if (index > 2) expectedIds.push(id)
+  }
+  fixture.sqlite.prepare("INSERT INTO music_user_blocks (blocker_user_id, blocked_user_id, created_at) VALUES (?, 'full-song-001', 'now'), ('full-song-002', ?, 'now')").run(ownerId, ownerId)
+  const response = await getSongPortal('track-b')
+  const body = await response.json() as { matches: Array<{ planetId: string; matchSource: string }> }
+  expect(response.status).toBe(200)
+  expect(body.matches.map(item => item.planetId)).toEqual(expectedIds)
+  expect(body.matches.every(item => item.matchSource === 'active_selection')).toBe(true)
+})
+
+test('switching either primary track leaves non-primary song matching eligibility unchanged', async () => {
+  const candidateOwner = await createIdentity('secondary-song-owner')
+  createPlanet('secondary-song-planet', candidateOwner, 'public')
+  addSelection('secondary-song-planet', 'track-unselected')
+  addSelection('secondary-song-planet', 'track-b')
+  const matches = async () => {
+    const body = await (await getSongPortal('track-b')).json() as { matches: Array<{ planetId: string; matchSource: string }> }
+    return body.matches.map(({ planetId, matchSource }) => ({ planetId, matchSource }))
+  }
+  expect(await matches()).toEqual([{ planetId: 'secondary-song-planet', matchSource: 'active_selection' }])
+  for (const planetId of ['planet-owner', 'secondary-song-planet']) {
+    fixture.sqlite.prepare('UPDATE music_planet_tracks SET is_primary = 0 WHERE planet_id = ?').run(planetId)
+    fixture.sqlite.prepare("UPDATE music_planet_tracks SET is_primary = 1 WHERE planet_id = ? AND track_id = 'track-b'").run(planetId)
+    expect(await matches()).toEqual([{ planetId: 'secondary-song-planet', matchSource: 'active_selection' }])
+  }
+})
+
+test('same title and artist with a different canonical track ID does not create a false song match', async () => {
+  fixture.sqlite.prepare("UPDATE music_track_catalog SET title = '同名曲', artist_name = '同名艺人' WHERE id IN ('track-a', 'track-unselected')").run()
+  const otherOwner = await createIdentity('same-metadata-owner')
+  createPlanet('same-metadata-planet', otherOwner, 'public')
+  addSelection('same-metadata-planet', 'track-unselected')
+  const response = await getSongPortal('track-a')
+  expect(response.status).toBe(200)
+  expect(await response.json()).toMatchObject({ trackId: 'track-a', matches: [] })
 })
 
 test('song portal sends only exact public candidates to the local model and applies its validated ranking', async () => {
@@ -361,7 +409,47 @@ test('song portal rejects model-provided reason codes even when they match serve
     planetId: 'planet-valid-candidate', displayName: 'planet-valid-candidate', tagline: '跟着歌声靠岸',
     matchSource: 'active_selection', selectedAt: '2026-09-29T09:00:00.000Z', latestPublicMomentAt: null,
     rankScore: null, reasonCode: 'shared_song_selection',
+    visual: expect.objectContaining({ schemaVersion: 3, seed: 'planet-valid-candidate' }),
   }])
   expect(fixture.sqlite.prepare(`SELECT status, error_code FROM music_ai_tasks WHERE kind = 'song_portal_rank'`)
     .get()).toEqual({ status: 'failed', error_code: 'AI_RESULT_INVALID' })
+})
+
+test.each(['visual-only', 'private', 'viewer-block', 'owner-block'])('song portal refreshes exact saved visuals and eligibility after %s during model inference', async change => {
+  const changingOwner = await createIdentity('visual-changing-owner')
+  createPlanet('visual-changing', changingOwner, 'public')
+  addSelection('visual-changing', 'track-a')
+  const stableOwner = await createIdentity('visual-stable-owner')
+  createPlanet('visual-stable', stableOwner, 'public')
+  addSelection('visual-stable', 'track-a')
+  const oldVisual = createDitherSpec({ planetId: 'visual-stable', tracks: [], overrides: { motif: 'flower', blue: .8 } })
+  const latestVisual = createDitherSpec({ planetId: 'visual-stable', tracks: [], overrides: { motif: 'prism', pink: .91 } })
+  fixture.sqlite.prepare("UPDATE music_planets SET visual_json = ? WHERE id = 'visual-stable'").run(JSON.stringify(oldVisual))
+  const originalFetch = globalThis.fetch
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (new URL(input.toString()).origin === issuer) return originalFetch(input, init)
+    expect(String(init?.body)).not.toContain('overrides')
+    if (change === 'private') fixture.sqlite.prepare("UPDATE music_planets SET visibility = 'private' WHERE id = 'visual-changing'").run()
+    else if (change !== 'visual-only') fixture.sqlite.prepare('INSERT INTO music_user_blocks (blocker_user_id, blocked_user_id, created_at) VALUES (?, ?, ?)')
+      .run(change === 'viewer-block' ? ownerId : changingOwner, change === 'viewer-block' ? changingOwner : ownerId, 'now')
+    fixture.sqlite.prepare("UPDATE music_planets SET visual_json = ? WHERE id = 'visual-stable'").run(JSON.stringify(latestVisual))
+    return Response.json({ model: { name: 'qwen3-local', version: '4b-q4' }, ranking: [
+      { planetId: 'visual-changing', score: .9 }, { planetId: 'visual-stable', score: .8 },
+    ] })
+  }))
+  const response = await getSongPortal('track-a', 'portal-owner', {
+    MUSIC_AI_SONG_PORTAL_URL: 'https://ai.example/v1/song-portal/rank',
+    MUSIC_AI_ACCESS_CLIENT_ID: 'access-client-id', MUSIC_AI_ACCESS_CLIENT_SECRET: 'access-client-secret',
+    MUSIC_AI_GATEWAY_TOKEN: 'test-gateway-secret',
+  })
+  const body = await response.json() as { ranking: { mode: string; status: string }; matches: Array<{ planetId: string; visual: DitherPlanetSpec }> }
+  expect(body.matches.find(item => item.planetId === 'visual-stable')?.visual).toEqual(latestVisual)
+  if (change === 'visual-only') {
+    expect(body.matches).toHaveLength(2)
+    expect(body.ranking).toMatchObject({ mode: 'model', status: 'ready' })
+  } else {
+    expect(body.matches).toHaveLength(1)
+    expect(JSON.stringify(body)).not.toContain('visual-changing')
+    expect(body.ranking).toMatchObject({ mode: 'stable_fallback', status: 'input_changed' })
+  }
 })

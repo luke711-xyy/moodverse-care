@@ -9,6 +9,7 @@ export function buildCockpitFlightFrame(input: StageLayoutInput, flight: Cockpit
     const visitor = target === 'from' ? flight.sourceVisitor : flight.targetVisitor
     return buildDitherStageFrame({ ...input, home: destination === 'galaxy' ? 0 : 1,
       visitor: destination === 'visitor' && visitor ? resolveDitherSpec(visitor.id, visitor.tracks, visitor.visual) : undefined,
+      visitorFriends: destination === 'visitor' ? visitor?.friendSatellites ?? [] : [],
       music: destination === 'visitor' ? visitor?.tracks ?? [] : input.music })
   }
   const p = Math.max(0, Math.min(1, flight.progress))

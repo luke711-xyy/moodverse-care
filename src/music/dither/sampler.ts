@@ -1,5 +1,7 @@
 import { DITHER_PALETTE, effectiveDitherParameters, stableHash, type DitherPlanetSpec } from './appearance'
 import { bodyRadius, sphereSurface } from './sphere'
+import type { AlbumPixels } from './album-texture'
+import type { Orientation } from './arcball'
 
 const TAU = Math.PI * 2
 export type DitherAssetKind = 'planet' | 'star' | 'music' | 'nebula' | 'music-satellite'
@@ -44,7 +46,7 @@ export function advanceDitherPhase(previous: number, dt: number, speed: number, 
 }
 
 /** Normalized quad coordinates; planets use analytic spherical projection. */
-export function sampleDitherPixel(spec: DitherPlanetSpec, x: number, y: number, time = 0, gridX = Math.floor(x * 64), gridY = Math.floor(y * 64), kind: DitherAssetKind = 'planet', viewRotation = 0): [number, number, number, number] {
+export function sampleDitherPixel(spec: DitherPlanetSpec, x: number, y: number, time = 0, gridX = Math.floor(x * 64), gridY = Math.floor(y * 64), kind: DitherAssetKind = 'planet', viewRotation = 0, album?: AlbumPixels, orientation?: Orientation, detail = 0): [number, number, number, number] {
   const p = effectiveDitherParameters(spec), seed = (stableHash(spec.seed) % 65536) + p.seedOffset, t = phaseOf(time)
   const screenR = Math.hypot(x, y), screenAngle = Math.atan2(y, x)
   const spherical = kind === 'planet' || kind === 'star' || kind === 'music-satellite'
@@ -52,13 +54,25 @@ export function sampleDitherPixel(spec: DitherPlanetSpec, x: number, y: number, 
   let radius = .85 + breathing
   if (p.form === 'organic') radius += .055 * Math.sin(screenAngle * 3 + t) + .035 * Math.cos(screenAngle * 7 - t * 2)
   if (p.form === 'pulse') radius += .04 * Math.cos(screenAngle * 8 - t)
-  if (spherical) radius = bodyRadius(p.form, screenAngle, t, p.pulse)
+  if (spherical) radius = bodyRadius(p.form, screenAngle, t, p.pulse, orientation)
   let alpha = 1 - smooth(radius - .015, radius + .025, screenR)
   const halo = Math.exp(-Math.max(0, screenR - radius) * 22) * p.glow * .16
   alpha = Math.max(alpha, screenR < 1.15 ? halo : 0)
   if (alpha < .008) return [0, 0, 0, 0]
-  const surface = spherical ? sphereSurface(x, y, radius, t, viewRotation) : null
+  const surface = spherical ? sphereSurface(x, y, radius, t, viewRotation, orientation) : null
   const textureX = surface?.x ?? x, textureY = surface?.y ?? y
+  if (album && spec.coverTexture && (kind === 'planet' || kind === 'music-satellite') && surface) {
+    const u = Math.min(album.width - 1, Math.floor(clamp(textureX * .5 + .5) * album.width))
+    const v = Math.min(album.height - 1, Math.floor(clamp(textureY * .5 + .5) * album.height))
+    const offset = (v * album.width + u) * 4
+    const threshold = ditherThreshold(p.algorithm, gridX, gridY, seed)
+    const color = [0, 1, 2].map(channel => {
+      const lit = album.data[offset + channel] / 255 * surface.light + surface.highlight
+      const tone = clamp(((Math.pow(clamp(lit), p.gamma) - .5) * p.contrast + .5) * p.exposure)
+      return Math.round((Math.floor(tone * 16 + threshold) / 16 * (1-detail) + tone*detail) * 255)
+    })
+    return [color[0], color[1], color[2], Math.round(clamp(alpha) * 255)]
+  }
   const r = Math.hypot(textureX, textureY), a = Math.atan2(textureY, textureX)
   const scale = 2 + p.textureScale * 6
   const warp = fbm(textureX * 3 + Math.cos(t) * .4, textureY * 3 + Math.sin(t) * .4, seed) - .5
@@ -107,7 +121,7 @@ export function sampleDitherPixel(spec: DitherPlanetSpec, x: number, y: number, 
   if (surface) tone = (.22 + .78 * tone) * surface.light + surface.highlight
   tone = clamp((Math.pow(clamp(tone), p.gamma) - .5) * p.contrast + .5)
   tone = clamp(tone * p.exposure)
-  const q = Math.floor(tone * 4 + ditherThreshold(p.algorithm, gridX, gridY, seed)) / 4
+  const q = Math.floor(tone * 4 + ditherThreshold(p.algorithm, gridX, gridY, seed)) / 4 * (1-detail) + tone*detail
   const hue = .5 + .5 * Math.sin(a + warp * 3 + Math.sin(t))
   const weights = [p.blue * (.05 + 2 * (1 - hue) ** 2), p.violet * (.25 + .5 * (1 - Math.abs(.5 - hue) * 2)), p.pink * (.05 + 2 * hue ** 2)], sum = weights.reduce((n, v) => n + v, 0)
   const colors = [blue, violet, pink]
@@ -119,14 +133,15 @@ export function sampleDitherPixel(spec: DitherPlanetSpec, x: number, y: number, 
   return [color[0], color[1], color[2], Math.round(clamp(alpha) * 255)]
 }
 
-export function renderDitherImage(spec: DitherPlanetSpec, size: number, time = 0, kind: DitherAssetKind = 'planet'): Uint8ClampedArray {
+export function renderDitherImage(spec: DitherPlanetSpec, size: number, time = 0, kind: DitherAssetKind = 'planet', album?: AlbumPixels, orientation?: Orientation, observation: {detail?:number;pixelSize?:number} = {}): Uint8ClampedArray {
   if (!Number.isInteger(size) || size < 8 || size > 512) throw new Error('INVALID_DITHER_IMAGE_SIZE')
   const pixels = new Uint8ClampedArray(size * size * 4), p = effectiveDitherParameters(spec)
-  const cell = Math.max(1, Math.round(p.pixelSize * size / 256))
+  const detail=clamp(observation.detail ?? 0)
+  const cell = Math.max(1, Math.round((observation.pixelSize ?? p.pixelSize) * (1-detail) * size / 256))
   for (let yy = 0; yy < size; yy++) for (let xx = 0; xx < size; xx++) {
     const gx = Math.floor(xx / cell), gy = Math.floor(yy / cell)
     const x = ((gx + .5) * cell / size - .5) * 2.4, y = ((gy + .5) * cell / size - .5) * 2.4
-    pixels.set(sampleDitherPixel(spec, x, y, time, gx, gy, kind), (yy * size + xx) * 4)
+    pixels.set(sampleDitherPixel(spec, x, y, time, gx, gy, kind, 0, album, orientation, detail), (yy * size + xx) * 4)
   }
   return pixels
 }

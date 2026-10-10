@@ -40,6 +40,18 @@ test('arrival stays in overview and visitor return restores the originating term
   expect(state.console).toEqual({ focus: 'exploration', page: 'collision' })
 })
 
+test('returning from another visitor planet never reopens the earlier visitor terminal', () => {
+  let state = cockpitReducer(initialCockpitState, { type: 'depart', token: 1, target: 'visitor' })
+  state = cockpitReducer(state, { type: 'arrive', token: 1 })
+  state = cockpitReducer(state, { type: 'open', page: 'visitor' })
+  state = cockpitReducer(state, { type: 'depart', token: 2, target: 'visitor' })
+  state = cockpitReducer(state, { type: 'arrive', token: 2 })
+  state = cockpitReducer(state, { type: 'return', token: 3 })
+  state = cockpitReducer(state, { type: 'arrive', token: 3 })
+  expect(state.exterior).toBe('visitor')
+  expect(state.console).toEqual({ focus: 'overview', page: 'visitor' })
+})
+
 test('reset discards account-scoped destination and return history', () => {
   let state = cockpitReducer(initialCockpitState, { type: 'open', page: 'bottles' })
   state = cockpitReducer(state, { type: 'depart', token: 3, target: 'visitor' })

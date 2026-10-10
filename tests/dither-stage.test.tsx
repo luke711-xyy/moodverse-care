@@ -8,20 +8,110 @@ import { createDitherSpec } from '../src/music/dither/appearance'
 import { buildDitherStageFrame } from '../src/music/dither/stage-layout'
 import { hitTestDitherAssets } from '../src/music/dither/layout'
 import * as ditherLayout from '../src/music/dither/layout'
+import { sphereSurface } from '../src/music/dither/sphere'
 const capture = vi.hoisted(() => ({ frame: null as DitherFrame | null }))
 vi.mock('../src/music/dither/DitherCanvas', () => ({ DitherCanvas: (props: { getFrame: (w: number, h: number, phase: number) => DitherFrame; onFrame?: (frame: DitherFrame) => void }) => { capture.frame = props.getFrame(1000, 700, 0); props.onFrame?.(capture.frame); return <canvas /> } }))
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
-test('the own planet and its orbit are 85% of the unchanged visitor display scale', () => {
+test.each(['home', 'visitor'] as const)('%s music satellites exclude the actual appearance song and use each remaining song cover', kind => {
+  const tracks = ['primary', 'appearance', 'other', 'no-cover'].map((id, i) => ({ id, title: id, artistId: id, artistName: id,
+    genres: [], moodTags: [], versionLabel: '', officialUrl: null, coverUrl: i === 3 ? null : `https://covers.example/${id}.jpg`, durationSeconds: 180, isPrimary: i === 0 }))
+  const visual = createDitherSpec({ planetId: kind, tracks, overrides: { coverTrackId: 'appearance' } })
+  const planet = { id: kind, displayName: kind, tracks, visual }
+  const friends = Array.from({length:8}, (_,i) => ({ id:`f-${i}`, displayName:`好友${i}`, tagline:'', color:'#ffffff', visualSeed:`f-${i}`, orbitRadius:.3, orbitPhase:0, isVirtual:false, canRemove:false }))
+  const onMusicSelect = vi.fn()
+  render(<Stage planet={planet as React.ComponentProps<typeof Stage>['planet']} visitedPlanet={kind === 'visitor' ? { ...planet, friendSatellites:friends } as React.ComponentProps<typeof Stage>['visitedPlanet'] : null}
+    friendSatellites={friends} previewSeed="owner" reducedMotion productView="planet" galaxySystems={[]} galaxyRotation={0} routeJourney={0} regrouping={false}
+    onSelectGalaxy={vi.fn()} onOpenPlanet={vi.fn()} onRotate={vi.fn()} onTourMove={vi.fn()} onMusicSelect={onMusicSelect} onFriendSelect={vi.fn()} />)
+  const music = capture.frame!.assets.filter(a=>a.id.startsWith('music:'))
+  expect(music.map(a=>a.id).sort()).toEqual(['music:no-cover','music:other','music:primary'])
+  expect(music.find(a=>a.id==='music:primary')!.spec.coverTexture).toEqual({trackId:'primary',url:'https://covers.example/primary.jpg'})
+  expect(music.find(a=>a.id==='music:other')!.spec.coverTexture).toEqual({trackId:'other',url:'https://covers.example/other.jpg'})
+  expect(music.find(a=>a.id==='music:no-cover')!.spec.coverTexture).toBeUndefined()
+  expect(screen.queryByRole('button',{name:'音乐卫星 appearance'})).toBeNull()
+  fireEvent.click(screen.getByRole('button',{name:'音乐卫星 other'}))
+  expect(onMusicSelect).toHaveBeenCalledWith('other')
+  expect(capture.frame!.assets.filter(a=>a.id.startsWith('friend:')).map(a=>a.id).sort()).toEqual(['friend:f-0','friend:f-1','friend:f-2','friend:f-3','friend:f-4'])
+  expect(screen.getAllByRole('button',{name:/^好友卫星 /})).toHaveLength(5)
+  expect(screen.queryByRole('button',{name:'好友卫星 好友5'})).toBeNull()
+})
+
+test('a planet whose only selected song supplies its appearance has no duplicate music satellite', () => {
+  const track = {id:'only',title:'only',artistId:'a',artistName:'a',genres:[],moodTags:[],versionLabel:'',officialUrl:null,coverUrl:'https://covers.example/only.jpg',durationSeconds:180}
+  const owner=createDitherSpec({planetId:'only-planet',tracks:[track],overrides:{coverTrackId:'only'}})
+  const frame=buildDitherStageFrame({width:1000,height:700,phase:0,owner,systems:[],home:1,journey:0,rotation:0,friends:[],music:[track]})
+  expect(frame.assets.filter(a=>a.id.startsWith('music:'))).toEqual([])
+})
+
+test('song satellites match the unique selected songs up to five; no virtual companions or visitor-owned friends leak in', () => {
+  const owner = createDitherSpec({planetId:'owner',tracks:[]})
+  const peer = createDitherSpec({planetId:'peer',tracks:[],overrides:{blue:0,violet:0,pink:1}})
+  const input = {width:1000,height:700,phase:0,owner,systems:[],home:1,journey:0,rotation:0,
+    music:['a','a','b','c','d','e','f'].map(id=>({id})),
+    friends:[{id:'virtual',isVirtual:true},{id:'real',isVirtual:false,visual:peer}]}
+  const frame = buildDitherStageFrame(input)
+  expect(frame.assets.filter(a=>a.id.startsWith('music:')).map(a=>a.id).sort()).toEqual(['music:a','music:b','music:c','music:d','music:e'])
+  expect(frame.assets.filter(a=>a.id.startsWith('friend:')).map(a=>a.id)).toEqual(['friend:real'])
+  expect(frame.assets.find(a=>a.id==='friend:real')?.spec.seed).toBe('peer')
+  const visitor = buildDitherStageFrame({...input,visitor:owner,music:[{id:'visited-song'}]})
+  expect(visitor.assets.filter(a=>a.id.startsWith('music:')).map(a=>a.id)).toEqual(['music:visited-song'])
+  expect(visitor.assets.filter(a=>a.id.startsWith('friend:'))).toEqual([])
+})
+
+test('a visited planet renders its own three songs and friend, never the viewers friend list', () => {
+  const friend = { id: 'host-friend', displayName: '访客本人', tagline: '', color: '#ffffff', visualSeed: 'viewer', orbitRadius: .3, orbitPhase: 0, isVirtual: false, canRemove: false }
+  const host = { id: 'host', displayName: '好友星球', tracks: ['a', 'b', 'c'].map(id => ({ id, title: id, artistId: id, artistName: id, genres: [], moodTags: [], versionLabel: '', officialUrl: null, coverUrl: null, durationSeconds: 180 })), friendSatellites: [friend] }
+  const onFriendSelect = vi.fn()
+  render(<Stage planet={null} visitedPlanet={host as unknown as React.ComponentProps<typeof Stage>['visitedPlanet']}
+    friendSatellites={[{ ...friend, id: 'unrelated', displayName: '不相关好友' }]} previewSeed="viewer" reducedMotion productView="visitor"
+    galaxySystems={[]} galaxyRotation={0} routeJourney={0} regrouping={false} onSelectGalaxy={vi.fn()} onOpenPlanet={vi.fn()}
+    onRotate={vi.fn()} onTourMove={vi.fn()} onMusicSelect={vi.fn()} onFriendSelect={onFriendSelect} />)
+  expect(capture.frame!.assets.filter(a => /^(music|friend):/.test(a.id))).toHaveLength(4)
+  expect(capture.frame!.assets.filter(a => a.id.startsWith('friend:')).map(a => a.id)).toEqual(['friend:host-friend'])
+  expect(screen.queryByRole('button', { name: '好友卫星 不相关好友' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: '好友卫星 访客本人' }))
+  expect(onFriendSelect).toHaveBeenCalledWith('host-friend')
+})
+
+test.each(['home', 'visitor'] as const)('%s dragging moves the surface through depth in both screen directions', kind => {
+  vi.stubGlobal('PointerEvent', MouseEvent)
+  const planet = { id: kind, displayName: kind, tracks: [], visual: createDitherSpec({ planetId: kind, tracks: [], overrides: { size: 1 } }) }
+  const onPlanetSelect = vi.fn()
+  render(<Stage planet={planet as React.ComponentProps<typeof Stage>['planet']} visitedPlanet={kind === 'visitor' ? planet as React.ComponentProps<typeof Stage>['visitedPlanet'] : null}
+    friendSatellites={[]} previewSeed="owner" reducedMotion productView="planet" galaxySystems={[]} galaxyRotation={0} routeJourney={0} regrouping={false}
+    onSelectGalaxy={vi.fn()} onOpenPlanet={vi.fn()} onPlanetSelect={onPlanetSelect} onRotate={vi.fn()} onTourMove={vi.fn()} onMusicSelect={vi.fn()} onFriendSelect={vi.fn()} />)
+  const region = screen.getByRole('region', { name: '二维音乐宇宙' })
+  const body = () => capture.frame!.assets.find(asset => asset.id.startsWith(kind + ':'))!
+  const center = { button: 0, clientX: body().x, clientY: body().y }
+  const surface = () => sphereSurface(0, 0, .85, 0, body().rotation, body().orientation)
+  const initial = surface()
+  fireEvent.pointerDown(region, center)
+  fireEvent.pointerMove(region, { ...center, clientY: center.clientY + 70 })
+  const vertical = surface()
+  expect(Math.abs(vertical.y - initial.y)).toBeGreaterThan(.1)
+  expect(vertical.x).toBeCloseTo(initial.x)
+  // Diagonal motion must change both axes, not spin the picture around Z.
+  fireEvent.pointerMove(region, { ...center, clientX: center.clientX + 70, clientY: center.clientY + 70 })
+  expect(Math.abs(surface().x - initial.x)).toBeGreaterThan(.1)
+  expect(Math.abs(surface().y - initial.y)).toBeGreaterThan(.1)
+  fireEvent.pointerUp(region, { ...center, clientX: center.clientX + 70, clientY: center.clientY + 70 })
+  expect(onPlanetSelect).not.toHaveBeenCalled()
+  const released = surface()
+  fireEvent.pointerMove(region, { ...center, clientX: center.clientX + 140 })
+  expect(surface()).toEqual(released)
+})
+
+test('the own planet and orbit shrink another 10% without changing visitor scale or center', () => {
   const owner = createDitherSpec({ planetId: 'owner', tracks: [] })
   const input = { width: 1000, height: 700, phase: 0, owner, systems: [], home: 1, journey: 0, rotation: 0, friends: [], music: [] }
   const own = buildDitherStageFrame(input)
   const visitor = buildDitherStageFrame({ ...input, visitor: owner })
-  expect(own.assets[0].radius).toBeCloseTo(visitor.assets[0].radius * .85)
+  expect(visitor.assets[0].radius).toBeCloseTo(285)
+  expect(own.assets[0].radius).toBeCloseTo(218.025)
   expect(own.assets[0].x).toBe(visitor.assets[0].x)
   expect(own.assets[0].y).toBe(visitor.assets[0].y)
-  expect(own.orbits[0].rx).toBeCloseTo(visitor.orbits[0].rx * .85)
-  expect(own.orbits[0].ry).toBeCloseTo(visitor.orbits[0].ry * .85)
+  expect(own.orbits[0].rx).toBeCloseTo(visitor.orbits[0].rx * .765)
+  expect(own.orbits[0].ry).toBeCloseTo(visitor.orbits[0].ry * .765)
 })
 
 test('rear satellites are painted and picked behind the owner; front satellites stay visible', () => {

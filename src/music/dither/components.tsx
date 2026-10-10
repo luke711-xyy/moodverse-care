@@ -37,7 +37,7 @@ export function DitherLoadingRing({ label = '正在加载', progress }: { label?
   return <div className="dither-loading" role="status">
     <svg className="dither-loading-ring" viewBox="0 0 120 120" aria-hidden="true">
       <defs><path id={id} d="M60,15 a45,45 0 1,1 -0.01,0" /></defs>
-      <text><textPath href={`#${id}`}>··· MOODVERSE ··· MOODVERSE ···</textPath></text>
+      <text><textPath href={`#${id}`}>··· MOSIC ··· MOSIC ···</textPath></text>
       {Array.from({ length: 12 }, (_, i) => <circle key={i} cx={60 + Math.cos(i * Math.PI / 6) * 27} cy={60 + Math.sin(i * Math.PI / 6) * 27} r={i % 3 === 0 ? 1.8 : 1} />)}
     </svg>
     <span>{label}</span>

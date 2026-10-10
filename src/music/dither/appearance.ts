@@ -19,7 +19,8 @@ export type DitherParameters = Record<DitherNumericKey, number> & {
   algorithm: typeof DITHER_ALGORITHMS[number]
   pointer: 'off' | 'weak' | 'strong'
 }
-export type DitherOverrides = Partial<DitherParameters>
+export type DitherOverrides = Partial<DitherParameters> & { coverTrackId?: string | null }
+export type AlbumCoverTexture = { trackId: string; url: string }
 export type DitherPlanetSpec = {
   schemaVersion: 3
   engineVersion: 1
@@ -27,6 +28,7 @@ export type DitherPlanetSpec = {
   seed: string
   generated: DitherParameters
   overrides: DitherOverrides
+  coverTexture?: AlbumCoverTexture
   musicFeatures: { tempoBpm: number | null; energy: number; hardness: number; acousticness: number; source: MusicVisualFeatures['source'] | 'mixed' }
 }
 type Validation<T> = { ok: true; value: T } | { ok: false }
@@ -52,7 +54,8 @@ export function validateDitherOverrides(value: unknown): Validation<DitherOverri
     if (Object.prototype.hasOwnProperty.call(DITHER_LIMITS, key)) {
       const [min, max] = DITHER_LIMITS[key as DitherNumericKey]
       if (!finite(item, min, max) || key === 'seedOffset' && !Number.isInteger(item)) return { ok: false }
-    } else if (key === 'form' && DITHER_FORMS.includes(item as DitherParameters['form'])) continue
+    } else if (key === 'coverTrackId' && (item === null || typeof item === 'string' && /^[\w:-]{1,200}$/.test(item))) continue
+    else if (key === 'form' && DITHER_FORMS.includes(item as DitherParameters['form'])) continue
     else if (key === 'motif' && DITHER_MOTIFS.includes(item as DitherParameters['motif'])) continue
     else if (key === 'algorithm' && DITHER_ALGORITHMS.includes(item as DitherParameters['algorithm'])) continue
     else if (key === 'pointer' && ['off', 'weak', 'strong'].includes(String(item))) continue
@@ -88,6 +91,16 @@ export function effectiveDitherParameters(spec: DitherPlanetSpec): DitherParamet
   return { ...value, blue: value.blue / sum, violet: value.violet / sum, pink: value.pink / sum }
 }
 
+export function resolveAlbumCover(tracks: { id: string; coverUrl?: string | null }[], trackId?: string | null): AlbumCoverTexture | undefined {
+  const track = tracks.find(track => track.id === trackId)
+  if (!track?.coverUrl) return undefined
+  try {
+    const url = new URL(track.coverUrl)
+    if (url.protocol !== 'https:' || url.username || url.password) return undefined
+    return { trackId: track.id, url: url.href }
+  } catch { return undefined }
+}
+
 export function createDitherSpec({ planetId, tracks, previous, overrides }: { planetId: string; tracks: Track[]; previous?: unknown; overrides?: DitherOverrides }): DitherPlanetSpec {
   const profiles = tracks.map(profile)
   const primary = Math.max(0, tracks.findIndex((track) => track.isPrimary))
@@ -107,9 +120,12 @@ export function createDitherSpec({ planetId, tracks, previous, overrides }: { pl
   const chosen = overrides ?? (isDitherSpec(previous) ? previous.overrides : {})
   const validated = validateDitherOverrides(chosen)
   if (!validated.ok) throw new Error('INVALID_APPEARANCE_OVERRIDES')
+  const coverTexture = resolveAlbumCover(tracks, validated.value.coverTrackId)
+  if (validated.value.coverTrackId && !coverTexture) delete validated.value.coverTrackId
   const sources = new Set(profiles.map((p) => p.source))
   return {
     schemaVersion: 3, engineVersion: 1, mappingVersion: 1, seed: planetId || 'music-preview', generated, overrides: validated.value,
+    ...(coverTexture ? { coverTexture } : {}),
     musicFeatures: { energy, hardness, acousticness,
       tempoBpm: profiles.length && profiles.every((p) => p.tempoBpm !== null) ? round(profiles.reduce((sum, p, i) => sum + p.tempoBpm! * weights[i], 0)) : null,
       source: sources.size > 1 ? 'mixed' : profiles[0]?.source ?? 'unknown',
@@ -120,16 +136,21 @@ export function createDitherSpec({ planetId, tracks, previous, overrides }: { pl
 export function isDitherSpec(value: unknown): value is DitherPlanetSpec {
   if (!record(value) || value.schemaVersion !== 3 || value.engineVersion !== 1 || value.mappingVersion !== 1
     || typeof value.seed !== 'string' || !value.seed || value.seed.length > 200 || !record(value.generated) || !record(value.musicFeatures)) return false
-  if (Object.keys(value).some((key) => !['schemaVersion', 'engineVersion', 'mappingVersion', 'seed', 'generated', 'overrides', 'musicFeatures'].includes(key))) return false
+  if (Object.keys(value).some((key) => !['schemaVersion', 'engineVersion', 'mappingVersion', 'seed', 'generated', 'overrides', 'musicFeatures', 'coverTexture'].includes(key))) return false
   const generated = validateDitherOverrides(value.generated), overrides = validateDitherOverrides(value.overrides)
   if (!generated.ok || !overrides.ok) return false
+  if (value.coverTexture !== undefined) {
+    const cover = value.coverTexture
+    if (!record(cover) || Object.keys(cover).length !== 2 || typeof cover.trackId !== 'string' || typeof cover.url !== 'string' || cover.trackId !== overrides.value.coverTrackId) return false
+    try { const url = new URL(cover.url); if (url.protocol !== 'https:' || url.username || url.password || cover.url.length > 4096) return false } catch { return false }
+  }
   const expected = [...Object.keys(DITHER_LIMITS), 'form', 'motif', 'algorithm', 'pointer']
   if (Object.keys(value.generated).length !== expected.length || !expected.every((key) => Object.prototype.hasOwnProperty.call(value.generated, key))) return false
   const f = value.musicFeatures
   if (Object.keys(f).length !== 5 || Object.keys(f).some((key) => !['tempoBpm', 'energy', 'hardness', 'acousticness', 'source'].includes(key))) return false
   if (!finite(f.energy, 0, 1) || !finite(f.hardness, 0, 1) || !finite(f.acousticness, 0, 1)
     || f.tempoBpm !== null && !finite(f.tempoBpm, 30, 300)
-    || !['curated', 'demo', 'tag-derived', 'unknown', 'mixed'].includes(String(f.source))) return false
+    || !['curated', 'audius', 'demo', 'tag-derived', 'unknown', 'mixed'].includes(String(f.source))) return false
   const p = { ...generated.value, ...overrides.value }
   return (p.blue ?? 0) + (p.violet ?? 0) + (p.pink ?? 0) > 0
 }

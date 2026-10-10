@@ -1,0 +1,4 @@
+.music-pagination { grid-column: 1 / -1; display: flex; align-items: center; justify-content: center; gap: 12px; width: 100%; padding: 10px 0; position: static; z-index: auto; background: var(--music-panel, #12121b); color: inherit; font-size: 12px; }
+.music-pagination > button { min-height: 36px; padding: 5px 10px; font-size: inherit; white-space: nowrap; }
+.music-pagination > span { min-width: 5ch; text-align: center; font-variant-numeric: tabular-nums; }
+.cockpit .music-pagination { background: #141612; }

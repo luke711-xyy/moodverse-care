@@ -1,0 +1,39 @@
+/* A one-line CRT above three inset, calibrated glass windows. The display uses
+   the same live CRT as the other terminals, outside the metal dither pass. */
+.cockpit-wing-right { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.cockpit .cockpit-galaxy-display { flex: none; width: min(100%,172px); height: 36px; min-height: 36px; margin: 0; padding: 0; border-width: 4px; border-radius: 5px; }
+.cockpit-galaxy-readout { display: flex; align-items: center; justify-content: center; height: 100%; white-space: nowrap; font: 650 11px var(--cockpit-body); color: var(--phosphor); text-shadow: 0 0 3px #efd79f66; }
+.cockpit .cockpit-galaxy-dial { --dial-center: 74%; position: relative; flex: 1; min-height: 0; width: 100%; max-width: 200px; margin-top: 5px; container-type: size; }
+.cockpit .cockpit-galaxy-sector { position: absolute; width: min(112cqw,154cqh); height: min(112cqw,154cqh); left: 50%; top: var(--dial-center); margin: 0; padding: 0; border: 0; background: transparent; transform: translate(-50%,-50%) rotate(var(--sector-angle));
+  clip-path: polygon(23% 12%,31% 8%,40% 5%,50% 4%,60% 5%,69% 8%,77% 12%,66% 28%,58% 24%,50% 23%,42% 24%,34% 28%); }
+.cockpit-galaxy-sector svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.galaxy-dial-bezel { fill: #54492e; stroke: #e3c484; stroke-width: 1.5; }
+.galaxy-dial-face { fill: #202822; stroke: #100f0a; stroke-width: 2; }
+.galaxy-dial-tick { stroke: #bbaa7a; stroke-width: 1; }
+.galaxy-dial-tick.major { stroke: #e9d59e; stroke-width: 1.6; }
+.cockpit-galaxy-sector text { fill: #eedaaa; font: 700 14px var(--cockpit-label); letter-spacing: .6px; }
+.galaxy-dial-glint { fill: none; stroke: #e7ecd577; stroke-width: 1; }
+.cockpit-galaxy-sector[aria-pressed=true] .galaxy-dial-face { fill: #4e5030; }
+.cockpit-galaxy-sector[aria-pressed=true] text { fill: #fff1c1; }
+.cockpit-galaxy-sector[aria-pressed=true] .galaxy-dial-bezel { stroke: #ffe4a2; stroke-width: 2.5; }
+.cockpit-galaxy-sector:hover:not(:disabled) .galaxy-dial-face { fill: #454c38; }
+.cockpit .cockpit-galaxy-sector:focus-visible { outline: none; }
+.cockpit-galaxy-sector:focus-visible .galaxy-dial-bezel { stroke: #fff4cd; stroke-width: 4; }
+.cockpit-galaxy-dial .cockpit-knob-body { width: min(43cqw,55cqh); height: min(43cqw,55cqh); left: 50%; top: var(--dial-center); bottom: auto; transform: translate(-50%,-50%) rotate(var(--knob-angle)); filter: url(#moodverse-hardware-dither); }
+.cockpit-galaxy-dial .cockpit-knob-body i { height: 35%; }
+.cockpit-wing-right .cockpit-settings-key { position: relative; flex: none; align-self: flex-end; right: auto; bottom: auto; margin: 0 0 8px; }
+@container music-viewport (max-height:600px) and (min-width:640px) {
+  .cockpit-wing-right { gap: 5px; }
+  .cockpit .cockpit-galaxy-display { height: 27px; min-height: 27px; border-width: 3px; }
+  .cockpit-galaxy-readout { font-size: 9px; }
+  .cockpit .cockpit-galaxy-dial { --dial-center: 66%; margin-top: 0; }
+  .cockpit-wing-right .cockpit-settings-key { margin-bottom: 4px; min-height: 25px; }
+}
+@container music-viewport (max-width:1000px) and (max-height:600px) {
+  .cockpit-wing-right { gap: 3px; }
+  .cockpit .cockpit-galaxy-display { border-width: 2px; height: 24px; min-height: 24px; }
+  .cockpit-galaxy-readout { font-size: 7px; }
+  .cockpit-galaxy-dial .cockpit-knob-body { border-width: 3px; }
+  .cockpit-galaxy-dial .cockpit-knob-body::before { inset: 3px; }
+  .cockpit-galaxy-dial .cockpit-knob-body i { top: 3px; width: 3px; }
+}

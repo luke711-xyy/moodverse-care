@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test } from 'vitest'
+import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { onRequestGet, sampleGalaxyPlanets } from '../functions/api/music/galaxy'
 import { createMusicApiEnv, createMusicApiFixture, insertCatalogTrack } from './helpers/music-api-fixture'
 import type { MusicGalaxyResponse } from '../src/music-api'
@@ -40,7 +40,7 @@ beforeEach(() => {
     ('moment-private', 'planet-public', 'song-hidden', '不可公开', 'private', NULL, '2026-09-02T00:00:00.000Z', '2026-09-02T00:00:00.000Z')`).run()
 })
 
-afterEach(() => fixture.close())
+afterEach(() => { fixture.close(); vi.useRealTimers(); vi.restoreAllMocks() })
 
 async function getGalaxy(by: string) {
   return onRequestGet({
@@ -66,17 +66,14 @@ test('Galaxy groups active public selections and published public Moments, dedup
   expect(JSON.stringify(body)).not.toContain('不可公开')
 })
 
-test('Galaxy groups the same public planet into every associated genre without requiring a shared song', async () => {
+test('Galaxy defaults to eight common genres, includes public genre matches and keeps empty sectors', async () => {
   const response = await getGalaxy('genre')
   const body = await response.json() as { groups: Array<{ key: string; label: string; planets: Array<{ planetId: string; displayName: string; tagline: string; reasonCode: string }> }> }
 
   expect(response.status).toBe(200)
-  expect(body.groups.map(({ key, label }) => [key, label])).toEqual([
-    ['ambient', 'ambient'],
-    ['dream pop', 'dream pop'],
-  ])
-  expect(body.groups[0].planets[0]).toMatchObject({ planetId: 'planet-public', displayName: '夜航者', tagline: '跟着歌声靠岸', reasonCode: 'same_genre' })
-  expect(body.groups[1].planets[0]).toMatchObject({ planetId: 'planet-public', displayName: '夜航者', tagline: '跟着歌声靠岸', reasonCode: 'same_genre' })
+  expect(body.groups.map(g => g.key)).toEqual(['pop', 'rock', 'hip-hop/rap', 'electronic', 'r&b/soul', 'jazz', 'classical', 'ambient'])
+  expect(body.groups.find(g => g.key === 'ambient')!.planets[0]).toMatchObject({ planetId: 'planet-public', displayName: '夜航者', tagline: '跟着歌声靠岸', reasonCode: 'same_genre' })
+  expect(body.groups.find(g => g.key === 'rock')!.planets).toEqual([])
 })
 
 test('Galaxy rejects unknown grouping modes instead of silently changing the discovery rule', async () => {
@@ -98,6 +95,47 @@ test('crowded systems randomly sample at most 16 distinct public planets', async
   const values=Array.from({length:40},(_,i)=>i)
   expect(sampleGalaxyPlanets(values,16,()=>0)).not.toEqual(values.slice(0,16))
   expect(values).toHaveLength(40)
+})
+
+test.each(['genre', 'artist', 'song'])('%s systems keep the same daily sample and redraw at UTC+8 midnight', async by => {
+  fixture.sqlite.prepare(`UPDATE music_track_catalog SET genres_json = '["Pop"]' WHERE id = 'song-a'`).run()
+  for (let i = 0; i < 40; i++) {
+    fixture.sqlite.prepare(`INSERT INTO users(id,token_hash,created_at,updated_at) VALUES(?,?,?,?)`).run(`daily-u${i}`, `daily-h${i}`, 'now', 'now')
+    fixture.sqlite.prepare(`INSERT INTO music_planets(id,owner_user_id,display_name,visibility,created_at,updated_at) VALUES(?,?,?,'public','now','now')`).run(`daily-p${i}`, `daily-u${i}`, `Daily ${i}`)
+    fixture.sqlite.prepare(`INSERT INTO music_planet_tracks(planet_id,track_id,position,selected_at) VALUES(?,'song-a',0,'now')`).run(`daily-p${i}`)
+  }
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-10-10T15:59:59Z'))
+  const ids = async () => {
+    const body = await (await getGalaxy(by)).json() as MusicGalaxyResponse
+    return body.groups.find(g => g.key === (by === 'genre' ? 'pop' : by === 'artist' ? 'artist-1' : 'song-a'))!.planets.map(p => p.planetId)
+  }
+  const first = await ids()
+  expect(first).toHaveLength(16)
+  expect(await ids()).toEqual(first)
+  vi.setSystemTime(new Date('2026-10-10T16:00:00Z'))
+  const next = await ids()
+  expect(next).not.toEqual(first)
+  expect(await ids()).toEqual(next)
+  fixture.sqlite.prepare(`UPDATE music_planets SET visibility='private' WHERE id=?`).run(next[0])
+  expect(await ids()).not.toContain(next[0])
+})
+
+test('daily galaxy sampling includes the source pool beyond the database page boundary', async () => {
+  const user = fixture.sqlite.prepare(`INSERT INTO users(id,token_hash,created_at,updated_at) VALUES(?,?, 'now','now')`)
+  const planet = fixture.sqlite.prepare(`INSERT INTO music_planets(id,owner_user_id,display_name,visibility,created_at,updated_at) VALUES(?,?,?,'public','now','now')`)
+  const selection = fixture.sqlite.prepare(`INSERT INTO music_planet_tracks(planet_id,track_id,position,selected_at) VALUES(?,'song-a',0,'now')`)
+  fixture.sqlite.exec('BEGIN')
+  for (let i = 0; i < 5010; i++) {
+    user.run(`large-u${i}`, `large-h${i}`)
+    planet.run(`large-p${i}`, `large-u${i}`, `Large ${i}`)
+    selection.run(`large-p${i}`)
+  }
+  fixture.sqlite.exec('COMMIT')
+  const body = await (await getGalaxy('song')).json() as MusicGalaxyResponse
+  const group = body.groups.find(g => g.key === 'song-a')!
+  expect(group.planetCount).toBe(5011)
+  expect(new Set(group.planets.map(p => p.planetId)).size).toBe(16)
 })
 
 test('Galaxy adapts legacy and unsafe appearance JSON into bounded deterministic 2D specs', async () => {

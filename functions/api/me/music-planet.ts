@@ -1,8 +1,9 @@
 import { authenticatedMusicUser, json, type Env } from '../../_shared'
-import { ensureDefaultFriendSatellites, readFriendSatellites } from '../../_music-friend-satellites'
+import { demoWelcomeStatements } from '../../_music-demo-social'
+import { readFriendSatellites } from '../../_music-friend-satellites'
 import { validateTrackSelection, type MusicTrackSummary } from '../../../src/music-domain'
 import { catalogTrack, parseVisualJson, readVisualCatalogTracks, CATALOG_VISUAL_COLUMNS } from '../../_music-dither'
-import { createDitherSpec, resolveDitherSpec, validateDitherOverrides } from '../../../src/music/dither/appearance'
+import { createDitherSpec, resolveDitherSpec, resolveAlbumCover, validateDitherOverrides } from '../../../src/music/dither/appearance'
 import { DEFAULT_TRACK_ID } from '../../../src/music/default-track'
 
 type MusicPlanetRow = {
@@ -76,6 +77,7 @@ async function readOwnerPlanet(env: Env, userId: string) {
     JOIN music_track_catalog c ON c.id = t.track_id
     WHERE t.planet_id = ?1
     ORDER BY t.position
+    LIMIT 5
   `).bind(row.id).all<MusicPlanetTrackRow>()
 
   const tracks = results.map((track) => ({
@@ -114,7 +116,6 @@ function isValidVisibility(value: unknown): value is 'public' | 'private' {
 export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   const identity = await authenticatedMusicUser(request, env)
   if (!identity) return response({ error: 'UNAUTHENTICATED' }, 401)
-  await ensureDefaultFriendSatellites(env, identity.userId)
   const planet = await readOwnerPlanet(env, identity.userId)
   const demoEmail = env.MUSIC_DEMO_EMAIL?.trim().toLocaleLowerCase() ?? ''
   const accountEmail = identity.email?.trim().toLocaleLowerCase() ?? ''
@@ -153,6 +154,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
   const tracks = await readVisualCatalogTracks(env, selection.trackIds, normalizedPrimaryId)
   const overrides = validateDitherOverrides(body.appearanceOverrides === undefined ? {} : body.appearanceOverrides)
   if (!overrides.ok) return response({ error: 'INVALID_APPEARANCE_OVERRIDES' }, 400)
+  if (overrides.value.coverTrackId && !resolveAlbumCover(tracks, overrides.value.coverTrackId)) return response({ error: 'INVALID_COVER_TRACK' }, 400)
   const visual = createDitherSpec({ planetId, tracks, overrides: overrides.value })
   const statements = [env.DB.prepare(`
     INSERT INTO music_planets
@@ -168,6 +170,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
   }
 
   try {
+    statements.push(...demoWelcomeStatements(env, identity.userId, planetId, timestamp))
     await env.DB.batch(statements)
   } catch (error) {
     if (error instanceof Error && /UNIQUE constraint failed: music_planets\.owner_user_id/.test(error.message)) {
@@ -250,6 +253,7 @@ export const onRequestPatch: PagesFunction<Env> = async (context) => {
       WHERE c.id IN (${nextTrackIds.map(() => '?').join(',')})`).bind(...nextTrackIds).all<MusicPlanetTrackRow>()
     tracks.splice(0, tracks.length, ...nextTrackIds.map((id) => ({ ...catalogTrack(results.find((r) => r.id === id)!), isPrimary: id === primaryTrackId })))
   }
+  if (overrides?.ok && overrides.value.coverTrackId && !resolveAlbumCover(tracks, overrides.value.coverTrackId)) return response({ error: 'INVALID_COVER_TRACK' }, 400)
   const visual = createDitherSpec({ planetId: current.id, tracks, previous: parseVisualJson(current.visual_json), ...(overrides?.ok ? { overrides: overrides.value } : {}) })
   const statements = [env.DB.prepare(`
     UPDATE music_planets
@@ -269,10 +273,17 @@ export const onRequestPatch: PagesFunction<Env> = async (context) => {
       `).bind(current.id, trackId, position, trackId === primaryTrackId ? 1 : 0, oldSelectedAt.get(trackId) ?? timestamp, writeToken))
     }
   } else if (hasPrimaryTrackId) {
+    // SQLite checks the partial unique index row by row. Clear the old primary
+    // before setting the new one, inside the same atomic, revision-guarded batch.
+    statements.push(env.DB.prepare(`
+      UPDATE music_planet_tracks SET is_primary = 0
+      WHERE planet_id = ?1 AND is_primary = 1
+        AND EXISTS (SELECT 1 FROM music_planets WHERE id=?1 AND visual_write_token=?2)
+    `).bind(current.id, writeToken))
     statements.push(env.DB.prepare(`
       UPDATE music_planet_tracks
-      SET is_primary = CASE WHEN track_id = ?1 THEN 1 ELSE 0 END
-      WHERE planet_id = ?2 AND EXISTS (SELECT 1 FROM music_planets WHERE id=?2 AND visual_write_token=?3)
+      SET is_primary = 1
+      WHERE track_id = ?1 AND planet_id = ?2 AND EXISTS (SELECT 1 FROM music_planets WHERE id=?2 AND visual_write_token=?3)
     `).bind(primaryTrackId, current.id, writeToken))
   }
 

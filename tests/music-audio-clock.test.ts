@@ -4,6 +4,14 @@ import { COSMOS_BEAT } from '../src/music/default-track'
 
 afterEach(() => setMusicClockSource(null))
 
+test('the tide follows the currently playing track BPM, still spanning two beats', () => {
+  const audio = { currentTime: .5, paused: false, ended: false } as HTMLAudioElement
+  setMusicClockSource(audio, { bpm: 120, offsetSeconds: 0 })
+  expect(getMusicBeatClock()).toMatchObject({ bpm: 60, cycles: .5, playing: true })
+  setMusicClockSource(audio, { bpm: null, offsetSeconds: 0 })
+  expect(getMusicBeatClock()).toBeUndefined()
+})
+
 test('a music tide completes one cycle every two song beats', () => {
   const audio = { currentTime: COSMOS_BEAT.offsetSeconds, paused: false, ended: false }
   setMusicClockSource(audio as HTMLAudioElement)

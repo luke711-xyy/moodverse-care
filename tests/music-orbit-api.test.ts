@@ -144,7 +144,7 @@ test('Orbit keeps the five groups separate, hides private targets and incoming i
   expect(body.date).toBe(new Date().toISOString().slice(0, 10))
 })
 
-test('daily Orbit roam persists a stable public-only snapshot without creating a visit', async () => {
+test('Orbit no longer creates or returns daily-roam recommendations', async () => {
   const candidateAId = await createIdentity('orbit-daily-a')
   const candidateBId = await createIdentity('orbit-daily-b')
   const privateCandidateId = await createIdentity('orbit-daily-private')
@@ -159,10 +159,9 @@ test('daily Orbit roam persists a stable public-only snapshot without creating a
   const secondBody = await second.json() as { groups: { dailyRoam: Array<{ planetId: string; reasonCode: string }> } }
 
   expect(first.status).toBe(200)
-  expect(firstBody.groups.dailyRoam.map(({ planetId }) => planetId)).toEqual(['planet-daily-b', 'planet-daily-a'])
-  expect(firstBody.groups.dailyRoam.every(({ reasonCode }) => typeof reasonCode === 'string')).toBe(true)
-  expect(secondBody.groups.dailyRoam.map(({ planetId }) => planetId)).toEqual(firstBody.groups.dailyRoam.map(({ planetId }) => planetId))
-  expect(fixture.sqlite.prepare('SELECT count(*) AS count FROM music_daily_roam').get()).toEqual({ count: 2 })
+  expect(firstBody.groups.dailyRoam).toEqual([])
+  expect(secondBody.groups.dailyRoam).toEqual([])
+  expect(fixture.sqlite.prepare('SELECT count(*) AS count FROM music_daily_roam').get()).toEqual({ count: 0 })
   expect(fixture.sqlite.prepare('SELECT count(*) AS count FROM music_planet_visits').get()).toEqual({ count: 1 })
   expect(fixture.sqlite.prepare('SELECT count(*) AS count FROM music_song_encounters').get()).toEqual({ count: 0 })
   expect(JSON.stringify(firstBody)).not.toContain('planet-daily-private')

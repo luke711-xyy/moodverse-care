@@ -35,3 +35,13 @@ test('home arrival grows from a point; reverse departure shrinks completely befo
   expect(reverse.opacity).toBeCloseTo(small.opacity!)
   expect(buildCockpitFlightFrame(input, { ...trip, progress: .5 }).assets.find(a => a.id === 'nebula')?.opacity).toBe(.92)
 })
+
+test('visitor flight endpoints keep each destination friend satellites separate from home', () => {
+  const visitor = (id: string) => ({ id, displayName: id, tracks: [], visual: createDitherSpec({ planetId: id, tracks: [] }), friendSatellites: [{ id: `${id}-friend`, isVirtual: false }] })
+  const input = { width: 1000, height: 700, phase: 0, owner: createDitherSpec({ planetId: 'home', tracks: [] }), systems: [], home: 1, journey: 0, rotation: 0, friends: [{ id: 'home-friend', isVirtual: false }], music: [] }
+  const trip = { token: 1, from: 'visitor', to: 'visitor', progress: 0, ready: true, sourceVisitor: visitor('first'), targetVisitor: visitor('second'), returning: false } as unknown as CockpitFlight
+  const friends = (flight: CockpitFlight) => buildCockpitFlightFrame(input, flight).assets.filter(a => a.id.startsWith('friend:')).map(a => a.id)
+  expect(friends(trip)).toEqual(['friend:first-friend'])
+  expect(friends({ ...trip, progress: 1 })).toEqual(['friend:second-friend'])
+  expect(friends({ ...trip, to: 'home', progress: 1 })).toEqual(['friend:home-friend'])
+})

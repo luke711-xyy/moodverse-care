@@ -8,6 +8,17 @@ export const socialResponse = (body: unknown, status = 200) => new Response(JSON
 export const isSocialRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
+/** Pages route params retain URL escapes, including ':' in demo identities. */
+export function decodeSocialRouteId(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  try {
+    const id = decodeURIComponent(value.trim())
+    return !id || id.length > 128 || /[\/\\\u0000-\u001f]/.test(id) ? null : id
+  } catch {
+    return null
+  }
+}
+
 export async function pairIsBlocked(env: Env, firstUserId: string, secondUserId: string) {
   const row = await env.DB.prepare(`
     SELECT 1 AS blocked FROM music_user_blocks

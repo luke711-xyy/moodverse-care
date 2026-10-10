@@ -1,5 +1,4 @@
 import { authenticatedMusicUser, type Env } from '../../_shared'
-import { discoverPublicPlanets } from '../music/discovery'
 import { readPlanetDitherVisuals } from '../../_music-dither'
 
 type PlanetCardRow = {
@@ -21,31 +20,14 @@ const respond = (body: unknown, status = 200) => new Response(JSON.stringify(bod
   headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'private, no-store' },
 })
 
-async function ensureDailyRoam(env: Env, userId: string, date: string) {
-  const existing = await env.DB.prepare(`
-    SELECT count(*) AS count FROM music_daily_roam
-    WHERE user_id = ?1 AND recommendation_date = ?2
-  `).bind(userId, date).first<{ count: number }>()
-  if ((existing?.count ?? 0) > 0) return
-
-  const discovery = await discoverPublicPlanets(env, userId, true)
-  const createdAt = new Date().toISOString()
-  const writes = discovery.recommendations.slice(0, 6).map((item, position) => env.DB.prepare(`
-    INSERT OR IGNORE INTO music_daily_roam
-      (user_id, recommendation_date, planet_id, position, reason_code, match_score, created_at)
-    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-  `).bind(userId, date, item.planetId, position, item.reasonCode, item.matchScore, createdAt))
-  if (writes.length) await env.DB.batch(writes)
-}
-
-async function readOrbitGroups(env: Env, userId: string, date: string) {
-  const [encounters, friendships, visitsByMe, visitorsToMe, dailyRoam] = await Promise.all([
+async function readOrbitGroups(env: Env, userId: string) {
+  const [encounters, friendships, visitsByMe, visitorsToMe] = await Promise.all([
     env.DB.prepare(`
       SELECT p.id AS planet_id, p.display_name, p.tagline,
              MAX(e.last_encountered_at) AS occurred_at
       FROM music_song_encounters e
       JOIN music_planets p ON p.id = e.planet_id AND p.visibility = 'public'
-      WHERE e.visitor_user_id = ?1
+      WHERE e.visitor_user_id = ?1 AND p.owner_user_id <> ?1
         AND NOT EXISTS (
           SELECT 1 FROM music_user_blocks b
           WHERE (b.blocker_user_id = ?1 AND b.blocked_user_id = p.owner_user_id)
@@ -109,20 +91,6 @@ async function readOrbitGroups(env: Env, userId: string, date: string) {
       ORDER BY v.last_visited_at DESC, visitor_planet.id ASC
       LIMIT 50
     `).bind(userId).all<PlanetCardRow>(),
-    env.DB.prepare(`
-      SELECT p.id AS planet_id, p.display_name, p.tagline, r.created_at AS occurred_at,
-             r.position, r.reason_code, r.match_score
-      FROM music_daily_roam r
-      JOIN music_planets p ON p.id = r.planet_id AND p.visibility = 'public'
-      WHERE r.user_id = ?1 AND r.recommendation_date = ?2
-        AND NOT EXISTS (
-          SELECT 1 FROM music_user_blocks b
-          WHERE (b.blocker_user_id = ?1 AND b.blocked_user_id = p.owner_user_id)
-             OR (b.blocker_user_id = p.owner_user_id AND b.blocked_user_id = ?1)
-        )
-      ORDER BY r.position ASC, p.id ASC
-      LIMIT 6
-    `).bind(userId, date).all<PlanetCardRow>(),
   ])
 
   const card = (row: PlanetCardRow) => ({
@@ -145,11 +113,9 @@ async function readOrbitGroups(env: Env, userId: string, date: string) {
     })),
     visitedByMe: visitsByMe.results.map((row) => ({ ...card(row), isIncognito: row.is_incognito === 1 })),
     visitorsToMe: visitorsToMe.results.map((row) => ({ ...card(row), userId: row.user_id! })),
-    dailyRoam: dailyRoam.results.map((row) => ({
-      ...card(row),
-      reasonCode: row.reason_code!,
-      matchScore: row.match_score!,
-    })),
+    // Keep the empty legacy field so an already-open older client stays compatible.
+    // Historical rows are preserved, but Orbit neither reads nor generates them.
+    dailyRoam: [],
   }
 }
 
@@ -158,8 +124,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   if (!identity) return respond({ error: 'UNAUTHENTICATED' }, 401)
 
   const date = new Date().toISOString().slice(0, 10)
-  await ensureDailyRoam(env, identity.userId, date)
-  const groups = await readOrbitGroups(env, identity.userId, date)
+  const groups = await readOrbitGroups(env, identity.userId)
   const ids = [...new Set(Object.values(groups).flatMap((group) => group.map((card) => card.planetId)).filter((id): id is string => Boolean(id)))]
   const rows: Array<{ id: string; visual_json: string }> = []
   for (let i = 0; i < ids.length; i += 80) {

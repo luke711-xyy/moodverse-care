@@ -1,6 +1,8 @@
 import { createDitherSpec, effectiveDitherParameters, stableHash, type DitherPlanetSpec } from './appearance'
 import type { DitherAsset, DitherFrame } from './renderer'
 import { MUSIC_TIDE_BEATS_PER_CYCLE, type MusicBeatClock } from '../audio-clock'
+import { createMeteorShower } from './meteors'
+import { observeSkyPoints } from './observation'
 
 // A preview oscillator, NOT a measured song BPM. Replace the clock input with
 // actual beat events when an authorized audio source is available.
@@ -135,9 +137,9 @@ export function updateGalaxyBackdrop(field: ParticleField, width: number, height
     field.offsets[oi] = ox; field.offsets[oi + 1] = oy; field.velocities[oi] = vx; field.velocities[oi + 1] = vy
     field.points[pi] = hx + ox; field.points[pi + 1] = hy + oy
     field.points[pi + 2] = seed; field.points[pi + 3] = 0
-    field.points[pi + 4] = seed > .93 ? 4 : 1.1 + seed * 1.6
+    field.points[pi + 4] = seed > .93 ? 4.5 : 1.4 + seed * 1.9
     // Asynchronous 3–8 second twinkles. No full-screen flashes or rapid strobe.
-    field.points[pi + 5] = .16 + .55 * ((1 + Math.sin(seconds * (.8 + seed * 1.3) + seed * 60)) * .5) ** 3
+    field.points[pi + 5] = .3 + .6 * ((1 + Math.sin(seconds * (.8 + seed * 1.3) + seed * 60)) * .5) ** 3
   }
   return field
 }
@@ -148,21 +150,25 @@ export function updateGalaxyBackdrop(field: ParticleField, width: number, height
 export function createDitherMotion() {
   const fields = new Map<string, { seed: string; low: boolean; pixelSize: number; field: ParticleField }>()
   const stars = createGalaxyBackdrop('moodverse-galaxy-stars')
+  const meteors = createMeteorShower()
   const cloudSpec = createDitherSpec({ planetId: 'galaxy-live-flow', tracks: [], overrides: { motif: 'flow', size: 1, pointer: 'weak', density: .32, pixelSize: 5, speed: .1, glow: .2, blue: .7, violet: .8, pink: .45 } })
   let cloudPointer: { x: number; y: number } | undefined, pointerPower = 0
   return {
     apply(frame: DitherFrame, delta: number, seconds: number, running: boolean, low: boolean, beat?: MusicBeatClock) {
+      const camera=frame.observation
+      frame.meteors = observeSkyPoints(meteors.advance(delta, frame.width, frame.height, running),camera,frame.width,frame.height)
       let budget = low ? 30000 : 100000
       const visible = new Set(frame.assets.map(a => a.id))
       for (const id of fields.keys()) if (!visible.has(id)) fields.delete(id)
-      const bodies = frame.assets.filter(a => a.kind !== 'nebula' && a.kind !== 'music' && a.radius > 0 && (a.opacity ?? 1) > 0).sort((a, b) => b.radius - a.radius)
+      const bodies = frame.assets.filter(a => a.kind !== 'nebula' && a.kind !== 'music' && (a.detail ?? 0)<1 && a.radius > 0 && (a.opacity ?? 1) > 0).sort((a, b) => b.radius - a.radius)
+      for(const asset of frame.assets) if((asset.detail ?? 0)>=1){asset.particles=undefined;fields.delete(asset.id)}
       const totalWeight = bodies.reduce((n, a) => n + (a.radius * effectiveDitherParameters(a.spec).size) ** 2, 0)
       const distributable = Math.max(0, budget - bodies.length * 128)
       for (const [index, asset] of bodies.entries()) {
         const p = effectiveDitherParameters(asset.spec), radius = asset.radius * p.size
         const fairShare = 128 + Math.floor(distributable * radius * radius / Math.max(1, totalWeight))
         const available = Math.max(0, budget - (bodies.length - index - 1) * 128)
-        const grid = Math.min(radius / p.pixelSize, Math.floor(Math.sqrt(Math.min(available, fairShare, low ? 15000 : MAX_DITHER_CELLS))) / 2.4)
+        const grid = Math.min(radius / (asset.pixelSize ?? p.pixelSize), Math.floor(Math.sqrt(Math.min(available, fairShare, low ? 15000 : MAX_DITHER_CELLS))) / 2.4)
         const desired = Math.ceil(grid * 2.4) ** 2
         const seed = `${asset.spec.seed}:${p.seedOffset}`, existing = fields.get(asset.id)
         // Perspective changes a satellite's radius every frame. Keep its point
@@ -178,16 +184,17 @@ export function createDitherMotion() {
       }
       const opacity = frame.ambience ?? 0
       if (opacity > 0) {
-        updateGalaxyBackdrop(stars, frame.width, frame.height, delta, seconds, frame.pointer, running)
+        const skyPointer=frame.pointer && camera ? {x:frame.width/2+(frame.pointer.x-frame.width/2-camera.x)/camera.zoom,y:frame.height/2+(frame.pointer.y-frame.height/2-camera.y)/camera.zoom} : frame.pointer
+        updateGalaxyBackdrop(stars, frame.width, frame.height, delta, seconds, skyPointer, running)
         const ease = running ? 1 - Math.exp(-clamp(delta, 0, .05) * 6) : 0
-        if (frame.pointer) {
-          cloudPointer ??= { ...frame.pointer }
-          cloudPointer.x += (frame.pointer.x - cloudPointer.x) * ease
-          cloudPointer.y += (frame.pointer.y - cloudPointer.y) * ease
+        if (skyPointer) {
+          cloudPointer ??= { ...skyPointer }
+          cloudPointer.x += (skyPointer.x - cloudPointer.x) * ease
+          cloudPointer.y += (skyPointer.y - cloudPointer.y) * ease
         }
         pointerPower += ((frame.pointer ? 1 : 0) - pointerPower) * ease
-        const clouds: DitherAsset[] = [{ id: 'galaxy-live-flow', kind: 'nebula', spec: cloudSpec, x: frame.width / 2, y: frame.height / 2, radius: Math.max(frame.width, frame.height) / 2, phase: seconds, opacity, backgroundField: true, pointerPower }]
-        frame.background = { stars, clouds, opacity, pointer: cloudPointer }
+        const clouds: DitherAsset[] = [{ id: 'galaxy-live-flow', kind: 'nebula', spec: cloudSpec, x: frame.width / 2, y: frame.height / 2, radius: Math.max(frame.width, frame.height) / 2, phase: seconds, opacity, backgroundField: true, backgroundView:camera, pointerPower }]
+        frame.background = { stars:observeSkyPoints(stars,camera,frame.width,frame.height), clouds, opacity, pointer: cloudPointer }
       } else {
         frame.background = undefined
       }

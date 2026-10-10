@@ -61,9 +61,9 @@ test('rotated hit areas use the inverse of the painted shape rotation', () => {
 
 test('coarse visible WebGL edge cells remain clickable after rotation', () => {
   const asset = { id: 'coarse', spec: { ...spec, overrides: { form: 'organic' as const, size: 1 } }, x: 150, y: 150, radius: 100, rotation: .7 }
-  // Actual WebGL readPixels gives alpha 129 at this cell. Its unquantized
+  // Actual WebGL readPixels gives alpha 152 at this near-round rim cell. Its unquantized
   // mathematical point is outside the silhouette, but the painted cell is not.
-  expect(hitTestDitherAssets([asset], 150 - 78, 150 - 43)?.id).toBe('coarse')
+  expect(hitTestDitherAssets([asset], 155.5, 64.5)?.id).toBe('coarse')
 })
 
 test('a scattered point outside the sphere is clickable, while fallback ignores GPU-only points', () => {
@@ -78,6 +78,17 @@ test('a vacated particle region is empty, not the hit area of a fixed underlying
   expect(hitTestDitherAssets([asset], 100, 100)).toBeNull()
 })
 
+test('navigation can select a hovered body through its own empty cells without stealing an exposed rear target', () => {
+  const spherical={...spec,overrides:{size:1,pointer:'off' as const,glow:0}}
+  const owner={id:'home:a',spec:spherical,x:100,y:100,radius:100,particles:{count:0,points:new Float32Array()}}
+  const satellite={id:'music:b',spec:spherical,x:100,y:100,radius:20,particles:{count:0,points:new Float32Array()}}
+  expect(hitTestDitherAssets([owner],100,100,{bodyTargets:true})?.id).toBe('home:a')
+  expect(hitTestDitherAssets([satellite],100,100,{bodyTargets:true})?.id).toBe('music:b')
+  const rear={...satellite,id:'rear',particles:undefined}
+  expect(hitTestDitherAssets([rear,owner],100,100,{bodyTargets:true})?.id).toBe('rear')
+  expect(hitTestDitherAssets([owner],205,205,{bodyTargets:true})).toBeNull()
+})
+
 test('movable dither cells retain square corners and their original material alpha', () => {
   const asset = { id: 'cell', spec: { ...spec, overrides: { size: 1, pointer: 'off' as const } }, x: 100, y: 100, radius: 100, particles: { count: 1, points: new Float32Array([1.3, .01, 0, 0, 6, 1]) } }
   expect(hitTestDitherAssets([asset], 232, 103)?.id).toBe('cell')
@@ -85,24 +96,34 @@ test('movable dither cells retain square corners and their original material alp
   expect(hitTestDitherAssets([emptyHome], 230, 101)).toBeNull()
 })
 
-test('the invisible depth volume blocks rear satellite clicks without painting a solid planet', () => {
+test('rear satellites are clickable through vacated particle regions, including body-target navigation', () => {
   const spherical = { ...spec, overrides: { form: 'particles' as const, size: 1, pixelSize: 2, pulse: 0, pointer: 'off' as const } }
   const owner = { id: 'owner', spec: spherical, x: 100, y: 100, radius: 100, particles: { count: 0, points: new Float32Array() } }
   const rear = { id: 'rear', spec: spherical, x: 178, y: 100, radius: 20 }
-  expect(hitTestDitherAssets([rear, owner], 178, 100)).toBeNull()
+  expect(hitTestDitherAssets([rear, owner], 178, 100)?.id).toBe('rear')
+  expect(hitTestDitherAssets([rear, owner], 178, 100, {bodyTargets:true})?.id).toBe('rear')
   expect(hitTestDitherAssets([rear, owner], 191, 100)?.id).toBe('rear')
 })
 
-test('invisible occlusion uses the capped quality grid, not the requested fine grid', () => {
+test('an empty capped particle grid does not leave an invisible occluder', () => {
   const spherical = { ...spec, overrides: { form: 'organic' as const, size: 1, pixelSize: 3, pulse: 0, pointer: 'off' as const } }
   const owner = { id: 'owner', spec: spherical, x: 180, y: 180, radius: 180, particles: { count: 0, grid: 50.833333333333336, points: new Float32Array() } }
   const rear = { id: 'rear', spec: spherical, x: 145, y: 14, radius: 5 }
-  expect(hitTestDitherAssets([rear, owner], 145, 14)).toBeNull()
+  expect(hitTestDitherAssets([rear, owner], 145, 14)?.id).toBe('rear')
 })
 
-test('a fading material body keeps the same depth occlusion as the GPU prepass', () => {
+test('a fading empty particle body does not block a rear satellite', () => {
   const spherical = { ...spec, overrides: { form: 'particles' as const, size: 1, pixelSize: 2, pulse: 0, pointer: 'off' as const } }
   const owner = { id: 'owner', spec: spherical, x: 100, y: 100, radius: 100, opacity: .25, particles: { count: 0, points: new Float32Array() } }
   const rear = { id: 'rear', spec: spherical, x: 100, y: 100, radius: 20 }
-  expect(hitTestDitherAssets([rear, owner], 100, 100)).toBeNull()
+  expect(hitTestDitherAssets([rear, owner], 100, 100)?.id).toBe('rear')
+})
+
+test('displaced opaque cells still occlude a rear satellite where they actually moved', () => {
+  const spherical = {...spec, overrides:{size:1, pointer:'off' as const, glow:0}}
+  const rear = {id:'rear',spec:spherical,x:130,y:100,radius:20}
+  const owner = {id:'owner',spec:spherical,x:100,y:100,radius:100,particles:{count:1,points:new Float32Array([.3,0,0,0,12,1])}}
+  expect(hitTestDitherAssets([rear,owner],130,100,{bodyTargets:true})?.id).toBe('owner')
+  expect(hitTestDitherAssets([rear,owner],140,100,{bodyTargets:true})?.id).toBe('rear')
+  expect(hitTestDitherAssets([rear,{...owner,detail:1}],140,100,{bodyTargets:true})?.id).toBe('owner')
 })

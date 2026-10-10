@@ -1,5 +1,7 @@
 import { authenticatedMusicUser, type Env } from '../../_shared'
 import { stringArray } from '../../_music-moments'
+import { readPlanetDitherVisuals } from '../../_music-dither'
+import type { DitherPlanetSpec } from '../../../src/music/dither/appearance'
 
 const RANK_SCHEMA_VERSION = 1
 const MAX_GATEWAY_RESPONSE_CHARS = 16_384
@@ -24,6 +26,7 @@ type PortalMatchRow = {
   planet_id: string
   display_name: string
   tagline: string
+  visual_json: string
   selected_at: string | null
   latest_public_moment_at: string | null
   latest_public_moment_text: string | null
@@ -187,8 +190,8 @@ function validateModelRank(value: unknown, candidates: PortalMatchRow[]): ModelR
 }
 
 async function readCandidates(env: Env, trackId: string, viewerUserId: string) {
-  const { results } = await env.DB.prepare(`
-    SELECT p.id AS planet_id, p.display_name, p.tagline,
+  const query = `
+    SELECT p.id AS planet_id, p.display_name, p.tagline, p.visual_json,
       (
         SELECT t.selected_at
         FROM music_planet_tracks t
@@ -232,8 +235,14 @@ async function readCandidates(env: Env, trackId: string, viewerUserId: string) {
         )
       )
     ORDER BY MAX(COALESCE(latest_public_moment_at, ''), COALESCE(selected_at, '')) DESC, p.id ASC
-    LIMIT 100
-  `).bind(trackId, viewerUserId).all<PortalMatchRow>()
+    LIMIT 100 OFFSET ?3
+  `
+  const results: PortalMatchRow[] = []
+  for (let offset = 0; ; offset += 100) {
+    const page = await env.DB.prepare(query).bind(trackId, viewerUserId, offset).all<PortalMatchRow>()
+    results.push(...page.results)
+    if (page.results.length < 100) break
+  }
   return results
 }
 
@@ -339,7 +348,7 @@ async function rankCandidates(
   }
 }
 
-function responseMatches(rows: PortalMatchRow[], ranking: RankingOutcome) {
+function responseMatches(rows: PortalMatchRow[], ranking: RankingOutcome, visuals: Map<string, DitherPlanetSpec>) {
   const scoreByPlanet = new Map(ranking.ranking?.map((item) => [item.planetId, item]) ?? [])
   const orderedRows = ranking.ranking
     ? ranking.ranking.flatMap((item) => {
@@ -348,13 +357,16 @@ function responseMatches(rows: PortalMatchRow[], ranking: RankingOutcome) {
       })
     : rows
 
-  return orderedRows.map((row) => {
+  return orderedRows.flatMap((row) => {
+    const visual = visuals.get(row.planet_id)
+    if (!visual) return []
     const score = scoreByPlanet.get(row.planet_id)
-    return {
+    return [{
       ...publicMatch(row),
+      visual,
       rankScore: score?.score ?? null,
       reasonCode: score?.reasonCode ?? fallbackReason(matchSource(row)),
-    }
+    }]
   })
 }
 
@@ -392,14 +404,13 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
   const initialCandidates = await readCandidates(env, trackId, identity.userId)
   const ranking = await rankCandidates(env, identity.userId, ownEvidence.planet_id, track, initialCandidates)
-  let finalCandidates = initialCandidates
+  const finalCandidates = await readCandidates(env, trackId, identity.userId)
   let finalRanking = ranking
 
   // Model inference can take several seconds. Re-read public eligibility before
   // returning so a planet made private while the model runs cannot leak from
   // the earlier snapshot.
   if (ranking.taskId) {
-    finalCandidates = await readCandidates(env, trackId, identity.userId)
     const initialHash = await hashInput(rankInput(track, initialCandidates))
     const finalHash = await hashInput(rankInput(track, finalCandidates))
     if (initialHash !== finalHash) {
@@ -410,6 +421,10 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     }
   }
 
+  const visuals = await readPlanetDitherVisuals(env, finalCandidates.map(row => ({
+    id: row.planet_id, visual_json: row.visual_json,
+  })))
+
   return respond({
     trackId,
     ranking: {
@@ -418,6 +433,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       model: finalRanking.model,
       taskId: finalRanking.taskId,
     },
-    matches: responseMatches(finalCandidates, finalRanking),
+    matches: responseMatches(finalCandidates, finalRanking, visuals),
   })
 }

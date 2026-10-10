@@ -1,6 +1,9 @@
 import { authenticatedMusicUser, type Env } from '../../_shared'
 import type { GalaxyGroup, GalaxyGroupBy, GalaxyPlanetCard } from '../../../src/music-api'
 import { readPlanetDitherVisuals } from '../../_music-dither'
+import { galaxySelectionOptions, readGalaxyGenres, readGalaxySelectionIds } from '../../_music-galaxy-preferences'
+import { sampleGalaxyNodes } from '../../../src/music/galaxy-preferences'
+import { dailyRandom, musicDayKey } from '../../../src/music/daily-selection'
 
 type PublicMusicRow = {
   planet_id: string
@@ -21,7 +24,6 @@ type GroupAccumulator = {
   planets: Map<string, GalaxyPlanetCard>
 }
 
-const GROUP_LIMIT = 40
 const PLANETS_PER_GROUP = 16
 export function sampleGalaxyPlanets<T>(values: T[], limit = PLANETS_PER_GROUP, random = Math.random): T[] {
   const sampled = [...values]
@@ -65,7 +67,7 @@ function addPlanet(group: GroupAccumulator, row: PublicMusicRow, reasonCode: Gal
   group.planets.set(row.planet_id, card)
 }
 
-function groupRows(rows: PublicMusicRow[], by: GalaxyGroupBy): GalaxyGroup[] {
+function groupRows(rows: PublicMusicRow[], by: GalaxyGroupBy, seed: string): GalaxyGroup[] {
   const groups = new Map<string, GroupAccumulator>()
   for (const row of rows) {
     const targets: Array<{ key: string; label: string }> = by === 'song'
@@ -87,12 +89,11 @@ function groupRows(rows: PublicMusicRow[], by: GalaxyGroupBy): GalaxyGroup[] {
 
   return [...groups.values()]
     .sort((a, b) => b.planets.size - a.planets.size || a.label.localeCompare(b.label) || a.key.localeCompare(b.key))
-    .slice(0, GROUP_LIMIT)
     .map((group) => ({
       key: group.key,
       label: group.label,
       planetCount: group.planets.size,
-      planets: sampleGalaxyPlanets([...group.planets.values()])
+      planets: sampleGalaxyPlanets([...group.planets.values()].sort((a, b) => a.planetId.localeCompare(b.planetId)), PLANETS_PER_GROUP, dailyRandom(`${seed}:planets:${group.key}`))
         .sort((a, b) => a.displayName.localeCompare(b.displayName) || a.planetId.localeCompare(b.planetId)),
     }))
 }
@@ -102,8 +103,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   const byValue = new URL(request.url).searchParams.get('by') ?? 'genre'
   if (!['song', 'artist', 'genre'].includes(byValue)) return respond({ error: 'INVALID_GROUPING' }, 400)
   const by = byValue as GalaxyGroupBy
+  const seed = `${musicDayKey()}:${identity?.userId ?? 'public'}:galaxy:${by}`
 
-  const { results } = await env.DB.prepare(`
+  const query = `
     SELECT * FROM (
     SELECT DISTINCT p.id AS planet_id, p.display_name, p.tagline, p.visual_json,
            c.id AS track_id, c.title, c.version_label, c.artist_id, c.artist_name, c.genres_json
@@ -111,6 +113,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     JOIN music_planet_tracks pt ON pt.planet_id = p.id
     JOIN music_track_catalog c ON c.id = pt.track_id
     WHERE p.visibility = 'public' AND c.is_active = 1
+      AND (?1 IS NULL OR p.owner_user_id <> ?1)
       AND (?1 IS NULL OR NOT EXISTS (
         SELECT 1 FROM music_user_blocks b
         WHERE (b.blocker_user_id = ?1 AND b.blocked_user_id = p.owner_user_id)
@@ -124,18 +127,42 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     JOIN music_track_catalog c ON c.id = m.track_id
     WHERE p.visibility = 'public' AND m.visibility = 'public'
       AND m.published_at IS NOT NULL AND c.is_active = 1
+      AND (?1 IS NULL OR p.owner_user_id <> ?1)
       AND (?1 IS NULL OR NOT EXISTS (
         SELECT 1 FROM music_user_blocks b
         WHERE (b.blocker_user_id = ?1 AND b.blocked_user_id = p.owner_user_id)
            OR (b.blocker_user_id = p.owner_user_id AND b.blocked_user_id = ?1)
       ))
-    ) ORDER BY random() LIMIT 5000
-  `).bind(identity?.userId ?? null).all<PublicMusicRow>()
+    ) ORDER BY planet_id, track_id LIMIT 5000 OFFSET ?2
+  `
+  const results: PublicMusicRow[] = []
+  // Page the source pool instead of randomly truncating it before daily sampling.
+  for (let offset = 0; ; offset += 5000) {
+    const page = await env.DB.prepare(query).bind(identity?.userId ?? null, offset).all<PublicMusicRow>()
+    results.push(...page.results)
+    if (page.results.length < 5000) break
+  }
 
-  const groups = groupRows(results, by)
+  let groups = groupRows(results, by, seed)
+  if (by === 'genre') {
+    const genres = await readGalaxyGenres(env, identity?.userId)
+    const map = new Map(groups.map(g => [g.key, g]))
+    // Empty public sectors remain navigable; private planets are never manufactured to fill them.
+    groups = genres.map(label => map.get(label.toLowerCase()) ?? { key: label.toLowerCase(), label, planetCount: 0, planets: [] })
+  } else {
+    const ids = await readGalaxySelectionIds(env, by, identity?.userId)
+    if (ids.length) {
+      const options = await galaxySelectionOptions(env, by, ids)
+      const map = new Map(groups.map(g => [g.key, g]))
+      groups = options.map(option => map.get(option.id) ?? { key: option.id, label: option.label, planetCount: 0, planets: [] })
+    }
+  }
+  groups = sampleGalaxyNodes(groups, dailyRandom(`${seed}:nodes`))
   const shown = new Set(groups.flatMap((g) => g.planets.map((p) => p.planetId)))
   const rows = [...new Map(results.filter((r) => shown.has(r.planet_id)).map((r) => [r.planet_id, { id: r.planet_id, visual_json: r.visual_json }])).values()]
   const visuals = await readPlanetDitherVisuals(env, rows)
   for (const group of groups) for (const planet of group.planets) planet.visual = visuals.get(planet.planetId)
-  return respond({ by, groups })
+  const response = respond({ by, groups })
+  if (identity?.setCookie) response.headers.set('set-cookie', identity.setCookie)
+  return response
 }

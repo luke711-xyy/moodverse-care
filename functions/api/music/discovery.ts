@@ -1,5 +1,8 @@
 import { authenticatedMusicUser, type Env } from '../../_shared'
 import { stringArray } from '../../_music-moments'
+import { readPlanetDitherVisuals } from '../../_music-dither'
+import type { DitherPlanetSpec } from '../../../src/music/dither/appearance'
+import { dailyRandom, musicDayKey } from '../../../src/music/daily-selection'
 
 const SCHEMA_VERSION = 1
 const MODEL_ID = 'qwen3-embedding:0.6b'
@@ -8,11 +11,13 @@ const MAX_EMBEDDING_INPUTS = 81
 const MAX_DISCOVERY_CANDIDATES = MAX_EMBEDDING_INPUTS - 1
 const MAX_TEXT_CHARS = 1_200
 const RECOMMENDATION_LIMIT = 6
+const MANUAL_ROAM_LIMIT = 24
 
 type SignalRow = {
   planet_id: string
   display_name: string
   tagline: string
+  visual_json: string
   title: string
   artist_name: string
   version_label: string
@@ -69,7 +74,7 @@ export type DiscoveryResponse = {
     model: { name: string; version: string } | null
     taskId: string | null
   }
-  recommendations: Array<Omit<DiscoveryCandidate, 'rankScore'>>
+  recommendations: Array<Omit<DiscoveryCandidate, 'rankScore'> & { visual: DitherPlanetSpec }>
 }
 
 const respond = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
@@ -94,8 +99,8 @@ async function readSignals(env: Env, userId: string, own: boolean): Promise<Sign
     WHERE (b.blocker_user_id = ?1 AND b.blocked_user_id = p.owner_user_id)
        OR (b.blocker_user_id = p.owner_user_id AND b.blocked_user_id = ?1)
   )`
-  const { results } = await env.DB.prepare(`
-    SELECT p.id AS planet_id, p.display_name, p.tagline,
+  const query = `
+    SELECT p.id AS planet_id, p.display_name, p.tagline, p.visual_json,
            c.title, c.artist_name, c.version_label, c.genres_json, c.mood_tags_json,
            '' AS moment_text
     FROM music_planets p
@@ -103,7 +108,7 @@ async function readSignals(env: Env, userId: string, own: boolean): Promise<Sign
     JOIN music_track_catalog c ON c.id = t.track_id AND c.is_active = 1
     WHERE 1 = 1 ${visibilityFilter} ${ownerFilter} ${blockFilter}
     UNION ALL
-    SELECT p.id AS planet_id, p.display_name, p.tagline,
+    SELECT p.id AS planet_id, p.display_name, p.tagline, p.visual_json,
            c.title, c.artist_name, c.version_label, c.genres_json, c.mood_tags_json,
            m.content_text AS moment_text
     FROM music_moments m
@@ -111,8 +116,15 @@ async function readSignals(env: Env, userId: string, own: boolean): Promise<Sign
     JOIN music_track_catalog c ON c.id = m.track_id AND c.is_active = 1
     WHERE m.visibility = 'public' AND m.published_at IS NOT NULL
       ${visibilityFilter} ${ownerFilter} ${blockFilter}
-    LIMIT 4000
-  `).bind(userId).all<SignalRow>()
+    ORDER BY planet_id, title, artist_name, version_label, moment_text
+    LIMIT 4000 OFFSET ?2
+  `
+  const results: SignalRow[] = []
+  for (let offset = 0; ; offset += 4000) {
+    const page = await env.DB.prepare(query).bind(userId, offset).all<SignalRow>()
+    results.push(...page.results)
+    if (page.results.length < 4000) break
+  }
   return results
 }
 
@@ -163,10 +175,11 @@ function signalsSignature(rows: SignalRow[]) {
     .join('\n')
 }
 
-function sampleCandidates(features: Map<string, PlanetFeatures>, viewer: PlanetFeatures | undefined) {
-  const entries = [...features.entries()]
+function sampleCandidates(features: Map<string, PlanetFeatures>, viewer: PlanetFeatures | undefined, seed: string) {
+  const random = dailyRandom(`${seed}:candidates`)
+  const entries = [...features.entries()].sort(([a], [b]) => a.localeCompare(b))
   for (let index = entries.length - 1; index > 0; index -= 1) {
-    const swapIndex = Math.floor(Math.random() * (index + 1))
+    const swapIndex = Math.floor(random() * (index + 1))
     const current = entries[index]
     entries[index] = entries[swapIndex]
     entries[swapIndex] = current
@@ -180,7 +193,7 @@ function sampleCandidates(features: Map<string, PlanetFeatures>, viewer: PlanetF
   const relevancePool = ranked.slice(0, relevancePoolSize).map(({ entry }) => entry)
   const explorationPool = ranked.slice(relevancePoolSize).map(({ entry }) => entry)
   for (let index = explorationPool.length - 1; index > 0; index -= 1) {
-    const swapIndex = Math.floor(Math.random() * (index + 1))
+    const swapIndex = Math.floor(random() * (index + 1))
     const current = explorationPool[index]
     explorationPool[index] = explorationPool[swapIndex]
     explorationPool[swapIndex] = current
@@ -414,6 +427,8 @@ function rankRecommendations(
   outcome: EmbeddingOutcome,
   visitedPlanetIds: Set<string>,
   preferUnvisited: boolean,
+  recommendationLimit: number,
+  seed: string,
 ): DiscoveryCandidate[] {
   return [...candidates.values()].map((candidate) => {
     const fallback = fallbackRelevance(viewer, candidate)
@@ -425,14 +440,15 @@ function rankRecommendations(
       tagline: candidate.tagline,
       reasonCode: outcome.scores ? 'semantic_profile' : reasonCode,
       matchScore: Math.round(matchScore * 1000) / 1000,
-      rankScore: matchScore * .78 + Math.random() * .22
+      rankScore: matchScore * .78 + dailyRandom(`${seed}:rank:${candidate.planetId}`)() * .22
         + (preferUnvisited && !visitedPlanetIds.has(candidate.planetId) ? 2 : 0),
     }
   }).sort((left, right) => right.rankScore - left.rankScore || left.planetId.localeCompare(right.planetId))
-    .slice(0, RECOMMENDATION_LIMIT)
+    .slice(0, recommendationLimit)
 }
 
-export async function discoverPublicPlanets(env: Env, userId: string, preferUnvisited = false): Promise<DiscoveryResponse> {
+export async function discoverPublicPlanets(env: Env, userId: string, preferUnvisited = false, recommendationLimit = RECOMMENDATION_LIMIT): Promise<DiscoveryResponse> {
+  const seed = `${musicDayKey()}:${userId}:roam`
   const [viewerRows, candidateRows] = await Promise.all([
     readSignals(env, userId, true),
     readSignals(env, userId, false),
@@ -440,7 +456,7 @@ export async function discoverPublicPlanets(env: Env, userId: string, preferUnvi
   let viewerSnapshot = viewerRows
   let candidateSnapshot = candidateRows
   let viewerFeatures = [...collectFeatures(viewerSnapshot, true).values()][0]
-  let candidates = sampleCandidates(collectFeatures(candidateSnapshot), viewerFeatures)
+  let candidates = sampleCandidates(collectFeatures(candidateSnapshot), viewerFeatures, seed)
   if (!candidates.size) {
     return {
       ranking: { mode: 'stable_fallback', status: 'no_candidates', model: null, taskId: null },
@@ -467,7 +483,7 @@ export async function discoverPublicPlanets(env: Env, userId: string, preferUnvi
     candidateSnapshot = freshCandidateRows
     viewerFeatures = [...collectFeatures(viewerSnapshot, true).values()][0]
     visitedPlanetIds = freshVisitedPlanetIds
-    candidates = sampleCandidates(collectFeatures(candidateSnapshot), viewerFeatures)
+    candidates = sampleCandidates(collectFeatures(candidateSnapshot), viewerFeatures, seed)
     if (!candidates.size) {
       return {
         ranking: { mode: 'stable_fallback', status: 'no_candidates', model: null, taskId: outcome.taskId },
@@ -483,15 +499,25 @@ export async function discoverPublicPlanets(env: Env, userId: string, preferUnvi
     }
   }
 
-  const recommendations = rankRecommendations(viewerFeatures, candidates, outcome, visitedPlanetIds, preferUnvisited)
+  const recommendations = rankRecommendations(viewerFeatures, candidates, outcome, visitedPlanetIds, preferUnvisited, recommendationLimit, seed)
+  // Only adapt the final, freshly authorized candidates. Visual-only edits do
+  // not invalidate music ranking, but must still replace the older appearance.
+  const freshById = new Map(freshCandidateRows.map(row => [row.planet_id, row]))
+  const visuals = await readPlanetDitherVisuals(env, recommendations.flatMap(({ planetId }) => {
+    const row = freshById.get(planetId)
+    return row ? [{ id: row.planet_id, visual_json: row.visual_json }] : []
+  }))
   return {
     ranking: { mode: outcome.mode, status: outcome.status, model: outcome.model, taskId: outcome.taskId },
-    recommendations: recommendations.map(({ rankScore: _rankScore, ...recommendation }) => recommendation),
+    recommendations: recommendations.flatMap(({ rankScore: _rankScore, ...recommendation }) => {
+      const visual = visuals.get(recommendation.planetId)
+      return visual ? [{ ...recommendation, visual }] : []
+    }),
   }
 }
 
 export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   const identity = await authenticatedMusicUser(request, env)
   if (!identity) return respond({ error: 'UNAUTHENTICATED' }, 401)
-  return respond(await discoverPublicPlanets(env, identity.userId))
+  return respond(await discoverPublicPlanets(env, identity.userId, false, MANUAL_ROAM_LIMIT))
 }

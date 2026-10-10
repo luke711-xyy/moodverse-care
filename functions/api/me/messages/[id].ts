@@ -1,11 +1,11 @@
 import { authenticatedMusicUser, type Env } from '../../../_shared'
-import { socialResponse } from '../../../_music-social'
+import { decodeSocialRouteId, socialResponse } from '../../../_music-social'
 
 export const onRequestDelete: PagesFunction<Env> = async ({ request, env, params }) => {
   const identity = await authenticatedMusicUser(request, env)
   if (!identity) return socialResponse({ error: 'UNAUTHENTICATED' }, 401)
-  const messageId = typeof params?.id === 'string' ? params.id.trim() : ''
-  if (!messageId || messageId.length > 128) return socialResponse({ error: 'MESSAGE_NOT_FOUND' }, 404)
+  const messageId = decodeSocialRouteId(params?.id)
+  if (!messageId) return socialResponse({ error: 'MESSAGE_NOT_FOUND' }, 404)
 
   const message = await env.DB.prepare(`
     SELECT sender_user_id, recipient_user_id FROM music_direct_messages

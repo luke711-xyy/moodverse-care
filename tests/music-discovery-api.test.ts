@@ -1,8 +1,9 @@
 import { afterEach, beforeAll, beforeEach, expect, test, vi } from 'vitest'
 import { authenticatedMusicUser } from '../functions/_shared'
-import { onRequestGet as onRequestDiscovery } from '../functions/api/music/discovery'
+import { discoverPublicPlanets, onRequestGet as onRequestDiscovery } from '../functions/api/music/discovery'
 import { createAccessTestAuthority } from './helpers/cloudflare-access-jwt'
 import { createMusicApiEnv, createMusicApiFixture, insertCatalogTrack } from './helpers/music-api-fixture'
+import { createDitherSpec, isDitherSpec, type DitherPlanetSpec } from '../src/music/dither/appearance'
 
 const issuer = 'https://music-discovery-test.cloudflareaccess.com'
 const audience = 'music-discovery-test-audience'
@@ -34,6 +35,8 @@ beforeEach(async () => {
 
 afterEach(() => {
   fixture.close()
+  vi.useRealTimers()
+  vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
 
@@ -138,6 +141,56 @@ test('random discovery returns an honest empty state when there are no other eli
   })
 })
 
+test('roam uses non-primary songs on both planets and preserves the profile when primary tracks change', async () => {
+  fixture.sqlite.prepare("UPDATE music_track_catalog SET genres_json = '[\"jazz\"]', mood_tags_json = '[]' WHERE id = 'owner-song'").run()
+  fixture.sqlite.prepare("UPDATE music_track_catalog SET mood_tags_json = '[]'").run()
+  addSelection('planet-owner', 'match-song')
+  const candidateOwner = await createIdentity('secondary-roam-owner')
+  createPlanet('secondary-roam-planet', candidateOwner, 'public')
+  addSelection('secondary-roam-planet', 'unrelated-song')
+  addSelection('secondary-roam-planet', 'match-song')
+  const profile = async () => {
+    const response = await discoverPublicPlanets(env(), ownerId)
+    return response.recommendations.map(({ planetId, reasonCode, matchScore }) => ({ planetId, reasonCode, matchScore }))
+  }
+  const expected = [{ planetId: 'secondary-roam-planet', reasonCode: 'similar_genre', matchScore: .333 }]
+  expect(await profile()).toEqual(expected)
+  for (const planetId of ['planet-owner', 'secondary-roam-planet']) {
+    fixture.sqlite.prepare('UPDATE music_planet_tracks SET is_primary = 0 WHERE planet_id = ?').run(planetId)
+    fixture.sqlite.prepare("UPDATE music_planet_tracks SET is_primary = 1 WHERE planet_id = ? AND track_id = 'match-song'").run(planetId)
+    expect(await profile()).toEqual(expected)
+  }
+})
+
+test('embedding receives every selected song independent of primary choice', async () => {
+  addSelection('planet-owner', 'unrelated-song')
+  const candidateOwner = await createIdentity('all-song-model-owner')
+  createPlanet('all-song-model-planet', candidateOwner, 'public')
+  addSelection('all-song-model-planet', 'unrelated-song')
+  addSelection('all-song-model-planet', 'match-song')
+  const payloads: Array<{ inputs: Array<{ id: string; text: string }> }> = []
+  const originalFetch = globalThis.fetch
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (new URL(input.toString()).origin === issuer) return originalFetch(input, init)
+    const payload = JSON.parse(String(init?.body)) as { inputs: Array<{ id: string; text: string }> }
+    payloads.push(payload)
+    return Response.json({
+      model: { name: 'test-embedding', version: '1' },
+      embeddings: payload.inputs.map(({ id }) => ({ id, vector: [1, 0, 0, 0, 0, 0, 0, 0] })),
+    })
+  }))
+  const configured = env({ MUSIC_AI_EMBEDDING_URL: 'https://embedding.example/v1/embed', MUSIC_AI_ACCESS_CLIENT_ID: 'client', MUSIC_AI_ACCESS_CLIENT_SECRET: 'secret', MUSIC_AI_GATEWAY_TOKEN: 'token' })
+  expect((await discoverPublicPlanets(configured, ownerId)).ranking.mode).toBe('model')
+  expect(payloads[0].inputs.find(item => item.id === 'query')?.text).toContain('夜航')
+  expect(payloads[0].inputs.find(item => item.id === 'query')?.text).toContain('鼓点实验')
+  expect(payloads[0].inputs.find(item => item.id === 'planet:all-song-model-planet')?.text).toContain('雾中海岸')
+  expect(payloads[0].inputs.find(item => item.id === 'planet:all-song-model-planet')?.text).toContain('鼓点实验')
+  fixture.sqlite.prepare('UPDATE music_planet_tracks SET is_primary = 0').run()
+  fixture.sqlite.prepare('UPDATE music_planet_tracks SET is_primary = 1 WHERE position = 1').run()
+  expect((await discoverPublicPlanets(configured, ownerId)).ranking.mode).toBe('model')
+  expect(payloads[1].inputs).toEqual(payloads[0].inputs)
+})
+
 test('random discovery keeps stable matching when its AI gateway bearer is unset', async () => {
   const candidateOwner = await createIdentity('missing-gateway-token-discovery')
   createPlanet('planet-missing-gateway-token', candidateOwner, 'public')
@@ -172,6 +225,7 @@ test('random discovery sends only allowed music signals to the local embedding g
   const candidateOwner = await createIdentity('roam-ai-candidate')
   createPlanet('planet-ai-match', candidateOwner, 'public')
   addSelection('planet-ai-match', 'match-song')
+  const updatedVisual = createDitherSpec({ planetId: 'planet-ai-match', tracks: [], overrides: { motif: 'prism', pink: .9 } })
   addMoment('candidate-public-moment', 'planet-ai-match', 'match-song', '海风经过夜色，脚步也慢下来。', 'public')
   addMoment('candidate-private-sentinel', 'planet-ai-match', 'match-song', 'CANDIDATE_PRIVATE_TEXT_MUST_NOT_BE_SENT', 'private')
 
@@ -183,6 +237,7 @@ test('random discovery sends only allowed music signals to the local embedding g
     if (url.origin === issuer) return originalFetch(input, init)
     gatewayHeaders = new Headers(init?.headers)
     gatewayBody = JSON.parse(String(init?.body)) as typeof gatewayBody
+    fixture.sqlite.prepare("UPDATE music_planets SET visual_json = ? WHERE id = 'planet-ai-match'").run(JSON.stringify(updatedVisual))
     const embeddings = gatewayBody!.inputs.map(({ id }) => ({
       id,
       vector: id === 'planet:planet-ai-match' ? [1, 0, 0, 0, 0, 0, 0, 0] : [1, 0, 0, 0, 0, 0, 0, 0],
@@ -198,18 +253,20 @@ test('random discovery sends only allowed music signals to the local embedding g
   })
   const body = await response.json() as {
     ranking: { mode: string; status: string; model: { name: string; version: string }; taskId: string }
-    recommendations: Array<{ planetId: string; reasonCode: string; matchScore: number }>
+    recommendations: Array<{ planetId: string; reasonCode: string; matchScore: number; visual: DitherPlanetSpec }>
   }
 
   expect(response.status).toBe(200)
   expect(body.ranking).toMatchObject({ mode: 'model', status: 'ready', model: { name: 'qwen3-embedding-local', version: '0.6b-mlx' } })
   expect(gatewayHeaders?.get('Authorization')).toBe('Bearer test-gateway-secret')
   expect(body.recommendations[0]).toMatchObject({ planetId: 'planet-ai-match', reasonCode: 'semantic_profile', matchScore: 1 })
+  expect(body.recommendations[0].visual).toEqual(updatedVisual)
   expect(gatewayBody?.model).toBe('qwen3-embedding:0.6b')
   expect(JSON.stringify(gatewayBody)).toContain('海风经过夜色')
   expect(JSON.stringify(gatewayBody)).not.toContain('OWNER_PRIVATE_TEXT_MUST_NOT_BE_SENT')
   expect(JSON.stringify(gatewayBody)).not.toContain('CANDIDATE_PRIVATE_TEXT_MUST_NOT_BE_SENT')
   expect(JSON.stringify(gatewayBody)).not.toContain('@example.com')
+  expect(JSON.stringify(gatewayBody)).not.toContain('overrides')
 
   const task = fixture.sqlite.prepare('SELECT status, model_name, model_version, result_json FROM music_ai_tasks WHERE id = ?').get(body.ranking.taskId) as {
     status: string; model_name: string; model_version: string; result_json: string
@@ -255,7 +312,7 @@ test('invalid embedding output cannot invent recommendations or prevent the stab
   expect(task).toEqual({ status: 'failed', error_code: 'AI_INVALID_OUTPUT', result_json: null })
 })
 
-test('a planet made private while embedding is running is removed before recommendations return', async () => {
+test.each(['private', 'viewer-block', 'owner-block'])('a planet made %s while embedding runs is removed with its visual before recommendations return', async change => {
   const becomingPrivateOwner = await createIdentity('roam-becoming-private')
   createPlanet('planet-becoming-private', becomingPrivateOwner, 'public')
   addSelection('planet-becoming-private', 'match-song')
@@ -263,12 +320,16 @@ test('a planet made private while embedding is running is removed before recomme
   const stableOwner = await createIdentity('roam-stable-public')
   createPlanet('planet-stable-public', stableOwner, 'public')
   addSelection('planet-stable-public', 'unrelated-song')
+  const latestVisual = createDitherSpec({ planetId: 'planet-stable-public', tracks: [], overrides: { motif: 'prism', pink: .91 } })
 
   const originalFetch = globalThis.fetch
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(input.toString())
     if (url.origin === issuer) return originalFetch(input, init)
-    fixture.sqlite.prepare("UPDATE music_planets SET visibility = 'private' WHERE id = 'planet-becoming-private'").run()
+    if (change === 'private') fixture.sqlite.prepare("UPDATE music_planets SET visibility = 'private' WHERE id = 'planet-becoming-private'").run()
+    else fixture.sqlite.prepare('INSERT INTO music_user_blocks (blocker_user_id, blocked_user_id, created_at) VALUES (?, ?, ?)')
+      .run(change === 'viewer-block' ? ownerId : becomingPrivateOwner, change === 'viewer-block' ? becomingPrivateOwner : ownerId, 'now')
+    fixture.sqlite.prepare("UPDATE music_planets SET visual_json = ? WHERE id = 'planet-stable-public'").run(JSON.stringify(latestVisual))
     const gatewayInput = JSON.parse(String(init?.body)) as { inputs: Array<{ id: string }> }
     return Response.json({
       model: { name: 'qwen3-embedding-local', version: '0.6b-mlx' },
@@ -284,14 +345,93 @@ test('a planet made private while embedding is running is removed before recomme
   })
   const body = await response.json() as {
     ranking: { mode: string; status: string; taskId: string }
-    recommendations: Array<{ planetId: string }>
+    recommendations: Array<{ planetId: string; visual: DitherPlanetSpec }>
   }
 
   expect(body.ranking).toMatchObject({ mode: 'stable_fallback', status: 'input_changed' })
   expect(body.recommendations.map((item) => item.planetId)).toContain('planet-stable-public')
   expect(body.recommendations.map((item) => item.planetId)).not.toContain('planet-becoming-private')
+  expect(JSON.stringify(body)).not.toContain('planet-becoming-private')
+  expect(body.recommendations[0].visual).toEqual(latestVisual)
   const task = fixture.sqlite.prepare('SELECT status, error_code, result_json FROM music_ai_tasks WHERE id = ?').get(body.ranking.taskId) as {
     status: string; error_code: string; result_json: string | null
   }
   expect(task).toEqual({ status: 'failed', error_code: 'AI_INPUT_CHANGED', result_json: null })
+})
+
+test('discovery returns exact saved overrides and safely adapts legacy appearances', async () => {
+  const savedOwner = await createIdentity('visual-saved-owner')
+  createPlanet('visual-saved', savedOwner, 'public')
+  addSelection('visual-saved', 'match-song')
+  const saved = createDitherSpec({ planetId: 'visual-saved', tracks: [], overrides: { motif: 'flower', blue: .12, pink: .95, speed: .4 } })
+  fixture.sqlite.prepare("UPDATE music_planets SET visual_json = ? WHERE id = 'visual-saved'").run(JSON.stringify(saved))
+  const legacyOwner = await createIdentity('visual-legacy-owner')
+  createPlanet('visual-legacy', legacyOwner, 'public')
+  addSelection('visual-legacy', 'unrelated-song')
+  fixture.sqlite.prepare("UPDATE music_planets SET visual_json = ? WHERE id = 'visual-legacy'").run('{"privateNote":"LEGACY_SENTINEL","palette":"javascript:alert(1)"}')
+  const body = await (await getDiscovery()).json() as { recommendations: Array<{ planetId: string; visual: DitherPlanetSpec }> }
+  expect(body.recommendations.find(item => item.planetId === 'visual-saved')?.visual).toEqual(saved)
+  expect(isDitherSpec(body.recommendations.find(item => item.planetId === 'visual-legacy')?.visual)).toBe(true)
+  expect(JSON.stringify(body)).not.toContain('LEGACY_SENTINEL')
+  expect(JSON.stringify(body)).not.toContain('javascript:')
+})
+
+test.each([13, 30])('manual roam returns multiple pages for %i eligible planets while daily discovery keeps its six-result default', async count => {
+  for (let index = 0; index < count; index += 1) {
+    const candidateOwner = await createIdentity(`paged-owner-${index}`)
+    const planetId = `paged-planet-${index}`
+    createPlanet(planetId, candidateOwner, 'public')
+    addSelection(planetId, 'match-song')
+  }
+  const body = await (await getDiscovery()).json() as { recommendations: Array<{ planetId: string; visual: DitherPlanetSpec }> }
+  expect(body.recommendations).toHaveLength(Math.min(count, 24))
+  expect(new Set(body.recommendations.map(item => item.planetId)).size).toBe(body.recommendations.length)
+  expect(body.recommendations.slice(6, 12)).toHaveLength(6)
+  expect(body.recommendations.every(item => isDitherSpec(item.visual) && item.visual.seed === item.planetId)).toBe(true)
+  const dailyDiscovery = await discoverPublicPlanets(env(), ownerId, true)
+  expect(dailyDiscovery.recommendations).toHaveLength(6)
+  expect(fixture.sqlite.prepare('SELECT count(*) AS count FROM music_daily_roam').get()).toEqual({ count: 0 })
+  expect(fixture.sqlite.prepare('SELECT count(*) AS count FROM music_ai_tasks').get()).toEqual({ count: 0 })
+})
+
+test('daily roam keeps 24 distinct results across reloads and redraws at UTC+8 midnight', async () => {
+  for (let i = 0; i < 100; i++) {
+    fixture.sqlite.prepare(`INSERT INTO users(id,token_hash,created_at,updated_at) VALUES(?,?,?,?)`).run(`daily-u${i}`, `daily-h${i}`, 'now', 'now')
+    createPlanet(`daily-p${i}`, `daily-u${i}`, 'public')
+    addSelection(`daily-p${i}`, 'match-song')
+  }
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-10-10T15:59:59Z'))
+  const ids = async () => {
+    const body = await (await getDiscovery()).json() as { recommendations: Array<{ planetId: string }> }
+    return body.recommendations.map(p => p.planetId)
+  }
+  const first = await ids()
+  expect(new Set(first).size).toBe(24)
+  expect(await ids()).toEqual(first)
+  vi.setSystemTime(new Date('2026-10-10T16:00:00Z'))
+  const next = await ids()
+  expect(next).not.toEqual(first)
+  expect(await ids()).toEqual(next)
+  fixture.sqlite.prepare(`UPDATE music_planets SET visibility='private' WHERE id=?`).run(next[0])
+  fixture.sqlite.prepare(`INSERT INTO music_user_blocks(blocker_user_id,blocked_user_id,created_at) VALUES(?,?,'now')`).run(ownerId, next[1].replace('daily-p', 'daily-u'))
+  const authorized = await ids()
+  expect(authorized).not.toContain(next[0])
+  expect(authorized).not.toContain(next[1])
+  expect(new Set(authorized).size).toBe(24)
+})
+
+test('daily roam considers relevant candidates beyond the first source page', async () => {
+  const user = fixture.sqlite.prepare(`INSERT INTO users(id,token_hash,created_at,updated_at) VALUES(?,?, 'now','now')`)
+  fixture.sqlite.exec('BEGIN')
+  for (let i = 0; i < 4025; i++) {
+    const id = `large-${String(i).padStart(5, '0')}`
+    user.run(id, `hash-${id}`)
+    createPlanet(id, id, 'public')
+    addSelection(id, i < 4000 ? 'unrelated-song' : 'match-song')
+  }
+  fixture.sqlite.exec('COMMIT')
+  const body = await (await getDiscovery()).json() as { recommendations: Array<{ planetId: string }> }
+  expect(body.recommendations).toHaveLength(24)
+  expect(body.recommendations.every(p => Number(p.planetId.slice(6)) >= 4000)).toBe(true)
 })

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode, type SyntheticEvent } from 'react'
 import { createPortal } from 'react-dom'
 import type { MusicTrackSummary } from '../music-domain'
+import type { MusicPlayerControls } from './useMusicPlayer'
 import { DitherButton, DitherTrackMark } from './dither/components'
 import { ditherThreshold } from './dither/sampler'
 import { MOMENT_PHOTO_ACCEPT, momentPhotoError, validateMomentPhoto } from './moment-photo'
@@ -89,14 +90,16 @@ export function MomentPhoto({ src, alt = 'Moment 照片' }: { src: string; alt?:
   </figure>
 }
 
-export function MomentContent({ contentText, photoUrl, track }: { contentText: string | null; photoUrl?: string | null; track?: MusicTrackSummary }) {
+export function MomentContent({ contentText, photoUrl, track, player }: { contentText: string | null; photoUrl?: string | null; track?: MusicTrackSummary; player?: MusicPlayerControls }) {
   const record = track && <span role="img" aria-label={`《${track.title}》唱片图案`}><DitherTrackMark track={track} /></span>
   return <div className="music-moment-body">
     {track && <div className="music-moment-song">
       <figure className="music-moment-cover" data-photo-filter="ordered-dither-crt">
         {track.coverUrl ? <FilteredPhoto key={track.coverUrl} src={track.coverUrl} alt={`《${track.title}》封面`} fallback={record} /> : record}
       </figure>
-      <div className="music-moment-song-label"><strong>{track.title}</strong><small>{track.artistName}</small></div>
+      <div className="music-moment-song-label"><strong title={track.title}>{track.title}</strong><small title={track.artistName}>{track.artistName}</small>
+        {track.audioUrl && player && <button data-music-toggle type="button" onClick={() => player.toggle(track)} aria-label={`播放 ${track.title}`}>{player.playing && player.currentTrackId === track.id ? 'Ⅱ 暂停' : '▶ 播放'}</button>}
+      </div>
     </div>}
     <div className="music-moment-copy">{contentText && <p>{contentText}</p>}</div>
     {photoUrl && <MomentPhoto src={photoUrl} />}

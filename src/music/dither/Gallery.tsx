@@ -15,7 +15,7 @@ export default function DitherGallery() {
     satelliteAsset(spec, { id: 'music-satellite', kind: 'music', orbit: { x: width * .5, y: height * .5, rx: Math.min(width, height) * .42, ry: Math.min(width, height) * .22, tilt: 0 }, phase, radius: 20 }),
   ]) }), [spec])
   return <main className="dither-gallery">
-    <header><span>MOODVERSE</span><span>二维资产样板 · {mode}</span></header>
+    <header><span>MOSIC</span><span>二维资产样板 · {mode}</span></header>
     <div className="dither-gallery-main">
       <section className="dither-gallery-controls"><DitherTitle>让歌声有形。</DitherTitle>
         <fieldset><legend>形态</legend>{DITHER_FORMS.map((value) => <DitherButton key={value} aria-pressed={form === value} onClick={() => setForm(value)}>{DITHER_FORM_LABELS[value]}</DitherButton>)}</fieldset>

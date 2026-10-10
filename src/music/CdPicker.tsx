@@ -3,9 +3,11 @@ import type { MusicTrackSummary } from '../music-domain'
 import { FilteredPhoto } from './MomentPhoto'
 import { DitherButton, DitherTitle } from './dither/components'
 import { clientPoint, isQuarterTurn } from './viewport'
+import type { MusicPlayerControls } from './useMusicPlayer'
+import { AUDIUS_GENRES } from './genres'
 import './cd-picker.css'
 
-type Props = {
+export type CdPickerProps = {
   tracks: MusicTrackSummary[]
   selectedIds: string[]
   onToggle: (id: string) => void
@@ -18,7 +20,18 @@ type Props = {
   onPrimary?: (id: string) => void
   disabled?: boolean
   reducedMotion?: boolean
-  player?: { playing: boolean; toggle: () => void }
+  player?: MusicPlayerControls
+  browseIds?: string[]
+  catalogStatus?: 'loading' | 'ready' | 'error'
+  genre?: string
+  onGenre?: (genre: string) => void
+  onMore?: () => void
+  hasMore?: boolean
+  catalogMessage?: string
+  readOnly?: boolean
+  canContinue?: (id: string) => boolean
+  onContinue?: (track: MusicTrackSummary) => void
+  continueLabel?: string
 }
 type Flight = { key: number; track: MusicTrackSummary; x: number; y: number; size: number; slot: number }
 
@@ -29,7 +42,7 @@ export function filterCdTracks(tracks: MusicTrackSummary[], query: string) {
 
 /** A real cover is never replaced with a fabricated album image. The shared
  * ordered-RGB/CRT pipeline also works when external artwork lacks canvas CORS. */
-function CdFace({ track }: { track: MusicTrackSummary }) {
+export function CdFace({ track }: { track: MusicTrackSummary }) {
   const noCover = <span className="music-cd-no-art"><small>暂无封面</small><strong>{track.title}</strong><small>{track.artistName}</small></span>
   return <span className="music-cd-disc" data-photo-filter="ordered-dither-crt">
     <span className="music-cd-art">{track.coverUrl
@@ -47,7 +60,9 @@ const inkLoops = Array.from({ length: 3 }, (_, layer) => Array.from({ length: 96
 
 /** Controlled selection: animation is only feedback, never a delayed data write. */
 export function CdPicker({ tracks, selectedIds, onToggle, query, onQuery, searchId, max = 5, min = 1,
-  primaryId, onPrimary, disabled = false, reducedMotion = false, player }: Props) {
+  primaryId, onPrimary, disabled = false, reducedMotion = false, player,
+  browseIds, catalogStatus, genre, onGenre, onMore, hasMore, catalogMessage,
+  readOnly = false, canContinue, onContinue, continueLabel = '继续寻找' }: CdPickerProps) {
   const root = useRef<HTMLDivElement>(null), stage = useRef<HTMLDivElement>(null), flyer = useRef<HTMLDivElement>(null)
   const slots = useRef<Array<HTMLDivElement | null>>([])
   const nextFlight = useRef(0), wheel = useRef({ amount: 0, last: 0, stepAt: -Infinity })
@@ -55,7 +70,7 @@ export function CdPicker({ tracks, selectedIds, onToggle, query, onQuery, search
   const [activeId, setActiveId] = useState(selectedIds[0] ?? tracks[0]?.id)
   const [flight, setFlight] = useState<Flight | null>(null)
   const helpId = useId(), infoId = useId()
-  const visible = useMemo(() => filterCdTracks(tracks, query), [tracks, query])
+  const visible = useMemo(() => browseIds ? browseIds.flatMap(id => tracks.find(t => t.id === id) ?? []) : filterCdTracks(tracks, query), [tracks, query, browseIds])
   const active = Math.max(0, visible.findIndex(track => track.id === activeId))
   const track = visible[active]
   const current = useRef({ visible, active, disabled })
@@ -85,7 +100,7 @@ export function CdPicker({ tracks, selectedIds, onToggle, query, onQuery, search
       data.last = now
       data.amount += Math.sign(delta) * Math.min(80, Math.abs(delta) * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? 300 : 1))
       if (Math.abs(data.amount) < 24 || now - data.stepAt < 280) return
-      const next = Math.max(0, Math.min(state.visible.length - 1, state.active + Math.sign(data.amount)))
+      const next = Math.max(0, Math.min(state.visible.length - 1, state.active - Math.sign(data.amount)))
       data.amount = 0; data.stepAt = now
       setActiveId(state.visible[next].id)
     }
@@ -111,7 +126,7 @@ export function CdPicker({ tracks, selectedIds, onToggle, query, onQuery, search
     return () => { alive = false; animation.cancel() }
   }, [flight, reducedMotion, selectedIds])
 
-  const canToggle = (id: string) => !disabled && (selectedIds.includes(id) ? selectedIds.length > min : selectedIds.length < max)
+  const canToggle = (id: string) => !readOnly && !disabled && (selectedIds.includes(id) ? selectedIds.length > min : selectedIds.length < max)
   const toggle = (item: MusicTrackSummary, source?: HTMLElement) => {
     if (suppressClick.current) { suppressClick.current = false; return }
     if (!canToggle(item.id)) return
@@ -132,18 +147,30 @@ export function CdPicker({ tracks, selectedIds, onToggle, query, onQuery, search
       if (event.key === 'Home' || event.key === 'End') setActiveId(visible[event.key === 'Home' ? 0 : visible.length - 1].id)
       else move(event.key === 'ArrowRight' || event.key === 'ArrowDown' ? 1 : -1)
       stage.current?.focus({ preventScroll: true })
-    } else if ((event.key === 'Enter' || event.key === ' ') && event.target === stage.current && track) {
-      event.preventDefault(); toggle(track, stage.current.querySelector<HTMLElement>('[data-active=true] .music-cd-disc') ?? undefined)
+    } else if ((event.key === 'Enter' || event.key === ' ') && event.target === stage.current) {
+      event.preventDefault()
     }
   }
   const selected = selectedIds.map(id => tracks.find(item => item.id === id))
+  const catalogFeedback = catalogStatus === 'loading' ? '正在加载曲库…'
+    : catalogStatus === 'error' ? catalogMessage || '曲库暂时无法加载，请重试。' : undefined
   return <div ref={root} className="music-cd-picker" data-reduced-motion={reducedMotion}>
-    <div className="music-cd-toolbar">
+    {!readOnly && <div className="music-cd-toolbar">
       <div className="music-cd-search">
         <DitherTitle level={3}>星球歌曲</DitherTitle>
-        <label className="music-search-label" htmlFor={searchId}>搜索曲名或艺人</label>
-        <input id={searchId} className="music-search" type="search" value={query} disabled={disabled}
-          onChange={event => onQuery(event.target.value)} placeholder="曲名、艺人、曲风" />
+        <div className="music-cd-filters" role="group" aria-label="曲库筛选">
+          <div className="music-cd-search-field">
+            <label className="music-search-label" htmlFor={searchId}>搜索曲名或艺人</label>
+            <input id={searchId} className="music-search" type="search" value={query} disabled={disabled}
+              onChange={event => onQuery(event.target.value)} placeholder="曲名、艺人、曲风" />
+          </div>
+          {onGenre && <div className="music-cd-genre-field">
+            <label className="music-search-label" htmlFor={`${searchId}-genre`}>曲风</label>
+            <select id={`${searchId}-genre`} aria-label="浏览音乐曲风" value={genre ?? ''} disabled={disabled} onChange={event => onGenre(event.target.value)}>
+              <option value="">全部曲风</option>{AUDIUS_GENRES.map(g => <option key={g}>{g}</option>)}
+            </select>
+          </div>}
+        </div>
       </div>
       <div className="music-cd-collection">
         <div className="music-cd-collection-head"><span>已选择</span><span aria-live="polite">{selectedIds.length} / {max} 首</span></div>
@@ -162,10 +189,11 @@ export function CdPicker({ tracks, selectedIds, onToggle, query, onQuery, search
         </div>
         <p className="music-cd-rack-help">点击架上的 CD 取出{min ? ` · 至少保留 ${min} 首` : ''}</p>
       </div>
-    </div>
+    </div>}
     <div className="music-cd-browser">
       <div className="music-cd-browse-panel">
-        <div ref={stage} className="music-cd-stage" role="group" aria-roledescription="carousel" aria-label="CD 曲库" tabIndex={0}
+        <div className="music-cd-stage-frame">
+        <div ref={stage} className="music-cd-stage" role="group" aria-roledescription="carousel" aria-label={readOnly ? '星球 CD' : 'CD 曲库'} tabIndex={0}
           aria-describedby={helpId} onKeyDown={onKey} onPointerDown={event => {
             suppressClick.current = false
             if (event.pointerType !== 'mouse' && stage.current && !disabled) swipe.current = clientPoint(stage.current, event.clientX, event.clientY)
@@ -184,11 +212,11 @@ export function CdPicker({ tracks, selectedIds, onToggle, query, onQuery, search
               style={{ '--cd-offset': offset, '--cd-distance': distance, '--cd-depth': `${distance * -115}px`, '--cd-turn': `${offset === 0 ? -18 : offset > 0 ? -38 : 30}deg`,
                 '--cd-scale': Math.max(.5, 1 - distance * .14), '--cd-opacity': Math.max(.2, 1 - distance * .23), zIndex: 5 - distance } as CSSProperties}>
               <button type="button" className="music-cd-record" data-active={focused} aria-label={`${item.title} · ${item.artistName}`}
-                aria-pressed={selectedIds.includes(item.id)} tabIndex={focused ? 0 : -1} disabled={disabled}
-                onClick={event => {
+                aria-pressed={focused} tabIndex={focused ? 0 : -1} disabled={disabled}
+                onClick={() => {
                   if (suppressClick.current) { suppressClick.current = false; return }
-                  // At the limit, other records can still be browsed and read.
-                  setActiveId(item.id); toggle(item, event.currentTarget.querySelector<HTMLElement>('.music-cd-disc') ?? undefined)
+                  // Browsing never changes the collection, even for stored CDs.
+                  setActiveId(item.id)
                 }} onPointerMove={event => {
                   if (reducedMotion || event.pointerType === 'touch' || disabled) return
                   const button = event.currentTarget, point = clientPoint(button, event.clientX, event.clientY)
@@ -203,37 +231,46 @@ export function CdPicker({ tracks, selectedIds, onToggle, query, onQuery, search
                   <svg className="music-cd-ink" viewBox="0 0 240 240" aria-hidden="true">{inkLoops.map((d, i) => <path key={i} d={d} />)}</svg>
                   <CdFace track={item} />
                 </span>
-                {selectedIds.includes(item.id) && <span className="music-cd-selected-stamp">✓ 已收录</span>}
+                {!readOnly && selectedIds.includes(item.id) && <span className="music-cd-selected-stamp">✓ 已收录</span>}
               </button>
             </div>
           })}
-          {!track && <p className="music-cd-empty" role="status">{query.trim() ? '没有找到匹配曲目。试试其他曲名、艺人或曲风。' : '曲库暂时没有歌曲。'}</p>}
+          {!track && <p className="music-cd-empty" role="status">{readOnly ? '这颗星球还没有公开歌曲。' : catalogFeedback || (query.trim() ? '没有找到匹配曲目。试试其他曲名或艺人。' : '这个曲风暂时没有可播放歌曲。')}</p>}
+        </div>
         </div>
         <div className="music-cd-navigation">
           <DitherButton aria-label="上一张 CD" disabled={disabled || active === 0 || !track} onClick={() => move(-1)}>←</DitherButton>
           <span>{track ? String(active + 1).padStart(2, '0') : '00'} / {String(visible.length).padStart(2, '0')}</span>
           <DitherButton aria-label="下一张 CD" disabled={disabled || active >= visible.length - 1 || !track} onClick={() => move(1)}>→</DitherButton>
         </div>
-        <p id={helpId} className="music-cd-help">滚轮 / ← → 切换 · 点击 CD 收录</p>
+        <p id={helpId} className="music-cd-help">滚轮 / ← → 切换 · 点击 CD 查看</p>
       </div>
       <div id={infoId} className="music-cd-info" aria-live="polite" aria-atomic="true">
         {track && <div key={track.id} className="music-cd-info-reveal">
           <span className="music-cd-info-index">当前唱片 · {String(active + 1).padStart(2, '0')}</span>
           <h3>{track.title}</h3>
           <p className="music-cd-artist">{track.artistName}</p>
+          {readOnly && primaryId === track.id && <p className="music-cd-version">星球主旋律</p>}
           {track.versionLabel && <p className="music-cd-version">{track.versionLabel}</p>}
           <dl><div><dt>曲风</dt><dd>{track.genres.join(' / ') || '未提供'}</dd></div>
             <div><dt>节拍</dt><dd>{track.visualFeatures?.tempoBpm ? `${track.visualFeatures.tempoBpm} BPM` : '未提供'}</dd></div>
             <div><dt>时长</dt><dd>{track.durationSeconds != null ? `${Math.floor(track.durationSeconds / 60)}:${String(Math.floor(track.durationSeconds % 60)).padStart(2, '0')}` : '未提供'}</dd></div>
           </dl>
           {track.isDemo || track.id.startsWith('demo:') ? <p className="music-cd-source-note">演示曲目（不可播放）</p>
-            : track.audioUrl && player ? <DitherButton data-music-toggle onClick={player.toggle}>{player.playing ? '暂停 Ⅱ' : '播放 ▶'}</DitherButton> : null}
-          <DitherButton className="music-cd-select" disabled={!canToggle(track.id)} onClick={() => toggle(track, stage.current?.querySelector<HTMLElement>('[data-active=true] .music-cd-disc') ?? undefined)}>
-            {selectedIds.includes(track.id) ? '从 CD 架取出' : selectedIds.length >= max ? 'CD 架已满' : '+ 收入 CD 架'}
-          </DitherButton>
+            : track.audioUrl && player ? <DitherButton data-music-toggle aria-label={`${player.playing && player.currentTrackId === track.id ? '暂停' : '播放'} ${track.title}`} onClick={() => player.toggle(track)}>{player.playing && player.currentTrackId === track.id ? '暂停 Ⅱ' : '播放 ▶'}</DitherButton> : null}
+          {!readOnly && <DitherButton className="music-cd-select" disabled={selectedIds.includes(track.id) || !canToggle(track.id)} onClick={() => {
+            if (!selectedIds.includes(track.id)) toggle(track, stage.current?.querySelector<HTMLElement>('[data-active=true] .music-cd-disc') ?? undefined)
+          }}>
+            {selectedIds.includes(track.id) ? '已收入 CD 架' : selectedIds.length >= max ? 'CD 架已满' : '+ 收入 CD 架'}
+          </DitherButton>}
+          {readOnly && onContinue && canContinue?.(track.id) && <DitherButton className="music-track-portal-button" onClick={() => onContinue(track)}>{continueLabel}</DitherButton>}
         </div>}
       </div>
     </div>
+    {((track && catalogFeedback) || hasMore) && <div className="music-catalog-controls">
+      {track && catalogFeedback && <span role="status">{catalogFeedback}</span>}
+      {hasMore && <DitherButton disabled={catalogStatus === 'loading'} onClick={onMore}>更多 CD →</DitherButton>}
+    </div>}
     {flight && <div ref={flyer} key={flight.key} className="music-cd-flight" aria-hidden="true" style={{ width: flight.size, height: flight.size }}><CdFace track={flight.track} /></div>}
   </div>
 }

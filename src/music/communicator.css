@@ -1,0 +1,52 @@
+.mosic-communicator { box-sizing: border-box; width: min(420px, calc(100vw - 24px)); height: min(760px, calc(100dvh - 28px)); max-width: none; max-height: none; padding: 12px; margin: auto; overflow: hidden; border: 3px solid #5e6253; border-radius: 16px; background: #9c9e88; color: #e2e4bd; font-family: var(--font-mono, monospace); font-size: 13px; box-shadow: inset 2px 2px #d4d3b6, inset -3px -3px #666b59; }
+.mosic-communicator[open] { display: flex; flex-direction: column; }
+.mosic-communicator::backdrop { background: #070c09ba; backdrop-filter: blur(3px); }
+.mosic-communicator * { box-sizing: border-box; }
+.mosic-communicator button { font: inherit; color: inherit; cursor: pointer; border: 1px solid #71785c; background: #303b2b; border-radius: 3px; padding: 7px 10px; }
+.mosic-communicator button:disabled { opacity: .5; cursor: default; }
+.mosic-communicator :focus-visible { outline: 2px solid #eff1bb; outline-offset: 2px; }
+.communicator-hardware, .communicator-base { display: flex; justify-content: space-between; align-items: center; color: #293425; font-size: 10px; font-weight: 700; letter-spacing: .1em; padding: 3px 7px 11px; }
+.communicator-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: #202a1e; padding: 14px; border: 3px solid #5d624e; border-bottom: 1px solid #546447; border-radius: 6px 6px 0 0; }
+.communicator-header > div { min-width: 0; }
+.communicator-header h2 { font-size: 18px; line-height: 1.3; margin: 6px 0 0; overflow-wrap: anywhere; }
+.communicator-signal { color: #c0d399; font-size: 9px; letter-spacing: .12em; }
+.communicator-screen { min-height: 80px; flex: 1; padding: 16px 12px; overflow-y: auto; overscroll-behavior: contain; background: #141f16; border-inline: 3px solid #5d624e; scrollbar-color: #718064 #141f16; }
+.communicator-empty { color: #bdc9aa; line-height: 2; text-align: center; margin: 28px 0; }
+.communicator-message { display: flex; flex-direction: column; align-items: flex-start; margin: 0 0 18px; }
+.communicator-message.is-own { align-items: flex-end; }
+.communicator-bubble { max-width: 88%; padding: 10px 12px; background: #2a3726; border-radius: 2px 8px 8px; overflow-wrap: anywhere; }
+.is-own .communicator-bubble { background: #3d4c2f; border-radius: 8px 2px 8px 8px; }
+.communicator-bubble p { margin: 0; white-space: pre-wrap; line-height: 1.65; }
+.communicator-bubble img { display: block; max-width: 100%; max-height: 230px; object-fit: contain; }
+.communicator-message footer { display: flex; gap: 8px; align-items: center; font-size: 9px; color: #b4c0a5; margin-top: 5px; }
+.communicator-message footer button { padding: 2px 5px; font-size: 9px; background: transparent; border: 0; }
+.mosic-communicator .communicator-song { display: flex; align-items: center; text-align: left; gap: 12px; border: 0; padding: 2px; background: transparent; }
+.communicator-song strong, .communicator-song small { display: block; }
+.communicator-song small { margin-top: 6px; font-size: 10px; }
+.communicator-disc { font-size: 36px; color: #c6cda2; }
+.communicator-compose { padding: 10px; background: #202a1e; border: 3px solid #5d624e; border-top: 1px solid #546447; border-radius: 0 0 6px 6px; }
+.communicator-tools { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.communicator-tools small { margin-left: auto; font-size: 9px; color: #bbc6a6; }
+.communicator-photo-button { position: relative; cursor: pointer; border: 1px solid #71785c; border-radius: 3px; padding: 7px 10px; background: #303b2b; }
+.communicator-photo-button:focus-within { outline: 2px solid #eff1bb; }
+.communicator-photo-button input { position: absolute; width: 100%; height: 100%; inset: 0; opacity: 0; cursor: pointer; }
+.communicator-label { display: block; font-size: 10px; margin: 8px 0 5px; color: #c4cfb5; }
+.communicator-compose textarea, .communicator-picker input { width: 100%; background: #101c14; border: 1px solid #637454; border-radius: 2px; color: #e2e4bd; font: inherit; padding: 10px; }
+.communicator-compose textarea { display: block; min-height: 58px; height: 64px; max-height: 110px; resize: vertical; }
+.communicator-compose textarea::placeholder, .communicator-picker input::placeholder { color: #aab69a; }
+.communicator-send { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 9px; }
+.communicator-send small { font-size: 9px; color: #bdc9aa; }
+.communicator-send button { background: #c0c995; color: #172314; min-width: 70px; font-weight: 700; }
+.communicator-error { color: #f1b9a5; margin: 8px 0; font-size: 11px; }
+.communicator-base { padding: 12px 6px 0; }
+.communicator-base i { width: 42px; height: 4px; background: #60684e; border-radius: 2px; }
+.communicator-attachment { display: flex; gap: 8px; align-items: center; padding: 8px; background: #35412d; }
+.communicator-attachment img { width: 36px; height: 36px; object-fit: cover; }
+.communicator-attachment span { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.communicator-picker { flex: 0 1 auto; overflow-y: auto; max-height: 40%; padding: 10px; background: #273220; border-inline: 3px solid #5d624e; }
+.communicator-picker > div:first-child { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.communicator-picker > button { display: block; width: 100%; text-align: left; margin-top: 6px; }
+.mosic-communicator .music-pagination { background: transparent; font-size: 10px; gap: 8px; }
+.mosic-communicator .music-pagination button { min-height: 30px; }
+.communicator-older { display: block; margin: 0 auto 14px; }
+@media (max-height: 540px) { .mosic-communicator { padding: 8px; } .communicator-header { padding: 8px; } .communicator-hardware, .communicator-base { display: none; } .communicator-compose textarea { height: 44px; min-height: 44px; } }
