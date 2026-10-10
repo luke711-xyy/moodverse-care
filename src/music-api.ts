@@ -3,6 +3,7 @@ import type { PlanetTerrainFeatureCounts } from './types'
 import type { DitherOverrides, DitherPlanetSpec } from './music/dither/appearance'
 import { sampleGalaxyNodes, type GalaxyPreferences, type GalaxyPreferencesPatch, type GalaxyOptionsPage, type GalaxySelectionKind } from './music/galaxy-preferences'
 import { dailyRandom, musicDayKey } from './music/daily-selection'
+import { createMusicReadCache } from './music/read-cache'
 
 export type MusicPlanetVisual = {
   schemaVersion: number
@@ -329,6 +330,7 @@ function errorCode(value: unknown) {
 }
 
 export function createMusicApi(fetcher: typeof fetch = fetch, options: { liveSocial?: boolean } = {}) {
+  const readPublic = createMusicReadCache()
   async function request<T>(url: string, init?: RequestInit): Promise<T> {
     const response = await fetcher(url, {
       ...init,
@@ -378,7 +380,8 @@ export function createMusicApi(fetcher: typeof fetch = fetch, options: { liveSoc
       }
     },
     searchCatalog(query = '', genre = '', offset = 0, signal?: AbortSignal) {
-      return request<MusicCatalogPage>(`/api/music/catalog?${new URLSearchParams({ q: query, genre, offset: String(offset) })}`, { signal })
+      const url = `/api/music/catalog?${new URLSearchParams({ q: query, genre, offset: String(offset) })}`
+      return readPublic(url, () => request<MusicCatalogPage>(url), signal)
     },
     loadGalaxyPreferences() {
       return request<GalaxyPreferences>('/api/me/galaxy-preferences')
@@ -391,7 +394,7 @@ export function createMusicApi(fetcher: typeof fetch = fetch, options: { liveSoc
     },
     async loadHome() {
       const [catalog, owned] = await Promise.all([
-        request<{ tracks: MusicTrackSummary[] }>('/api/music/catalog'),
+        readPublic('/api/music/catalog', () => request<{ tracks: MusicTrackSummary[] }>('/api/music/catalog')),
         request<{ planet: MusicPlanet | null; friendSatellites?: MusicFriendSatellite[] }>('/api/me/music-planet'),
       ])
       return { tracks: catalog.tracks, planet: owned.planet, friendSatellites: owned.friendSatellites ?? [] }
@@ -440,7 +443,8 @@ export function createMusicApi(fetcher: typeof fetch = fetch, options: { liveSoc
       return { ...response, groups: sampleGalaxyNodes(response.groups, dailyRandom(`${musicDayKey()}:galaxy:${by}`)) }
     },
     loadGalaxyContent(by: GalaxyGroupBy, key: string, offset = 0, signal?: AbortSignal) {
-      return request<MusicGalaxyContent>(`/api/music/galaxy-content?${new URLSearchParams({ by, key, offset: String(offset) })}`, { signal })
+      const url = `/api/music/galaxy-content?${new URLSearchParams({ by, key, offset: String(offset) })}`
+      return readPublic(url, () => request<MusicGalaxyContent>(url), signal)
     },
     loadDiscovery() {
       return request<MusicDiscoveryResponse>('/api/music/discovery')

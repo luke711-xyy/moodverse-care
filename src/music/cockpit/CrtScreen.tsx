@@ -1,6 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type MouseEvent } from 'react'
 import { crtDisplacementMap, displayToSource, screenDepth } from './screen-math'
 import { clientPoint, isQuarterTurn, localToScreen } from '../viewport'
+import { crtNoiseFrame } from './crt-noise'
 const warp = crtDisplacementMap()
 /** Native DOM stays accessible/editable. Only the displayed phosphor image is
  * curved; trusted pointer input is mapped back to its unwarped control. */
@@ -18,26 +19,19 @@ export function CrtScreen({ children, active, motion, enabled, mini = false }: {
   }, [active])
   useEffect(() => {
     const canvas = noise.current
-    if (!canvas || typeof CanvasRenderingContext2D === 'undefined') return
+    if (!canvas || !active || !enabled || typeof CanvasRenderingContext2D === 'undefined') return
     const ctx = canvas.getContext('2d')
     if (!ctx) return
     canvas.width = mini ? 120 : 420; canvas.height = mini ? 70 : 260
-    const frame = ctx.createImageData(canvas.width, canvas.height)
-    let raf = 0, previous = -Infinity
-    const draw = (now: number) => {
-      if (now - previous >= 1000 / 24) {
-        previous = now
-        for (let i = 0; i < frame.data.length; i += 4) {
-          const value = Math.random() > .7 ? 230 : Math.random() * 80
-          frame.data[i] = value; frame.data[i+1] = value; frame.data[i+2] = value; frame.data[i+3] = 255
-        }
-        ctx.putImageData(frame, 0, 0)
-      }
-      if (active && motion && enabled && !document.hidden) raf = requestAnimationFrame(draw)
+    let timer = 0, index = Math.floor(Math.random() * 8)
+    const draw = () => {
+      if (document.hidden) return
+      ctx.putImageData(crtNoiseFrame(ctx, mini, index++), 0, 0)
+      if (motion) timer = window.setTimeout(draw, 1000 / 24)
     }
-    const visibility = () => { cancelAnimationFrame(raf); if (!document.hidden && active && motion && enabled) raf = requestAnimationFrame(draw) }
-    draw(0); document.addEventListener('visibilitychange', visibility)
-    return () => { cancelAnimationFrame(raf); document.removeEventListener('visibilitychange', visibility) }
+    const visibility = () => { clearTimeout(timer); if (!document.hidden) draw() }
+    draw(); document.addEventListener('visibilitychange', visibility)
+    return () => { clearTimeout(timer); document.removeEventListener('visibilitychange', visibility) }
   }, [active, motion, enabled, mini])
   const retarget = (event: MouseEvent<HTMLDivElement>) => {
     // Synthetic keyboard/accessibility clicks already use the native target.

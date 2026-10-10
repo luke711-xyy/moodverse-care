@@ -27,6 +27,7 @@ import { DEFAULT_TRACK_ID } from './default-track'
 import { useMusicPlayer } from './useMusicPlayer'
 import { useSocialSync } from './useSocialSync'
 import { useDailyRollover } from './useDailyRollover'
+import { scheduleMusicPrefetch } from './prefetch'
 import type { MusicPlayerControls } from './useMusicPlayer'
 import { MomentContent, MomentPhotoPicker } from './MomentPhoto'
 import { AudiusCdPicker } from './AudiusCdPicker'
@@ -567,6 +568,7 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
   const [socialBusyId, setSocialBusyId] = useState('')
   const [conversation, setConversation] = useState<{ userId: string; displayName: string } | null>(null)
   const [momentsLoadError, setMomentsLoadError] = useState(false)
+  const [momentsLoading, setMomentsLoading] = useState(false)
   const [blockingPlanetId, setBlockingPlanetId] = useState('')
   const [visitedPlanet, setVisitedPlanet] = useState<PublicMusicPlanet | null>(null)
   const musicPlayer = useMusicPlayer({
@@ -683,6 +685,7 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
     setSocialBusyId('')
     setConversation(null)
     setMomentsLoadError(false)
+    setMomentsLoading(false)
     setBlockingPlanetId('')
     setVisitedPlanet(null)
     setPendingVisit(null)
@@ -691,30 +694,35 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
     setVisitError('')
   }, [])
 
+  const homeRequestId = useRef(0)
   const reloadHome = useCallback(async () => {
     const epoch = accountEpoch.current
+    const requestId = ++homeRequestId.current
     setHome({ status: 'loading' })
     try {
       const { tracks, planet, friendSatellites } = await api.loadHome()
-      let moments: MusicMoment[] = []
-      let failedToLoadMoments = false
-      if (planet) {
-        try {
-          moments = await api.loadMoments()
-        } catch {
-          failedToLoadMoments = true
-        }
-      }
-      if (epoch !== accountEpoch.current) return
-      setMomentsLoadError(failedToLoadMoments)
-      setHome({ status: 'ready', tracks, planet, moments, friendSatellites })
+      if (epoch !== accountEpoch.current || requestId !== homeRequestId.current) return
+      setMomentsLoadError(false)
+      setMomentsLoading(Boolean(planet))
+      setHome({ status: 'ready', tracks, planet, moments: [], friendSatellites })
       if (!planet && tracks.some(track => track.id === DEFAULT_TRACK_ID))
         setSelectedTrackIds(current => current.length ? current : [DEFAULT_TRACK_ID])
       if (planet) {
         setMomentTrackId(planet.tracks.find((track) => track.isPrimary)?.id ?? planet.tracks[0]?.id ?? '')
+        // The world and navigation do not depend on the personal journal.
+        try {
+          const moments = await api.loadMoments()
+          if (epoch !== accountEpoch.current || requestId !== homeRequestId.current) return
+          setHome(current => current.status === 'ready' && current.planet?.id === planet.id
+            ? { ...current, moments: [...current.moments, ...moments.filter(moment => !current.moments.some(saved => saved.id === moment.id))] } : current)
+        } catch {
+          if (epoch === accountEpoch.current && requestId === homeRequestId.current) setMomentsLoadError(true)
+        } finally {
+          if (epoch === accountEpoch.current && requestId === homeRequestId.current) setMomentsLoading(false)
+        }
       }
     } catch (error) {
-      if (epoch !== accountEpoch.current) return
+      if (epoch !== accountEpoch.current || requestId !== homeRequestId.current) return
       setHome({ status: 'error' })
     }
   }, [api])
@@ -988,6 +996,13 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
   useEffect(() => {
     if (home.status === 'ready' && galaxy.status === 'idle') void loadGalaxy('genre')
   }, [home.status, galaxy.status])
+
+  const prefetchGalaxyResponse = galaxy.status === 'ready' ? galaxy.response : undefined
+  useEffect(() => {
+    if (!prefetchGalaxyResponse) return
+    return scheduleMusicPrefetch(prefetchGalaxyResponse.groups.slice(0, 2).map(group =>
+      () => api.loadGalaxyContent(prefetchGalaxyResponse.by, group.key)))
+  }, [api, prefetchGalaxyResponse])
 
   const focusGalaxyGroup = (groupKey: string) => {
     if (galaxy.status !== 'ready') return
@@ -1787,8 +1802,9 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
               : home.status === 'ready' ? <p className="music-moments-empty">轨道暂时空着。之后可以继续认识新的朋友。</p> : null}
           </section>
           <section className="music-settings-section" aria-label="Moment 公开范围">
-            <div className="music-section-heading"><DitherTitle level={3}>Moment 公开范围</DitherTitle><span>{momentsLoadError ? '暂不可用' : `${moments.length} 条`}</span></div>
+            <div className="music-section-heading"><DitherTitle level={3}>Moment 公开范围</DitherTitle><span>{momentsLoading ? '读取中' : momentsLoadError ? '暂不可用' : `${moments.length} 条`}</span></div>
             {!planet ? <p className="music-moments-empty">创建星球并留下 Moment 后，可以逐条调整公开范围。</p>
+              : momentsLoading ? <DitherLoadingRing label="正在读取 Moment" />
               : momentsLoadError ? <div className="music-galaxy-empty" role="alert"><p>暂时无法读取 Moment，当前显示的内容不代表没有记录。</p><DitherButton type="button" className="music-text-button" onClick={() => { void reloadMoments() }}>重试读取</DitherButton></div>
                 : !moments.length ? <p className="music-moments-empty">还没有 Moment。写下之后，你可以在这里决定每条内容是否公开。</p>
                   : <div className="music-settings-moments">{<Paginated items={moments} label="我的 Moment" pageSize={3}>{(moment) => <label className="music-visibility-toggle music-settings-toggle music-settings-moment" key={moment.id}>
@@ -1962,8 +1978,8 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
         </form>}
 
         {view !== 'collision' && <section className="music-moments" aria-label="我的 Moments">
-          <div className="music-section-heading"><div className="music-moments-heading-title"><DitherTitle level={3}>沿途留下的 Moment</DitherTitle><DitherButton className="music-moment-add" type="button" aria-label="发布 Moment" title="发布 Moment" onClick={() => { changeView('moment'); setMomentComposeRequested(true) }}>＋</DitherButton></div><span>{moments.length}</span></div>
-          {!moments.length ? <p className="music-moments-empty">还没有 Moment。留下一段片刻吧。</p> : <Paginated items={moments} label="我的 Moment" pageSize={3}>{(moment) => <article className="music-moment-item" key={moment.id}>
+          <div className="music-section-heading"><div className="music-moments-heading-title"><DitherTitle level={3}>沿途留下的 Moment</DitherTitle><DitherButton className="music-moment-add" type="button" aria-label="发布 Moment" title="发布 Moment" onClick={() => { changeView('moment'); setMomentComposeRequested(true) }}>＋</DitherButton></div><span>{momentsLoading ? '读取中' : moments.length}</span></div>
+          {momentsLoading ? <DitherLoadingRing label="正在读取 Moment" /> : !moments.length ? <p className="music-moments-empty">还没有 Moment。留下一段片刻吧。</p> : <Paginated items={moments} label="我的 Moment" pageSize={3}>{(moment) => <article className="music-moment-item" key={moment.id}>
             <div className="music-moment-meta"><span>{moment.visibility === 'public' ? '公开' : '仅自己'} · {new Date(moment.createdAt).toLocaleDateString('zh-CN')}</span></div>
             <MomentContent player={musicPlayer} track={moment.track} contentText={moment.contentText} photoUrl={moment.photoUrl} />
             {momentManagement.status === 'editing' && momentManagement.momentId === moment.id

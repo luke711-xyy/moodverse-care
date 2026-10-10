@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from 'react'
 import { afterEach, expect, test, vi } from 'vitest'
-import { cleanup, fireEvent, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { DitherCanvas } from '../src/music/dither/DitherCanvas'
 import type { DitherFrame } from '../src/music/dither/renderer'
 import { createDitherSpec } from '../src/music/dither/appearance'
@@ -9,6 +9,40 @@ import { createDitherSpec } from '../src/music/dither/appearance'
 // Only replace the GPU boundary; exercise real input mapping and render frames.
 vi.mock('../src/music/dither/renderer', () => ({createDitherRenderer:()=>({draw:()=>{},dispose:()=>{}})}))
 afterEach(()=>{cleanup();vi.restoreAllMocks();vi.unstubAllGlobals()})
+test('state changes coalesce into the next frame without resetting the animation clock', () => {
+  vi.stubGlobal('matchMedia',()=>({matches:false,addEventListener:()=>{},removeEventListener:()=>{}}))
+  vi.spyOn(document,'hidden','get').mockReturnValue(false)
+  vi.spyOn(performance,'now').mockReturnValue(100)
+  const pending = new Map<number, FrameRequestCallback>(); let id=0
+  vi.stubGlobal('requestAnimationFrame',(callback:FrameRequestCallback)=>{pending.set(++id,callback);return id})
+  vi.stubGlobal('cancelAnimationFrame',(key:number)=>pending.delete(key))
+  const makeFrame=(width:number,height:number,phase:number)=>({width,height,phase,assets:[]})
+  const seen:DitherFrame[]=[]
+  const view=render(<DitherCanvas getFrame={makeFrame} onFrame={frame=>seen.push(frame)} />)
+  const initial=seen.length
+  for(let i=0;i<5;i++) view.rerender(<DitherCanvas getFrame={(...args)=>makeFrame(...args)} onFrame={frame=>seen.push(frame)} />)
+  expect(seen.length).toBe(initial)
+  expect(pending.size).toBe(1)
+  act(()=>{const callbacks=[...pending.values()];pending.clear();callbacks.forEach(callback=>callback(120))})
+  expect(seen.length).toBe(initial+1)
+  expect(seen.at(-1)!.phase).toBeGreaterThan(0)
+})
+test.each([60,120,144])('a %i Hz display caps expensive frames near 60 Hz and hiding stops animation', refreshRate => {
+  vi.stubGlobal('matchMedia',()=>({matches:false,addEventListener:()=>{},removeEventListener:()=>{}}))
+  let hidden=false
+  vi.spyOn(document,'hidden','get').mockImplementation(()=>hidden)
+  vi.spyOn(performance,'now').mockReturnValue(100)
+  const pending=new Map<number,FrameRequestCallback>();let id=0
+  vi.stubGlobal('requestAnimationFrame',(callback:FrameRequestCallback)=>{pending.set(++id,callback);return id})
+  vi.stubGlobal('cancelAnimationFrame',(key:number)=>pending.delete(key))
+  const frames:DitherFrame[]=[]
+  render(<DitherCanvas getFrame={(width,height,phase)=>({width,height,phase,assets:[]})} onFrame={frame=>frames.push(frame)} />)
+  for(let i=1;i<=refreshRate;i++) act(()=>{const callbacks=[...pending.values()];pending.clear();callbacks.forEach(callback=>callback(100+i*1000/refreshRate))})
+  expect(frames.length).toBeGreaterThanOrEqual(59);expect(frames.length).toBeLessThanOrEqual(62)
+  expect(frames.at(-1)!.phase).toBeCloseTo(.2,2)
+  hidden=true;fireEvent(document,new Event('visibilitychange'))
+  expect(pending.size).toBe(0)
+})
 test('captured pointer events on the fixed window still map into the magnified canvas', () => {
   vi.stubGlobal('matchMedia',()=>({matches:false,addEventListener:()=>{},removeEventListener:()=>{}}))
   vi.spyOn(document,'hidden','get').mockReturnValue(true)

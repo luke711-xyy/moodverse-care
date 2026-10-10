@@ -5,6 +5,7 @@ import { CdFace } from './CdPicker'
 import { DitherButton, DitherLoadingRing, DitherTitle } from './dither/components'
 import { genreDescription } from './genre-descriptions'
 import type { MusicPlayerControls } from './useMusicPlayer'
+import { scheduleMusicPrefetch } from './prefetch'
 
 function TrackAction({ track, player }: { track: MusicTrackSummary; player: MusicPlayerControls }) {
   return track.audioUrl
@@ -53,6 +54,10 @@ export function GalaxyContent({ api, by, group, player }: {
     }).catch(() => { if (!controller.signal.aborted) setError('星系内容暂时无法读取，请重试。') })
     return () => controller.abort()
   }, [api, by, group.key, identity, offset, retry])
+  useEffect(() => {
+    if (!data?.hasMore || data.nextOffset === null) return
+    return scheduleMusicPrefetch([() => api.loadGalaxyContent(by, group.key, data.nextOffset!)])
+  }, [api, by, group.key, data])
 
   return <section className="music-galaxy-content" aria-label={by === 'song' ? '星系唱片' : by === 'artist' ? '艺人及歌曲' : '曲风及歌曲'}>
     <div className="music-section-heading"><DitherTitle level={3}>{data?.label && data.label !== group.key ? data.label : group.label}</DitherTitle><small>{by === 'song' ? '歌曲' : by === 'artist' ? '艺人' : '曲风'}</small></div>

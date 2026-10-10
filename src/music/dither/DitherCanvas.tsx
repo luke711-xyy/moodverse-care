@@ -62,7 +62,7 @@ export function DitherCanvas({ getFrame, reducedMotion = false, forceFallback = 
   useEffect(() => {
     const canvas = glRef.current!, fallback = fallbackRef.current!
     let renderer: ReturnType<typeof createDitherRenderer> | null = null, raf = 0, disposed = false
-    let last = 0, phase = 0, seconds = 0, lowFrames = 0, automaticLow = false
+    let last = 0, nextFrameAt = 0, phase = 0, seconds = 0, lowFrames = 0, automaticLow = false
     const motion = createDitherMotion()
     const phases = phasesRef.current
     let pointer: { x: number; y: number } | undefined
@@ -76,9 +76,17 @@ export function DitherCanvas({ getFrame, reducedMotion = false, forceFallback = 
       catch { report('canvas2d') }
     }
     const paint = (now: number) => {
+      raf = 0
       if (disposed) return
       reduced = latest.current.reducedMotion || media.matches
       const elapsed = last ? (now - last) / 1000 : 0
+      // High-refresh displays need not simulate and upload the same pixel art
+      // 120/144 times a second. Keep a smooth 60 Hz ceiling and elapsed-time motion.
+      if (!last) nextFrameAt = now
+      if (isRunning() && last && now + .75 < nextFrameAt) {
+        raf = requestAnimationFrame(paint); return
+      }
+      nextFrameAt = Math.max(nextFrameAt + 1000 / 60, now)
       if (isRunning() && elapsed > .024 && elapsed < .2) lowFrames++; else lowFrames = Math.max(0, lowFrames - 1)
       if (lowFrames > 90) automaticLow = true
       last = now
@@ -145,7 +153,13 @@ export function DitherCanvas({ getFrame, reducedMotion = false, forceFallback = 
     }
     // An asset must exist immediately, including a background-tab first load.
     // Visibility only pauses subsequent animation, never the initial content.
-    const restart = () => { cancelAnimationFrame(raf); last = 0; paint(performance.now()) }
+    const restart = () => {
+      if (isRunning() && renderer && last) {
+        if (!raf) raf = requestAnimationFrame(paint)
+        return
+      }
+      cancelAnimationFrame(raf); last = 0; paint(performance.now())
+    }
     const unsubscribeTextures = subscribeAlbumTextures(restart)
     restartRef.current = restart
     const onPointer = (event: PointerEvent) => { if (!latest.current.interactive) return; pointer = clientPoint(canvas, event.clientX, event.clientY); if (!isRunning()) restart() }

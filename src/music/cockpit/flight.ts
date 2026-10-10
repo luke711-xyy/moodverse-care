@@ -46,22 +46,31 @@ export function useCockpitFlight(reducedMotion: boolean, onArrive: (flight: Cock
   }
   useEffect(() => {
     if (!flight) return
-    let frame = 0, last = performance.now(), retreatRemaining = reducedMotion || flight.progress > 0 ? 0 : 450
+    let frame = 0, last = performance.now(), nextFrameAt = last, retreatRemaining = reducedMotion || flight.progress > 0 ? 0 : 450
     const tick = (now: number) => {
+      frame = 0
       const trip = current.current
-      if (!trip || trip.token !== flight.token) return
-      const elapsed = document.hidden ? 0 : Math.min(50, now - last)
+      if (!trip || trip.token !== flight.token || document.hidden) return
+      if (now + .75 < nextFrameAt) { frame = requestAnimationFrame(tick); return }
+      nextFrameAt = Math.max(nextFrameAt + 1000 / 60, now)
+      const elapsed = Math.max(0, Math.min(50, now - last))
       const progress = retreatRemaining > 0 ? trip.progress : advanceFlight(trip.progress, elapsed, trip.ready, reducedMotion)
       retreatRemaining = Math.max(0, retreatRemaining - elapsed)
       last = now
-      current.current = { ...trip, progress }; setFlight(current.current)
+      if (progress !== trip.progress) { current.current = { ...trip, progress }; setFlight(current.current) }
       if (progress === 1) {
-        const completed = current.current
+        const completed = current.current!
         current.current = null; setFlight(null); arrival.current(completed)
-      } else frame = requestAnimationFrame(tick)
+      } else if (trip.ready || progress < .5) frame = requestAnimationFrame(tick)
     }
-    frame = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(frame)
+    const visibility = () => {
+      cancelAnimationFrame(frame); frame = 0
+      last = performance.now(); nextFrameAt = last
+      const trip = current.current
+      if (!document.hidden && trip && (trip.ready || trip.progress < .5)) frame = requestAnimationFrame(tick)
+    }
+    visibility(); document.addEventListener('visibilitychange', visibility)
+    return () => { cancelAnimationFrame(frame); document.removeEventListener('visibilitychange', visibility) }
   }, [flight?.token, flight?.ready, reducedMotion])
   return { flight, start, ready, cancel, isCurrent: (token: number) => current.current?.token === token }
 }

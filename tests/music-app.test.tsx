@@ -64,6 +64,21 @@ const tracks = [
   { id: 'song-e', title: '月面信号', artistId: 'artist-e', artistName: '月面', versionLabel: '', genres: ['electronic'], moodTags: ['curious'], officialUrl: 'https://music.example/e', coverUrl: null, durationSeconds: 190 },
 ]
 
+test('the cockpit is usable while secondary Moments are still loading', async () => {
+  let finish!: (r:Response)=>void
+  const owner={id:'fast-home',displayName:'先显示星球',tagline:'',visibility:'public',tracks:tracks.slice(0,1),visual:createDitherSpec({planetId:'fast-home',tracks})}
+  vi.stubGlobal('fetch',vi.fn(async(request:RequestInfo|URL)=>{
+    const path=new URL(String(request),'https://moodverse.test').pathname
+    if(path==='/api/music/catalog') return Response.json({tracks})
+    if(path==='/api/me/music-planet') return Response.json({planet:owner})
+    if(path==='/api/me/music-planet/moments') return new Promise<Response>(resolve=>{finish=resolve})
+    return Response.json({groups:[],incoming:[],outgoing:[],friends:[]})
+  }))
+  render(<MusicApp />)
+  expect(await screen.findByRole('button',{name:'打开个人终端'})).toBeTruthy()
+  await act(async()=>finish(Response.json({moments:[]})))
+})
+
 test.each([0, 1, 4])('Moment heading always has a quick publish shortcut with %i existing Moments', async (count) => {
   const owner = { id: 'moment-shortcut-owner', displayName: '夜航者', tagline: '', visibility: 'public', visualSchemaVersion: 3,
     visual: createDitherSpec({ planetId: 'moment-shortcut-owner', tracks }), tracks: tracks.slice(0, 3) }

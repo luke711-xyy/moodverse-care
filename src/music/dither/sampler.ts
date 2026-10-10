@@ -138,10 +138,16 @@ export function renderDitherImage(spec: DitherPlanetSpec, size: number, time = 0
   const pixels = new Uint8ClampedArray(size * size * 4), p = effectiveDitherParameters(spec)
   const detail=clamp(observation.detail ?? 0)
   const cell = Math.max(1, Math.round((observation.pixelSize ?? p.pixelSize) * (1-detail) * size / 256))
-  for (let yy = 0; yy < size; yy++) for (let xx = 0; xx < size; xx++) {
+  // Every output pixel in a material cell has identical coordinates and tone.
+  // Evaluate that expensive procedural surface once, including partial rim cells.
+  for (let yy = 0; yy < size; yy += cell) for (let xx = 0; xx < size; xx += cell) {
     const gx = Math.floor(xx / cell), gy = Math.floor(yy / cell)
     const x = ((gx + .5) * cell / size - .5) * 2.4, y = ((gy + .5) * cell / size - .5) * 2.4
-    pixels.set(sampleDitherPixel(spec, x, y, time, gx, gy, kind, 0, album, orientation, detail), (yy * size + xx) * 4)
+    const color = sampleDitherPixel(spec, x, y, time, gx, gy, kind, 0, album, orientation, detail)
+    const right = Math.min(size, xx + cell), bottom = Math.min(size, yy + cell)
+    for (let row = yy; row < bottom; row++) for (let col = xx; col < right; col++) {
+      pixels.set(color, (row * size + col) * 4)
+    }
   }
   return pixels
 }

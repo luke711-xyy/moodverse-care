@@ -23,6 +23,18 @@ beforeEach(() => {
 })
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
+test.each([60, 120, 144])('journey limits React updates on a %i Hz display while preserving duration', rate => {
+  let renders = 0
+  const { result } = renderHook(() => { renders++; return useGalaxyJourney(false, true) })
+  act(() => result.current.animateTo(TOUR_END, 40))
+  const initial = renders
+  for (let i = 0; i < rate; i++) advance(1000 / rate)
+  expect(renders - initial).toBeLessThanOrEqual(62)
+  expect(renders - initial).toBeGreaterThanOrEqual(58)
+  advance(200)
+  expect(result.current.journey).toBe(TOUR_END)
+})
+
 test('node animation progresses through the real journey; retargeting and manual input cancel the old route', () => {
   const { result, unmount } = renderHook(() => useGalaxyJourney(false, true))
   act(() => result.current.animateTo(TOUR_END, 5))
@@ -67,6 +79,8 @@ test('hidden tabs pause, leaving overview stops travel, and reduced motion skips
   advance(200)
   const position = result.current.journey
   vi.mocked(Object.getOwnPropertyDescriptor(document, 'hidden')!.get!).mockReturnValue(true)
+  act(() => document.dispatchEvent(new Event('visibilitychange')))
+  expect(frames.size).toBe(0)
   advance(10000)
   expect(result.current.journey).toBe(position)
   vi.mocked(Object.getOwnPropertyDescriptor(document, 'hidden')!.get!).mockReturnValue(false)
