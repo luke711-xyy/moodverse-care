@@ -44,7 +44,6 @@
 .cockpit-galaxy-list-key { width: 100%; padding: 0; border: 0; background: none; text-align: left; }
 .cockpit-keys { gap: 5px; flex-shrink: 0; width: 70%; align-self: center; margin-top: 8px; }
 .cockpit-keys button { min-height: 31px; padding: 3px 4px; font-size: .6875rem; }
-.cockpit #cockpit-exploration .cockpit-keys button { font-size: .875rem; }
 /* Printed legends stay crisp; only the raised keycaps use material dithering.
    The requested Unifont face unifies Chinese, Latin and the settings key. */
 .cockpit .cockpit-keys { filter: none; }
@@ -183,7 +182,14 @@
   .cockpit-pan-nav { display: none; }
   .cockpit-hardware-label { font-size: 11px; }
   .cockpit-keys { gap: 3px; width: 100%; margin-top: 4px; }
-  .cockpit-keys button { padding-inline: 2px; font-size: 11px; }
+  /* Override the desktop legend rule, not just the low-specificity key base.
+     Content-sized keys keep the four-character home label on one line. */
+  .cockpit .cockpit-console-scroll :is(.cockpit-keys button,.cockpit-settings-key) {
+    font-size: 10px; line-height: 1.2; letter-spacing: 0; white-space: nowrap;
+  }
+  .cockpit .cockpit-console-scroll .cockpit-keys button { flex-basis: auto; padding-inline: 2px; }
+  /* Smaller lettering must not release the settings row into the Galaxy dial. */
+  .cockpit .cockpit-console-scroll .cockpit-settings-key { min-height: 29px; }
   .cockpit-keys button { min-width: 0; }
   .cockpit-monitor { height: 48px; min-height: 48px; border-width: 5px; }
   .cockpit-personal-monitor,.cockpit-exploration-monitor { height: auto; min-height: 0; }

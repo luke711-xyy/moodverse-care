@@ -1,5 +1,5 @@
 import type { MusicGalaxySceneSystem } from '../galaxy-scene'
-import { createDitherSpec, resolveAlbumCover, type DitherPlanetSpec } from './appearance'
+import { createDitherSpec, resolveAlbumCover, stableHash, type DitherPlanetSpec } from './appearance'
 import { depthOrderedAssets, orbitDepth, orbitPoint, satelliteAsset, type DitherOrbitGeometry } from './layout'
 import type { DitherAsset, DitherFrame } from './renderer'
 import { galaxyTourPosition } from '../galaxy-navigation'
@@ -8,6 +8,12 @@ import type { Orientation } from './arcball'
 const clamp = (n: number) => Math.max(0, Math.min(1, n))
 // Home is the reference scale for every destination, including visited planets.
 const PLANET_VIEW_SCALE = .85 * .9
+function satelliteSpeeds(seed: string, ids: string[]) {
+  const ranked = ids.map(id => ({ id, hash: stableHash(seed + ':satellite-speed:' + id) }))
+    .sort((a, b) => a.hash - b.hash || a.id.localeCompare(b.id))
+  // Seeded, separated speed bands prevent phase-locking without fresh randomness each frame.
+  return new Map(ranked.map(({ id, hash }, rank) => [id, .1 + rank * .024 + (hash % 1000) / 999 * .008]))
+}
 export function sampleHomeTransition(progress: number) {
   const p = clamp(progress)
   return { homeScale: .025 + .975 * p * p, homeOpacity: p, cloudOpacity: p === 0 || p === 1 ? 0 : Math.sin(p * Math.PI) }
@@ -46,19 +52,20 @@ export function buildDitherStageFrame(input: StageLayoutInput): StageFrame {
     const orbit = { x, y, rx: radius * 1.32 * k, ry: radius * .63 * k, tilt: -.33 }
     orbits.push(orbit)
     const music = [...new Map(input.music.filter(track => track.id !== spec.coverTexture?.trackId).map(track => [track.id, track])).values()].slice(0, 5)
+    const sceneFriends = visitor ? input.visitorFriends ?? [] : input.friends
+    const friends = [...new Map(sceneFriends.filter(friend => friend.isVirtual === false).map(friend => [friend.id, friend])).values()].slice(0, 5)
+    const speeds = satelliteSpeeds(spec.seed, [...music.map(track => 'music:' + track.id), ...friends.map(friend => 'friend:' + friend.id)])
     for (const [i, track] of music.entries()) {
-      const asset = satelliteAsset(spec, { id: 'music:' + track.id, kind: 'music', orbit, phase: i * Math.PI * 2 / Math.max(1, music.length) + phase * .2, radius: radius * .105 * k })
+      const asset = satelliteAsset(spec, { id: 'music:' + track.id, kind: 'music', orbit, phase: i * Math.PI * 2 / Math.max(1, music.length) + phase * speeds.get('music:' + track.id)!, radius: radius * .105 * k })
       const coverTexture = resolveAlbumCover([track], track.id)
       // Never inherit the main planet's cover for another song, including missing-cover fallbacks.
       bodies.push({ ...asset, spec: { ...asset.spec, coverTexture, overrides: { ...asset.spec.overrides, coverTrackId: coverTexture ? track.id : null } }, opacity })
     }
-    const sceneFriends = visitor ? input.visitorFriends ?? [] : input.friends
-    const friends = [...new Map(sceneFriends.filter(friend => friend.isVirtual === false).map(friend => [friend.id, friend])).values()].slice(0, 5)
     for (const [i, friend] of friends.entries()) {
       const friendOrbit = { ...orbit, rx: orbit.rx * 1.26, ry: orbit.ry * 1.1 }
       if (!i) orbits.push(friendOrbit)
       const visual = friend.visual ?? createDitherSpec({planetId:friend.visualSeed ?? friend.id,tracks:[]})
-      bodies.push({ ...satelliteAsset(visual, { id: 'friend:' + friend.id, kind: 'friend', orbit: friendOrbit, phase: i * Math.PI * 2 / Math.max(1, friends.length) + phase * .16 + .7, radius: radius * .1 * k }), spec: { ...visual, overrides: { ...visual.overrides, size: 1 } }, opacity })
+      bodies.push({ ...satelliteAsset(visual, { id: 'friend:' + friend.id, kind: 'friend', orbit: friendOrbit, phase: i * Math.PI * 2 / Math.max(1, friends.length) + phase * speeds.get('friend:' + friend.id)! + .7, radius: radius * .1 * k }), spec: { ...visual, overrides: { ...visual.overrides, size: 1 } }, opacity })
     }
     assets.push(...depthOrderedAssets(bodies))
   }
