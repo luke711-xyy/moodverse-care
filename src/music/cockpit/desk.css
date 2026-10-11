@@ -54,7 +54,12 @@
   font-size: .875rem; font-weight: 400; font-synthesis: none;
   line-height: 1.35; letter-spacing: .08em; white-space: normal;
   color: #292116; text-shadow: none;
-  background: none; border-color: transparent; box-shadow: none; filter: none;
+  /* The real key owns its silhouette. A failed material pass must never leave
+     a floating label; the pseudo-element only adds texture over this base. */
+  background: linear-gradient(140deg,#fbe0a0,#e0bd79 44%,#b39864);
+  border-color: #59472e; border-top-color: #ffe6ab; border-left-color: #ebcc8b;
+  box-shadow: inset -2px -3px 0 #93764a,0 5px 0 #423522,2px 7px 0 #2a2116,0 8px 8px #0009;
+  filter: none;
 }
 .cockpit .cockpit-console-scroll :is(.cockpit-keys button,.cockpit-settings-key)::before {
   content: ''; position: absolute; inset: -2px; z-index: -1;
@@ -62,14 +67,16 @@
   border-top-color: #ffe6ab; border-left-color: #ebcc8b;
   border-radius: inherit;
   background: linear-gradient(140deg,#fbe0a0,#e0bd79 44%,#b39864);
-  box-shadow: inset -2px -3px 0 #93764a,0 5px 0 #423522,2px 7px 0 #2a2116,0 8px 8px #0009;
   filter: url(#moodverse-hardware-dither);
 }
-.cockpit .cockpit-console-scroll :is(.cockpit-keys button,.cockpit-settings-key)[aria-pressed=true]::before {
+.cockpit .cockpit-console-scroll :is(.cockpit-keys button,.cockpit-settings-key)[aria-pressed=true] {
   background: linear-gradient(145deg,#ffe8ac,#f0ce88 40%,#d4ad69);
   box-shadow: inset 0 0 4px #ffeeb6,0 3px 0 #5b472c,0 7px 14px #f7d38a33;
 }
-.cockpit .cockpit-console-scroll :is(.cockpit-keys button,.cockpit-settings-key):active::before { box-shadow: 0 1px 0 #393125; }
+.cockpit .cockpit-console-scroll :is(.cockpit-keys button,.cockpit-settings-key)[aria-pressed=true]::before {
+  background: linear-gradient(145deg,#ffe8ac,#f0ce88 40%,#d4ad69);
+}
+.cockpit .cockpit-console-scroll :is(.cockpit-keys button,.cockpit-settings-key):active { box-shadow: 0 1px 0 #393125; }
 .cockpit-settings-key { min-height: 31px; padding: 3px 8px; font-size: .6875rem; }
 .cockpit-gauge-bay { height: 90%; display: grid; grid-template-rows: 11px minmax(0,1fr) minmax(0,1fr) 64px; gap: 5px; }
 .cockpit-gauge-bay > .cockpit-lamp { margin: 0 auto; }
@@ -229,4 +236,19 @@
   .cockpit-keys button { font-size: 10px; }
   .cockpit-personal-preview { display: block; text-align: center; }
   .cockpit-personal-preview .dither-planet-mark { display: none; }
+}
+
+/* iOS/iPadOS WebKit can lose referenced SVG-filter surfaces in the console's
+   perspective layers. Keep the same geometry, colors and shadows, but render
+   hardware directly there. This does not disable the live world or CRT effects. */
+@supports (-webkit-touch-callout: none) {
+  .cockpit :is(.cockpit-window-frame,.cockpit-deck,.cockpit-desk-objects,.coffee-steam,.desk-signals,
+    .case-details,.cockpit-hardware-label,.cockpit-gauge,.cockpit-lamp,.cockpit-signal-legend,
+    .cockpit-terminal-header,.cockpit-terminal-footer),
+  .cockpit .cockpit-console-scroll :is(.cockpit-flight-lever,.flight-keycap,.cockpit-knob,.cockpit-knob-body,
+    .cockpit-radio-case,.cockpit-radio-transport button),
+  .cockpit :is(.cockpit-wing,.cockpit-center,.cockpit-gauge-bay,.cockpit-terminal)::before,
+  .cockpit .cockpit-console-scroll :is(.cockpit-keys button,.cockpit-settings-key)::before,
+  dialog.music-galaxy-dialog::before { filter: none; }
+  .cockpit .cockpit-console-scroll .cockpit-radio-case { filter: drop-shadow(5px 8px 3px #0009); }
 }

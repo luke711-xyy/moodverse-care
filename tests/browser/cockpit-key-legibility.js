@@ -30,7 +30,8 @@ export function assertCockpitKeyLegibility(root = document) {
     if (record.font.includes('MOSIC Console Han')) failures.push(`${record.label}: condensed Chinese font`)
     if (record.filteredAncestors.length) failures.push(`${record.label}: material filter affects lettering`)
     if (record.weight > 600 || record.size < 12 || !(record.spacing >= 1)) failures.push(`${record.label}: cramped legend`)
-    if (!record.materialFilter.includes('moodverse-hardware-dither')) failures.push(`${record.label}: missing material texture`)
+    const safeWebKitMaterial = root.defaultView.CSS.supports('-webkit-touch-callout', 'none') && record.materialFilter === 'none'
+    if (!record.materialFilter.includes('moodverse-hardware-dither') && !safeWebKitMaterial) failures.push(`${record.label}: missing material texture or WebKit fallback`)
     if (!record.fits) failures.push(`${record.label}: overflowing legend`)
     if (button.matches('.cockpit-settings-key') && style.position !== 'relative') failures.push('Settings key must remain in the right panel flow below the dial')
   }
