@@ -4,7 +4,7 @@ export function enableCockpitWebKitFallback(root = document) {
   const blocks = []
   const visit = rules => {
     for (const rule of rules) {
-      if (rule.conditionText === '(-webkit-touch-callout: none)') blocks.push(...[...rule.cssRules].map(child => child.cssText))
+      if (rule.conditionText?.replace(/\s/g, '') === '(-webkit-touch-callout:none)') blocks.push(...[...rule.cssRules].map(child => child.cssText))
       else if (rule.cssRules) visit(rule.cssRules)
     }
   }
