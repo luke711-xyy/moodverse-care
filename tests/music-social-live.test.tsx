@@ -143,7 +143,7 @@ test('new chat activity updates the visible five friend satellites even when the
   })
   render(<MusicApp />)
   await liveSource()
-  fireEvent.click(screen.getByRole('button',{name:'跃迁'}))
+  fireEvent.click(screen.getByRole('button',{name:'回星球'}))
   await screen.findByRole('button',{name:'好友卫星 好友0'},{timeout:10000})
   expect(screen.queryByRole('button',{name:'好友卫星 好友5'})).toBeNull()
   push(await liveSource(),{...empty(),friends:peers.map(f=>f.userId==='peer-5'?{...f,lastMessageAt:'2026-10-10T05:00:00Z'}:f)})

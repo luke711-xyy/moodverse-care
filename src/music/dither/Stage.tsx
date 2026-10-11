@@ -151,7 +151,7 @@ export function Stage(props: Props & { exteriorView?: 'home' | 'galaxy'; interac
       </g>
       {frame.orbits.map((orbit,i)=><DitherOrbit key={i} orbit={orbit} />)}
     </svg>
-    <DitherCanvas getFrame={getFrame} onFrame={rememberFrame} overscan={!inGalaxy && !busy ? OBSERVATION_OVERSCAN : 1} reducedMotion={props.reducedMotion} paused={props.interactive === false && !busy} interactive={props.interactive !== false && !busy} onModeChange={setRenderMode} />
+    <DitherCanvas getFrame={getFrame} onFrame={rememberFrame} viewCamera={viewCamera} overscan={!inGalaxy && !busy ? OBSERVATION_OVERSCAN : 1} reducedMotion={props.reducedMotion} paused={props.interactive === false && !busy} interactive={props.interactive !== false && !busy} onModeChange={setRenderMode} />
     </div>
     {busy && <div className="dither-travel-caption" style={{opacity:cloud}} aria-live="polite">穿过星云 · {props.flight?.to === 'visitor' ? '下一颗星球' : desiredHome===0 ? 'Galaxy' : '我的星球'}</div>}
     <div className="dither-stage-accessible" aria-label="场景对象">

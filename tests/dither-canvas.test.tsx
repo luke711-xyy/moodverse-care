@@ -87,3 +87,24 @@ test('the slower orbit clock does not wrap before completing its revolution', ()
   // The shader's independent texture clocks still stay bounded and periodic.
   expect(draw.mock.calls.at(-1)?.[0].assets[0].phase).toBeLessThan(Math.PI * 2)
 })
+
+test('sustained slow frames pace automatically without replacing the chosen pixel grid or DPR', () => {
+  vi.spyOn(document, 'hidden', 'get').mockReturnValue(false)
+  let pending: FrameRequestCallback | undefined, now = 1000
+  vi.spyOn(performance, 'now').mockImplementation(() => now)
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { pending = callback; return 1 })
+  const fine = createDitherSpec({planetId:'fine',tracks:[],overrides:{pixelSize:2}})
+  const getFrame = (width: number, height: number, phase: number) => ({width,height,phase,assets:[{id:'fine',spec:fine,x:200,y:200,radius:110}]})
+  const {container, rerender} = render(<DitherCanvas getFrame={getFrame} />)
+  const initial = draw.mock.calls.at(-1)![0].assets[0].particles
+  const initialDpr = draw.mock.calls.at(-1)![1]
+  for (let i = 0; i < 150; i++) act(() => { now += 40; const callback = pending; pending = undefined; callback?.(now) })
+  const canvas = container.querySelector('canvas')!
+  expect(canvas.dataset.ditherQuality).toBe('normal')
+  expect(canvas.dataset.ditherCadence).toBe('30')
+  expect(draw.mock.calls.at(-1)![0].assets[0].particles).toBe(initial)
+  expect(draw.mock.calls.at(-1)![1]).toBe(initialDpr)
+  rerender(<DitherCanvas getFrame={getFrame} quality="low" paused />)
+  expect(canvas.dataset.ditherQuality).toBe('low')
+  expect(draw.mock.calls.at(-1)![0].assets[0].particles.count).toBeLessThan(initial.count)
+})

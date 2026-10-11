@@ -37,7 +37,7 @@ export async function readPlanetDitherVisuals(env: Pick<Env, 'DB'>, planets: Arr
   const output = new Map<string, DitherPlanetSpec>(), pending: typeof planets = []
   for (const row of planets) {
     const parsed = parseVisualJson(row.visual_json)
-    if (isDitherSpec(parsed) && parsed.seed === row.id) output.set(row.id, parsed)
+    if (isDitherSpec(parsed) && parsed.seed === row.id) output.set(row.id, resolveDitherSpec(row.id, [], parsed))
     else pending.push(row)
   }
   for (let start = 0; start < pending.length; start += 80) {

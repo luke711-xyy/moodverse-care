@@ -21,7 +21,7 @@ test('home transition is reversible and grows continuously', () => {
   expect(samples.map(x=>x.homeScale)).toEqual([...samples.map(x=>x.homeScale)].sort((a,b)=>a-b))
 })
 test('shared frame lays out planets, friend and music satellites', () => {
-  const input = { width: 1000, height: 700, phase: .4, owner: visual, systems: buildMusicGalaxySceneSystems('genre', groups), home: 1, journey: 0, rotation: 0, friends: [{ id: 'friend-a' }], music: [{ id: 'song-a' }] }
+  const input = { width: 1000, height: 700, phase: .4, owner: visual, systems: buildMusicGalaxySceneSystems('genre', groups), home: 1, journey: 0, rotation: 0, friends: [{ id: 'friend-a', isVirtual: false }], music: [{ id: 'song-a' }] }
   const home = buildDitherStageFrame(input)
   expect(home.assets.map(x=>x.id)).toEqual(expect.arrayContaining(['home:planet-a','friend:friend-a','music:song-a']))
   const galaxy = buildDitherStageFrame({ ...input, home: 0, focusedGalaxy: 'genre:ambient' })

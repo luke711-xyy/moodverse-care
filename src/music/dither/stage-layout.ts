@@ -6,6 +6,8 @@ import { galaxyTourPosition } from '../galaxy-navigation'
 import type { Orientation } from './arcball'
 
 const clamp = (n: number) => Math.max(0, Math.min(1, n))
+// Home is the reference scale for every destination, including visited planets.
+const PLANET_VIEW_SCALE = .85 * .9
 export function sampleHomeTransition(progress: number) {
   const p = clamp(progress)
   return { homeScale: .025 + .975 * p * p, homeOpacity: p, cloudOpacity: p === 0 || p === 1 ? 0 : Math.sin(p * Math.PI) }
@@ -34,12 +36,12 @@ export function buildDitherStageFrame(input: StageLayoutInput): StageFrame {
     orbits.push(orbit)
     const bodies = system.planets.map((planet, i) => {
       const angle = i * Math.PI * 2 / Math.max(1, system.planets.length) + rotation + phase * .18
-      return { id: 'planet:' + planet.id, spec: planet.spec, ...orbitPoint(orbit, angle), depth: orbitDepth(orbit, angle), radius: r * (.21 + i % 3 * .018), opacity, rotation: angle * .1 }
+      return { id: 'planet:' + planet.id, spec: planet.spec, ...orbitPoint(orbit, angle), depth: orbitDepth(orbit, angle), radius: r * .21, opacity, rotation: angle * .1 }
     })
     assets.push(...depthOrderedAssets([center, ...bodies]))
   }
   if (input.home > 0 || visitor) {
-    const spec = visitor ?? owner, k = visitor ? 1 : home.homeScale * .85 * .9, opacity = visitor ? 1 : home.homeOpacity
+    const spec = visitor ?? owner, k = PLANET_VIEW_SCALE * (visitor ? 1 : home.homeScale), opacity = visitor ? 1 : home.homeOpacity
     const bodies: DitherAsset[] = [{ id: visitor ? 'visitor:' + spec.seed : 'home:' + spec.seed, spec, x, y, radius: radius * k, opacity, rotation: rotation * .25, orientation: input.orientation, depth: 0 }]
     const orbit = { x, y, rx: radius * 1.32 * k, ry: radius * .63 * k, tilt: -.33 }
     orbits.push(orbit)

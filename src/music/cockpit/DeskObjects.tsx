@@ -110,7 +110,7 @@ for (let row=0;row<48;row++) {
 }
 
 export function DeskObjects() {
-  return <svg className="cockpit-desk-objects" viewBox="0 -115 1800 285" preserveAspectRatio="xMidYMax meet" aria-hidden="true" focusable="false">
+  return <><svg className="cockpit-desk-objects" viewBox="0 -115 1800 285" preserveAspectRatio="xMidYMax meet" aria-hidden="true" focusable="false">
     <defs>
       <linearGradient id="keyboard-case" x2=".1" y2="1"><stop stopColor="#d7b778" /><stop offset=".4" stopColor="#85704b" /><stop offset="1" stopColor="#332819" /></linearGradient>
       <linearGradient id="keyboard-cap" x2=".4" y2="1"><stop stopColor="#f1d497" /><stop offset=".45" stopColor="#c4a26b" /><stop offset="1" stopColor="#897049" /></linearGradient>
@@ -150,11 +150,15 @@ export function DeskObjects() {
       <path d="M105 48 C159 28 155 109 108 99" fill="none" stroke="#46301b" strokeWidth="16" /><path d="M106 45 C145 30 146 100 109 95" fill="none" stroke="#bfa16f" strokeWidth="9" />
       <path d="M5 35 Q2 91 18 103 Q57 123 103 101 L113 35Z" fill="url(#cup-case)" stroke="#755231" strokeWidth="2" />
       <ellipse cx="59" cy="35" rx="54" ry="15" fill="#2d2114" stroke="#e5bd80" strokeWidth="4" /><ellipse cx="59" cy="36" rx="46" ry="10" fill="#22170c" /><path d="M22 34 Q50 28 87 34" fill="none" stroke="#766040" strokeWidth="2" />
+    </g>
+  </svg>
+  <svg className="cockpit-desk-vapor" viewBox="0 -115 1800 285" preserveAspectRatio="xMidYMax meet" aria-hidden="true" focusable="false">
+    <g transform="translate(1438 30)">
       <g className="coffee-steam" stroke="none">
         {steamLayers.map((pixels,layer)=><g key={layer} className="coffee-steam-layer" style={{'--steam-duration':`${5.2+layer*.7}s`,'--steam-phase':`${-layer*1.8}s`,'--steam-drift':`${layer%2===0?-5:7}px`} as CSSProperties}>
           {pixels.map((pixel,index)=><rect key={index} {...pixel} width="1.9" height="1.9" />)}
         </g>)}
       </g>
     </g>
-  </svg>
+  </svg></>
 }

@@ -13,6 +13,27 @@ export const MAX_DITHER_CELLS = 65536
 export type ParticleCloud = { count: number; points: Float32Array; grid?: number }
 export type ParticleField = ParticleCloud & { homes: Float32Array; offsets: Float32Array; velocities: Float32Array }
 type Pose = { spec: DitherPlanetSpec; phase: number; rotation: number; radius: number }
+// Geometry and spatial wave phases do not change with the music clock. Keep
+// them with the live field (not the saved appearance), so replaced grids are
+// collected and rotations invalidate only their own bounded cache.
+const spatialTides = new WeakMap<ParticleField, { rotation: number; values: Float64Array }>()
+const UNDERTOW_COS = Math.cos(1.65), UNDERTOW_SIN = Math.sin(1.65)
+function spatialTide(field: ParticleField, rotation: number, cr: number, sr: number) {
+  let cached = spatialTides.get(field)
+  if (cached?.rotation === rotation) return cached.values
+  cached ??= { rotation, values: new Float64Array(field.count * 6) }
+  const values = cached.values
+  for (let i = 0; i < field.count; i++) {
+    const hi = i * 3, n = i * 6, nx = field.homes[hi], ny = field.homes[hi + 1]
+    const x = nx * cr - ny * sr, y = nx * sr + ny * cr
+    const phase = -((y + 1) * .23 + (1 - Math.max(0, field.homes[hi + 2])) * .19) * TAU
+    values[n] = x; values[n + 1] = y
+    values[n + 2] = Math.cos(phase); values[n + 3] = Math.sin(phase)
+    values[n + 4] = Math.cos(phase + y * 2); values[n + 5] = Math.sin(phase + y * 2)
+  }
+  cached.rotation = rotation; spatialTides.set(field, cached)
+  return values
+}
 const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n))
 function random(seed: string) {
   let state = stableHash(seed)
@@ -73,19 +94,30 @@ export function particleTide(x: number, y: number, depth: number, seconds: numbe
 export function stepParticleField(field: ParticleField, pose: Pose, delta: number, seconds: number, pointer: { x: number; y: number } | undefined, running: boolean, beat?: MusicBeatClock) {
   const p = effectiveDitherParameters(pose.spec)
   const cr = Math.cos(pose.rotation), sr = Math.sin(pose.rotation)
+  const spatial = spatialTide(field, pose.rotation, cr, sr)
+  const cycles = beat?.cycles ?? Math.round(((seconds * DEFAULT_TIDE_BPM / 60) % 1 + 1) % 1 * 1e6) / 1e6
+  const clockCos = Math.cos(cycles * TAU), clockSin = Math.sin(cycles * TAU)
+  const amplitude = beat && !beat.playing ? 0 : .16 * Math.sqrt(clamp(p.pulse, 0, 1))
   const steps = running ? Math.ceil(clamp(delta, 0, .05) / STEP) : 0
   const dt = steps ? clamp(delta, 0, .05) / steps : 0
   const cursor = p.pointer !== 'off' ? pointer : undefined
   const reach = clamp(80 / Math.max(1, pose.radius), .25, .85), force = p.pointer === 'strong' ? 26 : 17
   const cellSize = pose.radius / (field.grid ?? pose.radius / p.pixelSize)
+  let displaced = false
   for (let i = 0; i < field.count; i++) {
     const hi = i * 3, oi = i * 2, pi = i * PARTICLE_STRIDE
-    const nx = field.homes[hi], ny = field.homes[hi + 1], nz = field.homes[hi + 2]
-    const hx = nx * cr - ny * sr, hy = nx * sr + ny * cr
-    const tide = particleTide(hx, hy, Math.max(0, nz), seconds, p.pulse, beat)
+    const nx = field.homes[hi], ny = field.homes[hi + 1]
+    const hx = spatial[pi], hy = spatial[pi + 1]
+    const cosine = clockCos * spatial[pi + 2] - clockSin * spatial[pi + 3]
+    const sine = clockSin * spatial[pi + 2] + clockCos * spatial[pi + 3]
+    const crest = (1 + cosine) * .5, crest3 = crest * crest * crest
+    const undertow = (1 + cosine * UNDERTOW_COS + sine * UNDERTOW_SIN) * .5
+    const wave = (crest3 * crest3 - .48 * undertow * undertow * undertow) * amplitude
+    const shear = (clockSin * spatial[pi + 4] + clockCos * spatial[pi + 5]) * amplitude * .23
+    const tideX = hx * wave - hy * shear, tideY = hy * wave + hx * shear
     let ox = field.offsets[oi], oy = field.offsets[oi + 1], vx = field.velocities[oi], vy = field.velocities[oi + 1]
     for (let step = 0; step < steps; step++) {
-      let ax = (tide.x - ox) * 100 - vx * 8, ay = (tide.y - oy) * 100 - vy * 8
+      let ax = (tideX - ox) * 100 - vx * 8, ay = (tideY - oy) * 100 - vy * 8
       if (cursor) {
         let dx = hx + ox - cursor.x, dy = hy + oy - cursor.y
         const distance = Math.hypot(dx, dy)
@@ -108,6 +140,29 @@ export function stepParticleField(field: ParticleField, pose: Pose, delta: numbe
     field.points[pi + 2] = hx; field.points[pi + 3] = hy
     field.points[pi + 4] = cellSize
     field.points[pi + 5] = 1 // Silhouette/halo alpha is sampled by the original shader.
+    displaced ||= Math.abs(ox) + Math.abs(oy) > 1e-7
+  }
+  if (displaced) {
+    // Translation alone separates neighboring raster squares. Cover their local
+    // spacing in the same rotated basis as the GPU quads, including shear at
+    // diagonal corners. Bounded growth repairs fine seams, not cursor openings.
+    const side = Math.round(Math.sqrt(field.count)), limit = cellSize * 1.6
+    for (let i = 0; i < field.count; i++) {
+      const col = i % side, row = Math.floor(i / side), oi = i * 2
+      let size = cellSize
+      for (let y = Math.max(-1, -row); y <= Math.min(1, side - row - 1); y++) {
+        for (let x = Math.max(-1, -col); x <= Math.min(1, side - col - 1); x++) {
+          if (!x && !y) continue
+          const neighbor = (i + y * side + x) * 2
+          const dx = (field.offsets[neighbor] - field.offsets[oi]) * pose.radius
+          const dy = (field.offsets[neighbor + 1] - field.offsets[oi + 1]) * pose.radius
+          size = Math.max(size, Math.abs(x * cellSize + dx * cr + dy * sr), Math.abs(y * cellSize - dx * sr + dy * cr))
+        }
+      }
+      // Small rasterization guard only on stretched cells; untouched pixels
+      // keep their exact original size and the material coordinates never move.
+      field.points[i * PARTICLE_STRIDE + 4] = size > cellSize + 1e-5 ? Math.min(limit, size + .15) : cellSize
+    }
   }
   return field
 }

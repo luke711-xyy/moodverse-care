@@ -7,6 +7,15 @@ export type ObservationCamera = { zoom: number; x: number; y: number }
 export const DEFAULT_OBSERVATION: ObservationCamera = { zoom:1, x:0, y:0 }
 export const OBSERVATION_OVERSCAN = 2
 
+/** Inverse CSS camera, expressed in the unchanged overscanned world canvas. */
+export function visibleObservationRect(width: number, height: number, overscan: number, camera: ObservationCamera = DEFAULT_OBSERVATION) {
+  const w = width * overscan, h = height * overscan
+  const left = w / 2 - (width / 2 + camera.x) / camera.zoom
+  const top = h / 2 - (height / 2 + camera.y) / camera.zoom
+  const x = Math.max(0, left), y = Math.max(0, top)
+  return {x, y, width: Math.max(0, Math.min(w, left + width / camera.zoom) - x), height: Math.max(0, Math.min(h, top + height / camera.zoom) - y)}
+}
+
 /** The same extent controls the canvas border and the zoom/pan limits. */
 export function clampObservation(camera: ObservationCamera, width: number, height: number): ObservationCamera {
   const zoom=Math.max(1/OBSERVATION_OVERSCAN,Math.min(6,camera.zoom))

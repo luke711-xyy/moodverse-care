@@ -7,8 +7,9 @@ import { CockpitShell } from '../src/music/cockpit/CockpitShell'
 import { cockpitReducer, initialCockpitState, type ExteriorDestination } from '../src/music/cockpit/state'
 afterEach(cleanup)
 
-function Harness({ reduced = false, exterior = 'galaxy', heading = .5, galaxyLabel = '环境音乐', classifying = false }: { reduced?: boolean; exterior?: ExteriorDestination; heading?: number; galaxyLabel?: string; classifying?: boolean }) {
-  const [state, dispatch] = useReducer(cockpitReducer, { ...initialCockpitState, exterior })
+function Harness({ reduced = false, exterior = 'galaxy', heading = .5, galaxyLabel = '环境音乐', classifying = false, traveling = false }: { reduced?: boolean; exterior?: ExteriorDestination; heading?: number; galaxyLabel?: string; classifying?: boolean; traveling?: boolean }) {
+  const initial = { ...initialCockpitState, exterior }
+  const [state, dispatch] = useReducer(cockpitReducer, traveling ? cockpitReducer(initial, {type:'depart',token:1,target:'home'}) : initial)
   const [by, setBy] = useState<GalaxyGroupBy>('genre')
   return <CockpitShell state={state} reducedMotion={reduced} crtEnabled signal="idle" heading={heading}
     planetName="夜航" galaxyLabel={galaxyLabel} scene={<div>真实宇宙</div>} onOpen={page => dispatch({ type: 'open', page })}
@@ -17,6 +18,15 @@ function Harness({ reduced = false, exterior = 'galaxy', heading = .5, galaxyLab
     <label>Moment 草稿<input aria-label="Moment 草稿" /></label>
   </CockpitShell>
 }
+test('flight keeps all three device screens visible but prevents monitors, channel keys and classification from opening', () => {
+  const {container} = render(<Harness traveling reduced />)
+  const devices = container.querySelectorAll<HTMLButtonElement>('.cockpit-monitor,.cockpit-keys button,.cockpit-galaxy-sector')
+  expect(container.querySelectorAll('.cockpit-monitor')).toHaveLength(3)
+  for (const control of devices) { expect(control.disabled).toBe(true); fireEvent.click(control) }
+  expect(container.querySelector('.cockpit')?.getAttribute('data-focus')).toBe('overview')
+  expect(container.querySelector('.cockpit-galaxy-readout')?.textContent).toBe('Galaxy 分类：曲风')
+  expect(container.querySelector('.cockpit-terminal')?.hasAttribute('hidden')).toBe(true)
+})
 test('Galaxy display tracks all three English selector windows and retains the list entry', () => {
   render(<Harness reduced />)
   const display = screen.getByRole('button', { name: '查看 Galaxy 星球列表' })
@@ -67,7 +77,7 @@ test('current galaxy name updates in the top bar and becomes the planet name whe
   expect(container.querySelector('.window-hud-top [aria-label="当前星系"]')?.textContent).toBe('环境音乐')
   rerender(<Harness galaxyLabel="独立摇滚" />)
   expect(container.querySelector('.window-hud-galaxy')?.textContent).toBe('独立摇滚')
-  fireEvent.click(screen.getByRole('button', { name: '跃迁' }))
+  fireEvent.click(screen.getByRole('button', { name: '回星球' }))
   expect(container.querySelector('.window-hud-top [aria-label="当前星球"]')?.textContent).toBe('夜航')
 })
 test('windshield full-turn compass and bounded console gauge track the same journey progress', () => {
@@ -92,6 +102,16 @@ test('physical monitors approach to a straight-on terminal and return without lo
   expect(screen.queryByRole('textbox')).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: '打开个人终端' }))
   expect((screen.getByRole('textbox') as HTMLInputElement).value).toBe('保留这段声音')
+})
+test('expanded terminal footer keeps navigation without redundant page or account captions', () => {
+  const { container } = render(<Harness reduced />)
+  fireEvent.click(screen.getByRole('button', { name: '打开个人终端' }))
+  const footer = container.querySelector('.cockpit-terminal-footer')!
+  expect(footer.querySelector('small')).toBeNull()
+  expect(footer.querySelector('span')).toBeNull()
+  expect(footer.textContent).not.toContain('匿名体验账号')
+  fireEvent.click(screen.getByRole('button', { name: '返回驾驶舱' }))
+  expect(screen.queryByRole('region')).toBeNull()
 })
 test('settings are available only on the main console and escape returns to the cockpit', () => {
   const { container } = render(<Harness reduced />)
@@ -140,17 +160,35 @@ test('reduced motion disables CRT motion without hiding functional controls', ()
   expect(container.querySelector('[data-crt="on"][data-crt-motion="false"]')).toBeTruthy()
   expect(container.querySelector('#moodverse-hardware-dither feComponentTransfer')).toBeTruthy()
   expect(container.querySelector('.crt-screen[data-crt-motion="true"]')).toBeNull()
-  expect(screen.getByRole('button', { name: '跃迁' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: '回星球' })).toBeTruthy()
   expect(screen.getByRole('group', { name: 'Galaxy 分类旋钮' })).toBeTruthy()
 })
 test('jump control travels both ways instead of opening the Galaxy list channel', () => {
   const { container } = render(<Harness />)
-  fireEvent.click(screen.getByRole('button', {name:'跃迁'}))
+  fireEvent.click(screen.getByRole('button', {name:'回星球'}))
   expect(container.querySelector('.cockpit')!.getAttribute('data-exterior')).toBe('home')
   expect(screen.queryByRole('region', {name:'探索终端'})).toBeNull()
-  fireEvent.click(screen.getByRole('button', {name:'跃迁'}))
+  fireEvent.click(screen.getByRole('button', {name:'Galaxy',exact:true}))
   expect(container.querySelector('.cockpit')!.getAttribute('data-exterior')).toBe('galaxy')
   expect(screen.getByRole('img', {name:'航速：0%'})).toBeTruthy()
+})
+test.each(['home','visitor','galaxy'] as const)('navigation key names its destination and travels correctly from %s', exterior => {
+  const {container} = render(<Harness exterior={exterior} reduced />)
+  const label = exterior === 'home' ? 'Galaxy' : '回星球'
+  const destination = exterior === 'home' ? 'galaxy' : 'home'
+  const key = screen.getByRole('button',{name:label,exact:true})
+  expect(key.querySelector('small')?.textContent).toBe(label)
+  expect((key as HTMLButtonElement).disabled).toBe(false)
+  fireEvent.click(key)
+  expect(container.querySelector('.cockpit')?.getAttribute('data-exterior')).toBe(destination)
+  expect(container.querySelector('.cockpit')?.getAttribute('data-focus')).toBe('overview')
+})
+test('navigation key cannot start another trip while the ship is in flight', () => {
+  const {container} = render(<Harness exterior="visitor" traveling reduced />)
+  const key = screen.getByRole('button',{name:'回星球'}) as HTMLButtonElement
+  expect(key.disabled).toBe(true)
+  fireEvent.click(key)
+  expect(container.querySelector('.cockpit')?.getAttribute('data-exterior')).toBe('visitor')
 })
 test('casings omit terminal headings and ready text while retaining the Galaxy list entry', () => {
   const { container } = render(<Harness />)
@@ -168,7 +206,8 @@ test('desk replaces the redundant signal gauge with an honest radio ornament and
   expect(desk.querySelectorAll('button, a, input, [tabindex]').length).toBe(0)
   expect(desk.querySelector('.desk-keyboard')).toBeTruthy()
   expect(desk.querySelector('.desk-headphones')).toBeTruthy()
-  expect(desk.querySelector('.desk-coffee .coffee-steam')).toBeTruthy()
+  expect(desk.querySelector('.desk-coffee')).toBeTruthy()
+  expect(container.querySelector('.cockpit-desk-vapor .coffee-steam')).toBeTruthy()
   expect(container.querySelector('.cockpit-console > .cockpit-center')).toBeTruthy()
   expect(container.querySelectorAll('.cockpit-console > .cockpit-console-side').length).toBe(2)
 })

@@ -1,9 +1,10 @@
 import { authenticatedMusicUser, json, type Env } from '../../../../_shared'
 import { readPublicPlanet } from '../[id]'
 import { decodePlanetRouteId } from '../_route'
+import { readPublicSongSource } from '../../../../_music-song-source'
 
 type VisitSource = 'direct' | 'song_portal' | 'galaxy' | 'random_roam' | 'daily_roam' | 'orbit'
-type VisitBody = { isIncognito?: unknown; source?: unknown; trackId?: unknown }
+type VisitBody = { isIncognito?: unknown; source?: unknown; trackId?: unknown; sourcePlanetId?: unknown }
 
 const respond = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
   status,
@@ -28,6 +29,9 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   const trackId = source === 'song_portal' && typeof body?.trackId === 'string' ? body.trackId.trim() : ''
   if (source === 'song_portal' && (!trackId || trackId.length > 128)) return respond({ error: 'INVALID_VISIT' }, 400)
   if (source !== 'song_portal' && body?.trackId !== undefined) return respond({ error: 'INVALID_VISIT' }, 400)
+  const sourcePlanetId = typeof body?.sourcePlanetId === 'string' ? body.sourcePlanetId.trim() : null
+  if (body?.sourcePlanetId !== undefined && (source !== 'song_portal' || !sourcePlanetId || sourcePlanetId.length > 128 || sourcePlanetId === planetId)) return respond({error:'INVALID_VISIT'},400)
+  if (sourcePlanetId && !await readPublicSongSource(env, sourcePlanetId, trackId, identity.userId)) return respond({error:'TRACK_NOT_IN_SOURCE_PLANET'},403)
   const isIncognito = body?.isIncognito === true ? 1 : 0
   const visitedAt = new Date().toISOString()
   const writes = [env.DB.prepare(`
@@ -61,7 +65,12 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
               AND m.visibility = 'public' AND m.published_at IS NOT NULL
           )
         )
-        AND EXISTS (
+        AND NOT EXISTS (
+          SELECT 1 FROM music_user_blocks b
+          WHERE (b.blocker_user_id = ?2 AND b.blocked_user_id = p.owner_user_id)
+             OR (b.blocker_user_id = p.owner_user_id AND b.blocked_user_id = ?2)
+        )
+        AND ((?5 IS NULL AND EXISTS (
           SELECT 1 FROM music_planets own_planet
           WHERE own_planet.owner_user_id = ?2
             AND (
@@ -72,10 +81,19 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
                   AND m.visibility = 'public' AND m.published_at IS NOT NULL
               )
             )
-        )
+        )) OR EXISTS (
+          SELECT 1 FROM music_planets source_planet
+          WHERE source_planet.id = ?5 AND source_planet.visibility = 'public'
+            AND EXISTS (SELECT 1 FROM music_planet_tracks t WHERE t.planet_id = source_planet.id AND t.track_id = c.id)
+            AND NOT EXISTS (
+              SELECT 1 FROM music_user_blocks b
+              WHERE (b.blocker_user_id = ?2 AND b.blocked_user_id = source_planet.owner_user_id)
+                 OR (b.blocker_user_id = source_planet.owner_user_id AND b.blocked_user_id = ?2)
+            )
+        ))
       ON CONFLICT(visitor_user_id, planet_id, track_id) DO UPDATE SET
         last_encountered_at = excluded.last_encountered_at
-    `).bind(planetId, identity.userId, trackId, visitedAt))
+    `).bind(planetId, identity.userId, trackId, visitedAt, sourcePlanetId))
   }
   const writesResult = await env.DB.batch(writes)
   if (writesResult[0]?.meta.changes < 1) return respond({ error: 'PLANET_NOT_FOUND' }, 404)

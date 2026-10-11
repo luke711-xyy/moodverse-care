@@ -8,6 +8,7 @@ import { createDitherSpec } from '../src/music/dither/appearance'
 const originalScrollTo = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollTo')
 
 beforeEach(() => {
+  vi.spyOn(document, 'hidden', 'get').mockReturnValue(false)
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
   vi.stubGlobal('Audio', class extends EventTarget {
     paused = true; src = ''; loop = false; volume = 0; preload = ''; currentTime = 0
@@ -25,7 +26,7 @@ afterEach(() => {
   else Reflect.deleteProperty(HTMLElement.prototype, 'scrollTo')
 })
 
-test.each(['browse', 'own-song', 'planet-shortcut'])('collision searches and scrolls without collection writes: %s', async (entry) => {
+test.each(['browse', 'own-song', 'planet-channel'])('collision only searches after an explicit song action and scrolls without collection writes: %s', async (entry) => {
   vi.spyOn(HTMLElement.prototype, 'offsetTop', 'get').mockImplementation(function (this: HTMLElement) {
     return this.classList.contains('music-song-portal') ? 720 : 0
   })
@@ -52,9 +53,9 @@ test.each(['browse', 'own-song', 'planet-shortcut'])('collision searches and scr
   render(<MusicApp />)
   await waitFor(() => expect(document.querySelector('.music-app.has-planet')).toBeTruthy())
   if (entry !== 'browse') {
-    if (entry === 'planet-shortcut') {
-      fireEvent.click(screen.getByRole('button', { name: '跃迁' }))
-      await waitFor(() => expect(document.querySelector('.cockpit')?.getAttribute('data-exterior')).toBe('home'))
+    if (entry === 'planet-channel') {
+      fireEvent.click(screen.getByRole('button', { name: '回星球' }))
+      await waitFor(() => expect(document.querySelector('.cockpit[data-exterior="home"]:not(.is-in-flight)')).toBeTruthy(), { timeout: 10000, onTimeout: () => new Error('Home arrival did not finish') })
     }
     fireEvent.click(screen.getByRole('button', { name: '打开个人终端' }))
     if (entry === 'own-song') {
@@ -62,6 +63,9 @@ test.each(['browse', 'own-song', 'planet-shortcut'])('collision searches and scr
     } else {
       fireEvent.click(screen.getByRole('button', { name: '返回驾驶舱' }))
       fireEvent.click(screen.getByRole('button', { name: '撞歌', exact: true }))
+      expect(searches).toEqual([])
+      const panel = within(screen.getByRole('complementary', { name: '同歌搜索' }))
+      fireEvent.click(panel.getByRole('button', { name: '撞歌 ↗' }))
     }
     await waitFor(() => expect(searches).toEqual([entry === 'own-song' ? 'song-1' : 'song-0']))
     expect(await screen.findByText('还没有找到可访问的同歌星球。可以从自己的其他歌曲继续探索。')).toBeTruthy()
@@ -84,4 +88,4 @@ test.each(['browse', 'own-song', 'planet-shortcut'])('collision searches and scr
   await waitFor(() => expect(document.querySelector('.cockpit-terminal-content')?.scrollTop).toBe(704))
   expect(window.scrollTo).not.toHaveBeenCalled()
   expect(writes).toEqual([])
-})
+}, 20000)

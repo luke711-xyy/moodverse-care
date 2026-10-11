@@ -4,11 +4,12 @@ import { createDitherRenderer, type DitherFrame } from './renderer'
 import { advanceDitherPhase, renderDitherImage, type DitherAssetKind } from './sampler'
 import { createDitherMotion, DEFAULT_TIDE_BPM } from './motion'
 import { clientPoint, logicalSize } from '../viewport'
-import { expandObservationFrame } from './observation'
+import { expandObservationFrame, visibleObservationRect, type ObservationCamera } from './observation'
 import { getMusicBeatClock } from '../audio-clock'
 import './dither.css'
 import { loadAlbumTexture, subscribeAlbumTextures } from './album-texture'
 import type { Orientation } from './arcball'
+import { createRenderBudget } from './render-budget'
 
 const thumbnailCache = new Map<string, HTMLCanvasElement>()
 export function cachedDitherCanvas(spec: DitherPlanetSpec, size = 128, kind: DitherAssetKind = 'planet', orientation?: Orientation, observation: {detail?:number;pixelSize?:number} = {}): HTMLCanvasElement {
@@ -42,27 +43,29 @@ export function DitherThumbnail({ spec, label = '', size = 96, kind = 'planet' }
   return <canvas ref={ref} className="dither-thumb" width={size} height={size} role={label ? 'img' : undefined} aria-label={label || undefined} aria-hidden={!label} />
 }
 
-export function DitherCanvas({ getFrame, reducedMotion = false, forceFallback = false, quality = 'auto', onModeChange, onFrame, interactive = true, paused = false, overscan = 1 }: {
+export function DitherCanvas({ getFrame, reducedMotion = false, forceFallback = false, quality = 'auto', onModeChange, onFrame, interactive = true, paused = false, overscan = 1, viewCamera }: {
   getFrame: (width: number, height: number, phase: number) => DitherFrame
   reducedMotion?: boolean
   interactive?: boolean
   paused?: boolean
   overscan?: number
+  viewCamera?: ObservationCamera
   forceFallback?: boolean
   quality?: 'auto' | 'low' | 'high'
   onModeChange?: (mode: 'webgl2' | 'canvas2d') => void
   onFrame?: (frame: DitherFrame) => void
 }) {
   const glRef = useRef<HTMLCanvasElement>(null), fallbackRef = useRef<HTMLCanvasElement>(null)
-  const latest = useRef({ getFrame, reducedMotion, quality, onModeChange, onFrame, interactive, paused, overscan })
+  const latest = useRef({ getFrame, reducedMotion, quality, onModeChange, onFrame, interactive, paused, overscan, viewCamera })
   const restartRef = useRef<(() => void) | null>(null)
   const phasesRef = useRef(new Map<string, number>())
-  latest.current = { getFrame, reducedMotion, quality, onModeChange, onFrame, interactive, paused, overscan }
+  latest.current = { getFrame, reducedMotion, quality, onModeChange, onFrame, interactive, paused, overscan, viewCamera }
   const [mode, setMode] = useState<'webgl2' | 'canvas2d'>('webgl2')
   useEffect(() => {
     const canvas = glRef.current!, fallback = fallbackRef.current!
     let renderer: ReturnType<typeof createDitherRenderer> | null = null, raf = 0, disposed = false
-    let last = 0, nextFrameAt = 0, phase = 0, seconds = 0, lowFrames = 0, automaticLow = false
+    let last = 0, lastRaf = 0, nextFrameAt = 0, phase = 0, seconds = 0, wasRunning = false
+    const budget = createRenderBudget()
     const motion = createDitherMotion()
     const phases = phasesRef.current
     let pointer: { x: number; y: number } | undefined
@@ -79,6 +82,8 @@ export function DitherCanvas({ getFrame, reducedMotion = false, forceFallback = 
       raf = 0
       if (disposed) return
       reduced = latest.current.reducedMotion || media.matches
+      const rafMs = lastRaf ? now - lastRaf : 0
+      lastRaf = now
       const elapsed = last ? (now - last) / 1000 : 0
       // High-refresh displays need not simulate and upload the same pixel art
       // 120/144 times a second. Keep a smooth 60 Hz ceiling and elapsed-time motion.
@@ -86,9 +91,10 @@ export function DitherCanvas({ getFrame, reducedMotion = false, forceFallback = 
       if (isRunning() && last && now + .75 < nextFrameAt) {
         raf = requestAnimationFrame(paint); return
       }
-      nextFrameAt = Math.max(nextFrameAt + 1000 / 60, now)
-      if (isRunning() && elapsed > .024 && elapsed < .2) lowFrames++; else lowFrames = Math.max(0, lowFrames - 1)
-      if (lowFrames > 90) automaticLow = true
+      const cadence = latest.current.quality === 'auto' ? budget.fps : 60
+      const interval = 1000 / cadence
+      nextFrameAt = now + interval - Math.max(0, now - nextFrameAt) % interval
+      const workStarted = performance.now()
       last = now
       // The scene clock must not wrap at 2π: slower orbital rates would jump
       // back before ever reaching the far side. Each material clock below is
@@ -97,6 +103,7 @@ export function DitherCanvas({ getFrame, reducedMotion = false, forceFallback = 
       const { width, height } = logicalSize(canvas)
       const extent=latest.current.overscan
       const frame = expandObservationFrame(latest.current.getFrame(width/extent, height/extent, phase),extent)
+      frame.visibleRect = visibleObservationRect(width/extent, height/extent, extent, latest.current.viewCamera)
       const visible = new Set(frame.assets.map((asset) => asset.id))
       // Keep bounded off-screen clocks so returning to a planet doesn't restart its texture.
       if (phases.size > 256) for (const key of phases.keys()) { if (!visible.has(key)) phases.delete(key); if (phases.size <= 192) break }
@@ -105,7 +112,7 @@ export function DitherCanvas({ getFrame, reducedMotion = false, forceFallback = 
         phases.set(asset.id, next); return { ...asset, phase: next }
       })
       frame.pointer = reduced || !latest.current.interactive ? undefined : pointer
-      const low = latest.current.quality === 'low' || latest.current.quality === 'auto' && automaticLow
+      const low = latest.current.quality === 'low'
       const beat = getMusicBeatClock()
       motion.apply(frame, elapsed, seconds, isRunning() && Boolean(renderer), low, beat)
       // Picking must use the animated material cells that are actually drawn.
@@ -117,6 +124,7 @@ export function DitherCanvas({ getFrame, reducedMotion = false, forceFallback = 
       canvas.dataset.ditherTime = String(seconds)
       canvas.dataset.ditherMeteors = String(frame.meteors?.activeCount ?? 0)
       canvas.dataset.ditherQuality = low ? 'low' : 'normal'
+      canvas.dataset.ditherCadence = String(cadence)
       if (renderer) renderer.draw(frame, Math.min(window.devicePixelRatio || 1, low ? 1 : latest.current.quality === 'high' ? 2 : 1.5))
       else {
         const ctx = fallback.getContext('2d')
@@ -149,11 +157,17 @@ export function DitherCanvas({ getFrame, reducedMotion = false, forceFallback = 
           frame.assets.forEach(drawStatic)
         }
       }
-      if (isRunning() && renderer) raf = requestAnimationFrame(paint)
+      if (isRunning() && renderer) {
+        if (latest.current.quality === 'auto') budget.sample(now, performance.now() - workStarted, rafMs)
+        raf = requestAnimationFrame(paint)
+      }
     }
     // An asset must exist immediately, including a background-tab first load.
     // Visibility only pauses subsequent animation, never the initial content.
     const restart = () => {
+      reduced = latest.current.reducedMotion || media.matches
+      const running = isRunning()
+      if (running !== wasRunning) { last = 0; lastRaf = 0; budget.reset(); wasRunning = running }
       if (isRunning() && renderer && last) {
         if (!raf) raf = requestAnimationFrame(paint)
         return
@@ -186,7 +200,7 @@ export function DitherCanvas({ getFrame, reducedMotion = false, forceFallback = 
   }, [forceFallback])
   // Visual edits and pause toggles repaint in-place. They must not allocate a new
   // shader program or reset the per-asset clock on every React state update.
-  useEffect(() => { restartRef.current?.() }, [getFrame, reducedMotion, quality, paused, overscan])
+  useEffect(() => { restartRef.current?.() }, [getFrame, reducedMotion, quality, paused, overscan, viewCamera])
   const extentStyle={left:`${(1-overscan)*50}%`,top:`${(1-overscan)*50}%`,width:`${overscan*100}%`,height:`${overscan*100}%`}
   return <>
     <canvas ref={glRef} className="dither-canvas" aria-hidden="true" data-dither-renderer={mode} style={{ ...extentStyle,visibility: mode === 'webgl2' ? 'visible' : 'hidden' }} />

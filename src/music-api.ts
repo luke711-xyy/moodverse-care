@@ -435,8 +435,8 @@ export function createMusicApi(fetcher: typeof fetch = fetch, options: { liveSoc
         method: 'DELETE',
       })
     },
-    findSongMatches(trackId: string) {
-      return request<SongPortalResponse>(`/api/music/song-portal?trackId=${encodeURIComponent(trackId)}`)
+    findSongMatches(trackId: string, sourcePlanetId?: string) {
+      return request<SongPortalResponse>(`/api/music/song-portal?trackId=${encodeURIComponent(trackId)}${sourcePlanetId ? `&sourcePlanetId=${encodeURIComponent(sourcePlanetId)}` : ''}`)
     },
     async loadGalaxy(by: GalaxyGroupBy) {
       const response = await request<MusicGalaxyResponse>(`/api/music/galaxy?by=${encodeURIComponent(by)}`)
@@ -549,13 +549,13 @@ export function createMusicApi(fetcher: typeof fetch = fetch, options: { liveSoc
         method: 'PATCH', body: JSON.stringify({ status }),
       })
     },
-    async loadPublicPlanet(planetId: string) {
-      const response = await request<{ planet: PublicMusicPlanet }>(`/api/music/planets/${encodeURIComponent(planetId)}`)
+    async loadPublicPlanet(planetId: string, signal?: AbortSignal) {
+      const response = await request<{ planet: PublicMusicPlanet }>(`/api/music/planets/${encodeURIComponent(planetId)}`, { signal })
       return response.planet
     },
-    async visitPublicPlanet(planetId: string, isIncognito: boolean, source: MusicPlanetVisitSource = 'direct', trackId?: string) {
+    async visitPublicPlanet(planetId: string, isIncognito: boolean, source: MusicPlanetVisitSource = 'direct', trackId?: string, sourcePlanetId?: string) {
       const response = await request<{ planet: PublicMusicPlanet }>(`/api/music/planets/${encodeURIComponent(planetId)}/visit`, {
-        method: 'POST', body: JSON.stringify({ isIncognito, source, ...(trackId ? { trackId } : {}) }),
+        method: 'POST', body: JSON.stringify({ isIncognito, source, ...(trackId ? { trackId } : {}), ...(sourcePlanetId ? { sourcePlanetId } : {}) }),
       })
       return response.planet
     },

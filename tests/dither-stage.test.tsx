@@ -101,17 +101,29 @@ test.each(['home', 'visitor'] as const)('%s dragging moves the surface through d
   expect(surface()).toEqual(released)
 })
 
-test('the own planet and orbit shrink another 10% without changing visitor scale or center', () => {
+test('own and visited planets share the existing home scale, center and orbit size', () => {
   const owner = createDitherSpec({ planetId: 'owner', tracks: [] })
   const input = { width: 1000, height: 700, phase: 0, owner, systems: [], home: 1, journey: 0, rotation: 0, friends: [], music: [] }
   const own = buildDitherStageFrame(input)
   const visitor = buildDitherStageFrame({ ...input, visitor: owner })
-  expect(visitor.assets[0].radius).toBeCloseTo(285)
+  expect(visitor.assets[0].radius).toBeCloseTo(218.025)
   expect(own.assets[0].radius).toBeCloseTo(218.025)
   expect(own.assets[0].x).toBe(visitor.assets[0].x)
   expect(own.assets[0].y).toBe(visitor.assets[0].y)
-  expect(own.orbits[0].rx).toBeCloseTo(visitor.orbits[0].rx * .765)
-  expect(own.orbits[0].ry).toBeCloseTo(visitor.orbits[0].ry * .765)
+  expect(own.orbits[0].rx).toBeCloseTo(visitor.orbits[0].rx)
+  expect(own.orbits[0].ry).toBeCloseTo(visitor.orbits[0].ry)
+})
+
+test('Galaxy list order never changes ordinary planets intrinsic display size', () => {
+  const owner = createDitherSpec({ planetId: 'owner', tracks: [] })
+  const planets = ['first', 'second', 'third'].map(id => ({ id, alias: id, tagline: '', spec: createDitherSpec({ planetId: id, tracks: [] }) }))
+  const frame = buildDitherStageFrame({ width: 1000, height: 700, phase: 0, owner,
+    systems: [{ id: 'group', key: 'group', label: 'Group', color: '#fff', planets }], focusedGalaxy: 'group',
+    home: 0, journey: 0, rotation: 0, friends: [], music: [] })
+  const bodies = frame.assets.filter(asset => asset.id.startsWith('planet:'))
+  expect(bodies).toHaveLength(3)
+  expect(bodies[1].radius).toBeCloseTo(bodies[0].radius)
+  expect(bodies[2].radius).toBeCloseTo(bodies[0].radius)
 })
 
 test('rear satellites are painted and picked behind the owner; front satellites stay visible', () => {

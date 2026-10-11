@@ -8,7 +8,14 @@ import type { MeteorCloud } from './meteors'
 import type { ObservationCamera } from './observation'
 
 export type DitherAsset = { id: string; spec: DitherPlanetSpec; x: number; y: number; radius: number; depth?: number; opacity?: number; rotation?: number; orientation?: Orientation; phase?: number; kind?: DitherAssetKind; particles?: ParticleCloud; backgroundField?: boolean; backgroundView?: ObservationCamera; pointerPower?: number; pixelSize?: number; detail?: number }
-export type DitherFrame = { width: number; height: number; phase: number; pointer?: { x: number; y: number }; assets: DitherAsset[]; meteors?: MeteorCloud; ambience?: number; observation?: ObservationCamera; background?: { stars: ParticleCloud; clouds: DitherAsset[]; opacity: number; pointer?: { x: number; y: number } } }
+export type VisibleRect = { x: number; y: number; width: number; height: number }
+export type DitherFrame = { width: number; height: number; phase: number; visibleRect?: VisibleRect; pointer?: { x: number; y: number }; assets: DitherAsset[]; meteors?: MeteorCloud; ambience?: number; observation?: ObservationCamera; background?: { stars: ParticleCloud; clouds: DitherAsset[]; opacity: number; pointer?: { x: number; y: number } } }
+
+export function framebufferScissor(rect: VisibleRect, logicalWidth: number, logicalHeight: number, width: number, height: number) {
+  const sx = width / logicalWidth, sy = height / logicalHeight
+  const x = Math.max(0, Math.floor(rect.x * sx)), y = Math.max(0, Math.floor((logicalHeight - rect.y - rect.height) * sy))
+  return { x, y, width: Math.max(0, Math.min(width, Math.ceil((rect.x + rect.width) * sx)) - x), height: Math.max(0, Math.min(height, Math.ceil((logicalHeight - rect.y) * sy)) - y) }
+}
 
 /** One context with shared quad, instanced material-cell and star programs. */
 export function createDitherRenderer(canvas: HTMLCanvasElement) {
@@ -125,7 +132,14 @@ export function createDitherRenderer(canvas: HTMLCanvasElement) {
         if (gl.isContextLost()) return
         const width = Math.max(1, Math.round(frame.width * dpr)), height = Math.max(1, Math.round(frame.height * dpr))
         if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height }
+        // Clear the entire previous view before clipping: panning must never
+        // expose stale color/depth left outside the last frame's visible area.
+        gl.disable(gl.SCISSOR_TEST)
         gl.viewport(0, 0, width, height); gl.clearColor(0, 0, 0, 0); gl.depthMask(true); gl.clearDepth(1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT); gl.enable(gl.BLEND); gl.disable(gl.DEPTH_TEST)
+        if (frame.visibleRect) {
+          const clip = framebufferScissor(frame.visibleRect, frame.width, frame.height, width, height)
+          gl.enable(gl.SCISSOR_TEST); gl.scissor(clip.x, clip.y, clip.width, clip.height)
+        }
         gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
         if (frame.background) {
           frame.background.clouds.forEach(asset => drawAsset(asset, { ...frame, pointer: frame.background!.pointer }, dpr))

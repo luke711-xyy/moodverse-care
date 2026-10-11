@@ -2,13 +2,19 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { COSMOS_BEAT, DEFAULT_AUDIO_URL, DEFAULT_TRACK_ID } from './default-track'
 import type { MusicTrackSummary } from '../music-domain'
 import { setMusicClockSource } from './audio-clock'
+import { canPreloadMusic } from './audio-preload'
 
 type PlayableTrack = Pick<MusicTrackSummary, 'id' | 'title' | 'artistName' | 'audioUrl' | 'visualFeatures'> & { coverUrl?: string | null }
 type VisitMusic = { planetId: string; tracks: Array<MusicTrackSummary & { isPrimary?: boolean }> }
+const playable = (track: PlayableTrack) => track.audioUrl === DEFAULT_AUDIO_URL || track.audioUrl === `/api/music/tracks/${encodeURIComponent(track.id)}/stream`
 
-/** One persistent player across monitor changes and nebula flights. */
-export function useMusicPlayer({ backgroundTrack = null, ready = true, playlist = [], visit = null }: { backgroundTrack?: MusicTrackSummary | null; ready?: boolean; playlist?: MusicTrackSummary[]; visit?: VisitMusic | null } = {}) {
+/** One audible player, with at most three retained media buffers. Switching to
+ * an already-warmed element avoids resolving and downloading its source again. */
+export function useMusicPlayer({ backgroundTrack = null, ready = true, playlist = [], visit = null, preloadTrack = null }: { backgroundTrack?: MusicTrackSummary | null; ready?: boolean; playlist?: MusicTrackSummary[]; visit?: VisitMusic | null; preloadTrack?: MusicTrackSummary | null } = {}) {
   const audio = useRef<HTMLAudioElement | null>(null)
+  const pool = useRef(new Map<string, HTMLAudioElement>())
+  const createPlayer = useRef<(() => HTMLAudioElement) | null>(null)
+  const releasePlayer = useRef<(player: HTMLAudioElement) => void>(() => {})
   const [playing, setPlaying] = useState(false)
   const [blocked, setBlocked] = useState(false)
   const [error, setError] = useState('')
@@ -43,45 +49,62 @@ export function useMusicPlayer({ backgroundTrack = null, ready = true, playlist 
     }
     try {
       void player.play()?.then(() => {
-        if (!isCurrent()) return
+        if (!isCurrent()) { if (audio.current !== player) player.pause(); return }
         pendingPlay.current = null; needsStart.current = false
         setPlaying(!player.paused); setBlocked(false); setLoading(false)
       }).catch(failed)
     } catch (cause) { failed(cause) }
   }, [])
   useEffect(() => {
-    const player = new Audio('')
-    player.loop = true; player.preload = 'auto'; player.volume = .5
-    audio.current = player; setMusicClockSource(player)
+    const cleanups = new Map<HTMLAudioElement, () => void>()
+    createPlayer.current = () => {
+      const player = new Audio('')
+      player.loop = true; player.preload = 'auto'; player.volume = .5
+      const active = () => audio.current === player
+      const onPlay = () => {
+        if (!active()) { player.pause(); return }
+        setPlaying(true); setBlocked(false); setError('')
+      }
+      const onPause = () => { if (active()) setPlaying(false) }
+      const onError = () => {
+        if (!active() || !currentId.current || !readyRef.current) return
+        ++generation.current; pendingPlay.current = null; needsStart.current = false
+        setPlaying(false); setBlocked(false); setLoading(false); setError('音源暂时不可用，请重试或打开 Audius。')
+      }
+      const onWaiting = () => { if (active()) setLoading(true) }
+      const onReady = () => { if (active()) { needsStart.current = false; setPlaying(true); setLoading(false) } }
+      const onCanPlay = () => {
+        if (active() && needsStart.current && pendingPlay.current === null && player.paused) start()
+      }
+      const onMetadata = () => {
+        const seek = pendingSeek.current
+        if (!active() || !seek || seek.id !== currentId.current) return
+        try { player.currentTime = seek.time; pendingSeek.current = null } catch { /* Retry when media becomes seekable. */ }
+      }
+      player.addEventListener('play', onPlay); player.addEventListener('pause', onPause)
+      player.addEventListener('error', onError); player.addEventListener('waiting', onWaiting); player.addEventListener('playing', onReady)
+      player.addEventListener('canplay', onCanPlay); player.addEventListener('loadedmetadata', onMetadata)
+      cleanups.set(player, () => {
+        player.removeEventListener('play', onPlay); player.removeEventListener('pause', onPause)
+        player.removeEventListener('error', onError); player.removeEventListener('waiting', onWaiting); player.removeEventListener('playing', onReady)
+        player.removeEventListener('canplay', onCanPlay); player.removeEventListener('loadedmetadata', onMetadata)
+        player.pause(); player.removeAttribute('src'); player.load()
+      })
+      return player
+    }
+    releasePlayer.current = player => {
+      cleanups.get(player)?.(); cleanups.delete(player)
+      for (const [key, cached] of pool.current) if (cached === player) pool.current.delete(key)
+    }
+    audio.current = createPlayer.current(); setMusicClockSource(audio.current)
     needsStart.current = false
-    const onPlay = () => { setPlaying(true); setBlocked(false); setError('') }
-    const onPause = () => setPlaying(false)
-    const onError = () => {
-      if (!currentId.current || !readyRef.current) return
-      ++generation.current; pendingPlay.current = null; needsStart.current = false
-      setPlaying(false); setBlocked(false); setLoading(false); setError('音源暂时不可用，请重试或打开 Audius。')
-    }
-    const onWaiting = () => setLoading(true)
-    const onReady = () => { needsStart.current = false; setPlaying(true); setLoading(false) }
-    const onCanPlay = () => {
-      if (needsStart.current && pendingPlay.current === null && player.paused) start()
-    }
-    const onMetadata = () => {
-      const seek = pendingSeek.current
-      if (!seek || seek.id !== currentId.current) return
-      try { player.currentTime = seek.time; pendingSeek.current = null } catch { /* Retry when media becomes seekable. */ }
-    }
-    player.addEventListener('play', onPlay); player.addEventListener('pause', onPause)
-    player.addEventListener('error', onError); player.addEventListener('waiting', onWaiting); player.addEventListener('playing', onReady)
-    player.addEventListener('canplay', onCanPlay)
-    player.addEventListener('loadedmetadata', onMetadata)
     // Browsers usually require a first trusted gesture before audible playback.
     const unlock = (event: Event) => {
       if (!event.isTrusted || !needsStart.current) return
       // The player button owns its gesture; auto-unlocking it first would
       // immediately turn its intended Play click into a Pause click.
       if ((event.target as Element | null)?.closest?.('[data-music-toggle]')) return
-      if (player.paused) start()
+      if (audio.current?.paused) start()
     }
     document.addEventListener('pointerdown', unlock, { capture: true })
     // Touch/pen activation may become available only when the pointer is released.
@@ -91,27 +114,46 @@ export function useMusicPlayer({ backgroundTrack = null, ready = true, playlist 
       ++generation.current; pendingPlay.current = null
       document.removeEventListener('pointerdown', unlock, true); document.removeEventListener('keydown', unlock, true)
       document.removeEventListener('pointerup', unlock, true)
-      player.removeEventListener('play', onPlay); player.removeEventListener('pause', onPause)
-      player.removeEventListener('error', onError); player.removeEventListener('waiting', onWaiting); player.removeEventListener('playing', onReady)
-      player.removeEventListener('canplay', onCanPlay)
-      player.removeEventListener('loadedmetadata', onMetadata)
-      player.pause(); player.removeAttribute('src'); player.load()
       audio.current = null; currentId.current = ''; setMusicClockSource(null)
+      for (const player of cleanups.keys()) releasePlayer.current(player)
+      pool.current.clear(); createPlayer.current = null
     }
   }, [start])
+  const getPlayer = useCallback((track: PlayableTrack) => {
+    const key = track.audioUrl!
+    let player = pool.current.get(key)
+    if (player?.error && player !== audio.current) { releasePlayer.current(player); player = undefined }
+    if (!player) {
+      player = !currentId.current && audio.current ? audio.current : createPlayer.current?.()
+      if (!player) return null
+      player.src = key
+    }
+    pool.current.delete(key); pool.current.set(key, player)
+    return player
+  }, [])
+  const trimPool = useCallback(() => {
+    for (const [key, player] of pool.current) {
+      if (pool.current.size <= 3) break
+      if (player !== audio.current && key !== beforeVisit.current?.track.audioUrl) releasePlayer.current(player)
+    }
+  }, [])
   const selectTrack = useCallback((track: PlayableTrack, autoplay = true, resumeTime?: number) => {
-    const player = audio.current
-    if (!player || !readyRef.current) return
+    const previous = audio.current
+    if (!previous || !readyRef.current) return
     // Only server-issued same-origin stream paths can be played.
-    if (track.audioUrl !== DEFAULT_AUDIO_URL && track.audioUrl !== `/api/music/tracks/${encodeURIComponent(track.id)}/stream`) return
+    if (!playable(track)) return
+    const player = getPlayer(track)
+    if (!player) return
     pendingSeek.current = null
     selectedTrack.current = track
     if (currentId.current !== track.id) {
       ++generation.current; pendingPlay.current = null
-      player.pause(); player.src = track.audioUrl!; currentId.current = track.id
+      previous.pause(); audio.current = player; currentId.current = track.id
+      if (resumeTime === undefined) { try { player.currentTime = 0 } catch { /* A new stream already starts at zero. */ } }
       setCurrentTrack({ id: track.id, title: track.title, artistName: track.artistName, coverUrl: track.coverUrl ?? null })
       setMusicClockSource(player, track.id === DEFAULT_TRACK_ID ? COSMOS_BEAT : { bpm: track.visualFeatures?.tempoBpm ?? null, offsetSeconds: 0 })
     }
+    trimPool()
     if (resumeTime !== undefined) {
       pendingSeek.current = { id: track.id, time: resumeTime }
       try { player.currentTime = resumeTime; if (player.readyState >= 1) pendingSeek.current = null } catch { /* Seek after metadata loads. */ }
@@ -123,7 +165,7 @@ export function useMusicPlayer({ backgroundTrack = null, ready = true, playlist 
       ++generation.current; pendingPlay.current = null
       player.pause(); setPlaying(false)
     }
-  }, [start])
+  }, [start, getPlayer, trimPool])
   // Only a confirmed saved primary (or account readiness) changes the background.
   // A fresh response object must not interrupt auditioning or a deliberate pause.
   const backgroundRef = useRef(backgroundTrack)
@@ -140,6 +182,8 @@ export function useMusicPlayer({ backgroundTrack = null, ready = true, playlist 
       beforeVisit.current = null; selectedTrack.current = null; pendingSeek.current = null
       ++generation.current; pendingPlay.current = null; needsStart.current = false
       player.pause(); player.removeAttribute('src'); player.load(); currentId.current = ''
+      for (const cached of pool.current.values()) if (cached !== player) releasePlayer.current(cached)
+      pool.current.clear()
       setPlaying(false); setBlocked(false); setLoading(false); setError(''); setMusicClockSource(null)
       return
     }
@@ -165,6 +209,31 @@ export function useMusicPlayer({ backgroundTrack = null, ready = true, playlist 
     }
     selectTrack(backgroundRef.current ?? { id: DEFAULT_TRACK_ID, title: 'Cosmos', artistName: 'The_mountain', audioUrl: DEFAULT_AUDIO_URL })
   }, [ready, backgroundId, visitId, visitPrimaryId, selectTrack])
+  const preloadRef = useRef(preloadTrack); preloadRef.current = preloadTrack
+  useEffect(() => {
+    let warming: HTMLAudioElement | null = null
+    const release = () => {
+      // React runs effect cleanups before the destination-selection effect.
+      // Preserve the buffer that this very render is about to activate.
+      const arriving = visitRef.current?.tracks.find(track => track.isPrimary && track.audioUrl)?.audioUrl
+      if (warming && warming !== audio.current && pool.current.get(beforeVisit.current?.track.audioUrl ?? '') !== warming
+        && pool.current.get(arriving ?? '') !== warming) releasePlayer.current(warming)
+      warming = null
+    }
+    const warm = () => {
+      const track = preloadRef.current
+      if (!ready || !track || !playable(track) || !canPreloadMusic()) { release(); return }
+      warming = getPlayer(track); trimPool()
+    }
+    warm()
+    document.addEventListener('visibilitychange', warm)
+    window.addEventListener('online', warm); window.addEventListener('offline', warm)
+    return () => {
+      document.removeEventListener('visibilitychange', warm)
+      window.removeEventListener('online', warm); window.removeEventListener('offline', warm)
+      release()
+    }
+  }, [ready, preloadTrack?.id, preloadTrack?.audioUrl, getPlayer, trimPool])
   const toggle = useCallback((track?: MusicTrackSummary) => {
     const player = audio.current
     if (!player || !readyRef.current) return

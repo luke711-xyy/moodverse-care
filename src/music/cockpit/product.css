@@ -125,8 +125,11 @@
 .cockpit-personal-preview small,.cockpit-radar-preview small { font-size: 10px; color: var(--phosphor-muted); }
 .cockpit-personal-preview small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cockpit-radar-preview { position: relative; width: 100%; height: 100%; display: grid; align-content: center; padding-left: 85px; text-align: left; font-size: 13px; gap: 4px; }
+.cockpit-radar-preview > span { font-size: .875rem; font-weight: 900; line-height: 1.25; }
 .cockpit-radar-preview > i { position: absolute; left: 12px; top: calc(50% - 30px); width: 60px; height: 60px; border: 1px dotted #dbc69b; border-radius: 50%; background: repeating-radial-gradient(circle,transparent 0 9px,#dbc69b30 10px 11px),conic-gradient(from 40deg,transparent 0 270deg,#dbc69b50); }
-.cockpit.is-in-flight .cockpit-radar-preview > i { animation: cockpit-radar 3s linear infinite; }
+.cockpit.is-in-flight .cockpit-radar-preview > i,.cockpit-radar-preview[data-scanning="true"] > i { animation: cockpit-radar 3s linear infinite; }
+.cockpit[data-reduced-motion="true"] .cockpit-radar-preview > i { animation: none; }
+@media (prefers-reduced-motion: reduce) { .cockpit .cockpit-radar-preview > i { animation: none; } }
 @keyframes cockpit-radar { to { transform: rotate(360deg); } }
 .cockpit .music-visit-dialog { position: static; width: 100%; max-width: 620px; margin-inline: auto; padding: 0; border: 0; background: transparent; transform: none; box-shadow: none; }
 .cockpit .music-visit-dialog p { color: var(--phosphor-muted); }

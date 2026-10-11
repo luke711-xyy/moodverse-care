@@ -185,9 +185,11 @@ describe('music API client', () => {
     })
 
     await expect(api.findSongMatches('track/a')).resolves.toMatchObject({ trackId: 'track/a', matches: [] })
+    await expect(api.findSongMatches('track/a', 'demo:planet/source')).resolves.toMatchObject({ trackId: 'track/a' })
     await expect(api.loadPublicPlanet('planet/a')).resolves.toMatchObject({ id: 'planet/a', moments: [] })
     expect(requested).toEqual([
       '/api/music/song-portal?trackId=track%2Fa',
+      '/api/music/song-portal?trackId=track%2Fa&sourcePlanetId=demo%3Aplanet%2Fsource',
       '/api/music/planets/planet%2Fa',
     ])
   })
@@ -216,9 +218,11 @@ describe('music API client', () => {
 
     await expect(api.loadOrbit()).resolves.toMatchObject({ date: '2026-09-30', groups: { songEncounters: [] } })
     await expect(api.visitPublicPlanet('planet-a', true, 'song_portal', 'track/a')).resolves.toEqual({ id: 'planet-a' })
+    await expect(api.visitPublicPlanet('planet-a', false, 'song_portal', 'track/a', 'source-planet')).resolves.toEqual({ id: 'planet-a' })
     expect(requested).toEqual([
       { path: '/api/me/orbit' },
       { path: '/api/music/planets/planet-a/visit', body: { isIncognito: true, source: 'song_portal', trackId: 'track/a' } },
+      { path: '/api/music/planets/planet-a/visit', body: { isIncognito: false, source: 'song_portal', trackId: 'track/a', sourcePlanetId: 'source-planet' } },
     ])
   })
 

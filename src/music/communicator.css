@@ -1,4 +1,4 @@
-.mosic-communicator { box-sizing: border-box; width: min(420px, calc(100vw - 24px)); height: min(760px, calc(100dvh - 28px)); max-width: none; max-height: none; padding: 12px; margin: auto; overflow: hidden; border: 3px solid #5e6253; border-radius: 16px; background: #9c9e88; color: #e2e4bd; font-family: var(--font-mono, monospace); font-size: 13px; box-shadow: inset 2px 2px #d4d3b6, inset -3px -3px #666b59; }
+.mosic-communicator { box-sizing: border-box; width: min(420px, calc(100vw - 24px)); height: min(760px, calc(100dvh - 28px)); max-width: none; max-height: none; padding: 12px; margin: auto; overflow: hidden; border: 3px solid #5e6253; border-radius: 16px; background: #9c9e88; color: #e2e4bd; font-family: var(--body); font-size: 13px; box-shadow: inset 2px 2px #d4d3b6, inset -3px -3px #666b59; }
 .mosic-communicator[open] { display: flex; flex-direction: column; }
 .mosic-communicator::backdrop { background: #070c09ba; backdrop-filter: blur(3px); }
 .mosic-communicator * { box-sizing: border-box; }

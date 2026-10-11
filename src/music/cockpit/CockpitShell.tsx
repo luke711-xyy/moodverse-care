@@ -47,7 +47,7 @@ const pageNames: Record<CockpitPage, string> = {
   collision: '撞歌', roam: '漫游', bottles: '漂流瓶', galaxy: 'Galaxy', visitor: '星球档案',
   preflight: '访问确认', settings: '设置', moderation: '举报审核',
 }
-const signalNames: Record<CockpitSignal, string> = { idle: '扫描待命', loading: '搜索中', traveling: '航行中', error: '暂不可用' }
+const signalNames: Record<CockpitSignal, string> = { idle: 'SYSTEM ON', loading: '搜索中', traveling: '航行中', error: '暂不可用' }
 const classificationNames: Record<GalaxyGroupBy, string> = { song: '歌曲', artist: '艺人', genre: '曲风' }
 
 function GalaxyDialWindow({ label }: { label: string }) {
@@ -115,6 +115,8 @@ export function CockpitShell(props: Props) {
   const terminal = pageTerminal(props.state.console.page)
   const personal = terminal === 'personal'
   const traveling = props.state.travel.status !== 'idle'
+  const atHome = props.state.exterior === 'home'
+  const navigationLabel = atHome ? 'Galaxy' : '回星球'
   const region = useRef<HTMLDivElement>(null)
   const trigger = useRef<HTMLButtonElement | null>(null)
   const overview = useRef<HTMLDivElement>(null)
@@ -196,7 +198,10 @@ export function CockpitShell(props: Props) {
           <i className="cockpit-lamp" data-lit={props.connected !== false} />
           <Gauge label="航向" value={props.heading} />
           <Gauge label="航速" value={props.flightSpeed ?? 0} state={`${Math.round((props.flightSpeed ?? 0)*100)}%`} />
-          <button className="cockpit-flight-lever" disabled={traveling || props.connected === false} aria-label="跃迁" title={props.state.exterior === 'home' ? '穿过星云前往 Galaxy' : '穿过星云回到我的星球'} onClick={() => props.state.exterior === 'home' ? props.onGalaxy() : props.onHome()}><span aria-hidden="true" /><small>跃迁</small></button>
+          <button className="cockpit-flight-lever" disabled={traveling || props.connected === false} aria-label={navigationLabel} data-destination={atHome ? 'galaxy' : 'home'} title={atHome ? '穿过星云前往 Galaxy' : '穿过星云回到我的星球'} onClick={() => atHome ? props.onGalaxy() : props.onHome()}>
+            <span className="flight-keycap" aria-hidden="true" />
+            <small>{navigationLabel}</small>
+          </button>
         </div>
         </div>
         <section id="cockpit-exploration" className="cockpit-center">
@@ -237,7 +242,7 @@ export function CockpitShell(props: Props) {
         <i className="cockpit-lamp" data-lit="true" />
       </header>
       <div className="cockpit-terminal-glass"><CrtScreen active={focused} motion={!props.reducedMotion} enabled={props.crtEnabled}><div ref={content} className="cockpit-terminal-content">{props.children}</div></CrtScreen></div>
-      <footer className="cockpit-terminal-footer"><button aria-label="返回驾驶舱" onClick={props.onOverview}>← 返回驾驶舱</button>{props.terminalActions}{props.state.history.length > 1 && <button onClick={props.onBack}>← 返回</button>}<span>{pageNames[props.state.console.page]} <small>匿名体验账号</small></span></footer>
+      <footer className="cockpit-terminal-footer"><button aria-label="返回驾驶舱" onClick={props.onOverview}>← 返回驾驶舱</button>{props.terminalActions}{props.state.history.length > 1 && <button onClick={props.onBack}>← 返回</button>}</footer>
     </div>
   </div>
 }

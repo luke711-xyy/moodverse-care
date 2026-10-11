@@ -12,8 +12,10 @@ export function getFlightSpeed(flight: CockpitFlight | null) {
   if (!flight || !Number.isFinite(flight.progress)) return 0
   const progress = Math.max(0, Math.min(1, flight.progress))
   if (progress === 0 || progress === 1) return 0
-  if (!flight.ready && progress >= .5) return .12
-  return Math.pow(Math.sin(Math.PI * progress), 1.4)
+  // Crossing (including a data hold inside the cloud) remains at cruise speed.
+  // Only the final approach brakes; request readiness is not engine speed.
+  const ramp = Math.min(1, progress / .32, (1 - progress) / .18)
+  return ramp * ramp * (3 - 2 * ramp)
 }
 /** A slow response holds the view inside the cloud, never at a partially loaded destination. */
 export function advanceFlight(progress: number, elapsedMs: number, ready: boolean, reduced: boolean) {

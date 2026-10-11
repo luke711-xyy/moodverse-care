@@ -1,6 +1,19 @@
 import { expect, test } from 'vitest'
-import { createGalaxyJourneyMotion, galaxyTourPosition, sampleGalaxyJourneyMotion } from '../src/music/galaxy-navigation'
+import { advanceGalaxyWheel, createGalaxyJourneyMotion, galaxyTourPosition, sampleGalaxyJourneyMotion } from '../src/music/galaxy-navigation'
 import { TOUR_END } from '../src/universe'
+test('the last sector receives a separate scroll approach and reverse input clears it', () => {
+  expect(advanceGalaxyWheel(.71,.03,0)).toEqual({journey:.72,approach:0,enterHome:false})
+  expect(advanceGalaxyWheel(.72,.03,.06).enterHome).toBe(false)
+  expect(advanceGalaxyWheel(.72,.03,.09).enterHome).toBe(true)
+  expect(advanceGalaxyWheel(.72,-.03,.15)).toEqual({journey:.69,approach:0,enterHome:false})
+  expect(advanceGalaxyWheel(.5,.03,.15).approach).toBe(0)
+})
+test('the final dashed axis leg fills toward home without advancing past the last sector', () => {
+  expect(galaxyTourPosition(1,8,.06)).toMatchObject({currentIndex:7,systemIndex:7,axisProgress:.9375})
+  expect(galaxyTourPosition(1,8,.12).axisProgress).toBe(1)
+  expect(galaxyTourPosition(1,8,1).axisProgress).toBe(1)
+  expect(galaxyTourPosition(.5,8,.12).axisProgress).toBe(.4375)
+})
 test('axis and camera use the same fractional stop, excluding the separate home button', () => {
   for (const count of [1,2,7,40]) for (let i=0;i<count;i++) {
     const position=galaxyTourPosition(count===1?0:i/(count-1),count)

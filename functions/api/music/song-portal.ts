@@ -1,6 +1,7 @@
 import { authenticatedMusicUser, type Env } from '../../_shared'
 import { stringArray } from '../../_music-moments'
 import { readPlanetDitherVisuals } from '../../_music-dither'
+import { readPublicSongSource } from '../../_music-song-source'
 import type { DitherPlanetSpec } from '../../../src/music/dither/appearance'
 
 const RANK_SCHEMA_VERSION = 1
@@ -374,8 +375,11 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   const identity = await authenticatedMusicUser(request, env)
   if (!identity) return respond({ error: 'UNAUTHENTICATED' }, 401)
 
-  const trackId = new URL(request.url).searchParams.get('trackId')?.trim() ?? ''
+  const params = new URL(request.url).searchParams
+  const trackId = params.get('trackId')?.trim() ?? ''
   if (!trackId || trackId.length > 128) return respond({ error: 'INVALID_TRACK_ID' }, 400)
+  const sourcePlanetId = params.get('sourcePlanetId')?.trim()
+  if (sourcePlanetId !== undefined && (!sourcePlanetId || sourcePlanetId.length > 128)) return respond({error:'INVALID_SOURCE_PLANET_ID'},400)
 
   const track = await env.DB.prepare(`
     SELECT id, title, artist_name, version_label, genres_json, mood_tags_json
@@ -383,7 +387,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   `).bind(trackId).first<TrackRow>()
   if (!track) return respond({ error: 'TRACK_NOT_AVAILABLE' }, 404)
 
-  const ownEvidence = await env.DB.prepare(`
+  const sourceEvidence = sourcePlanetId
+    ? await readPublicSongSource(env, sourcePlanetId, trackId, identity.userId)
+    : await env.DB.prepare(`
     SELECT p.id AS planet_id
     FROM music_planets p
     WHERE p.owner_user_id = ?1
@@ -400,11 +406,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       )
     LIMIT 1
   `).bind(identity.userId, trackId).first<{ planet_id: string }>()
-  if (!ownEvidence) return respond({ error: 'TRACK_NOT_IN_ACTIVE_SELECTION_OR_PUBLIC_MOMENT' }, 403)
+  if (!sourceEvidence) return respond({ error: sourcePlanetId ? 'TRACK_NOT_IN_SOURCE_PLANET' : 'TRACK_NOT_IN_ACTIVE_SELECTION_OR_PUBLIC_MOMENT' }, 403)
 
-  const initialCandidates = await readCandidates(env, trackId, identity.userId)
-  const ranking = await rankCandidates(env, identity.userId, ownEvidence.planet_id, track, initialCandidates)
-  const finalCandidates = await readCandidates(env, trackId, identity.userId)
+  const initialCandidates = (await readCandidates(env, trackId, identity.userId)).filter(row => row.planet_id !== sourcePlanetId)
+  const ranking = await rankCandidates(env, identity.userId, sourceEvidence.planet_id, track, initialCandidates)
+  if (sourcePlanetId && !await readPublicSongSource(env, sourcePlanetId, trackId, identity.userId)) return respond({error:'TRACK_NOT_IN_SOURCE_PLANET'},403)
+  const finalCandidates = (await readCandidates(env, trackId, identity.userId)).filter(row => row.planet_id !== sourcePlanetId)
   let finalRanking = ranking
 
   // Model inference can take several seconds. Re-read public eligibility before

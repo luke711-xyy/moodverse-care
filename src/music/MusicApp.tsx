@@ -11,20 +11,22 @@ import { createMusicApi, MusicApiError } from '../music-api'
 import { togglePlanetTrack, validatePlanetDraft } from '../music-app-domain'
 import type { MusicTrackSummary } from '../music-domain'
 import { buildMusicGalaxySceneSystems } from './galaxy-scene'
-import { galaxyTourPosition } from './galaxy-navigation'
+import { advanceGalaxyWheel, galaxyTourPosition } from './galaxy-navigation'
 import { useGalaxyJourney } from './useGalaxyJourney'
 import { getTourAnchorProgress, normalizeWheelDelta, reachesTourHomeEndpoint, TOUR_END } from '../universe'
 import { Stage } from './dither/Stage'
 import { AppearanceEditor } from './dither/AppearanceEditor'
 import { SongWall } from './dither/SongWall'
-import { DitherButton, DitherTitle, DitherLoadingRing, DitherTrackMark, DitherPlanetMark } from './dither/components'
+import { DitherButton, DitherTitle, DitherLoadingRing, DitherTrackMark } from './dither/components'
 import { resolveDitherSpec, type DitherPlanetSpec, type DitherOverrides } from './dither/appearance'
 import { CockpitShell } from './cockpit/CockpitShell'
+import { PersonalTelemetry, SignalMap } from './cockpit/MonitorReadouts'
 import { cockpitReducer, initialCockpitState, type CockpitPage } from './cockpit/state'
 import { getFlightSpeed, useCockpitFlight } from './cockpit/flight'
 import { logicalSize } from './viewport'
-import { DEFAULT_TRACK_ID } from './default-track'
+import { COSMOS_BEAT, DEFAULT_TRACK_ID } from './default-track'
 import { useMusicPlayer } from './useMusicPlayer'
+import { canPreloadMusic } from './audio-preload'
 import { useSocialSync } from './useSocialSync'
 import { useDailyRollover } from './useDailyRollover'
 import { scheduleMusicPrefetch } from './prefetch'
@@ -48,9 +50,9 @@ type HomeState =
 
 type SongPortalState =
   | { status: 'idle' }
-  | { status: 'loading'; track: MusicTrackSummary }
-  | { status: 'ready'; track: MusicTrackSummary; response: SongPortalResponse }
-  | { status: 'error'; track: MusicTrackSummary; message: string }
+  | { status: 'loading'; track: MusicTrackSummary; sourcePlanetId?: string }
+  | { status: 'ready'; track: MusicTrackSummary; sourcePlanetId?: string; response: SongPortalResponse }
+  | { status: 'error'; track: MusicTrackSummary; sourcePlanetId?: string; message: string }
 
 type ProductView = CockpitPage
 
@@ -151,15 +153,16 @@ function ReportControl({ api, target, ariaLabel }: { api: MusicApi; target: Musi
   </div>
 }
 
-function MusicGalaxyAxis({ systems, journey, onSelect, onHome, reducedMotion }: {
+function MusicGalaxyAxis({ systems, journey, homeApproach, onSelect, onHome, reducedMotion }: {
   systems: ReturnType<typeof buildMusicGalaxySceneSystems>
   journey: number
+  homeApproach: number
   onSelect: (index: number) => void
   onHome: () => void
   reducedMotion: boolean
 }) {
   const progress = systems.length ? Math.max(0, Math.min(1, journey / TOUR_END)) : 0
-  const { currentIndex, axisProgress } = galaxyTourPosition(progress, systems.length)
+  const { currentIndex, axisProgress } = galaxyTourPosition(progress, systems.length, homeApproach)
   const scroll = useRef<HTMLDivElement>(null)
   useEffect(() => {
     const node = scroll.current?.querySelector<HTMLElement>('[aria-current="step"]')
@@ -571,12 +574,8 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
   const [momentsLoading, setMomentsLoading] = useState(false)
   const [blockingPlanetId, setBlockingPlanetId] = useState('')
   const [visitedPlanet, setVisitedPlanet] = useState<PublicMusicPlanet | null>(null)
-  const musicPlayer = useMusicPlayer({
-    backgroundTrack: savedPrimaryTrack, ready: home.status === 'ready',
-    playlist: home.status === 'ready' ? home.planet?.tracks ?? [] : [],
-    visit: cockpit.exterior === 'visitor' && visitedPlanet ? { planetId: visitedPlanet.id, tracks: visitedPlanet.tracks } : null,
-  })
-  const [pendingVisit, setPendingVisit] = useState<{ planetId: string; displayName: string; source: MusicPlanetVisitSource; trackId?: string } | null>(null)
+  const [preflightMusic, setPreflightMusic] = useState<{ planetId: string; track: MusicTrackSummary | null } | null>(null)
+  const [pendingVisit, setPendingVisit] = useState<{ planetId: string; displayName: string; source: MusicPlanetVisitSource; trackId?: string; sourcePlanetId?: string } | null>(null)
   const [incognitoVisit, setIncognitoVisit] = useState(false)
   const [visitingPlanetId, setVisitingPlanetId] = useState('')
   const [visitError, setVisitError] = useState('')
@@ -603,6 +602,28 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
     setPendingVisit(null)
     dispatchCockpit({ type: 'arrive', token: trip.token })
   })
+  const approachingPlanet = flightController.flight?.targetVisitor
+  const musicPlayer = useMusicPlayer({
+    backgroundTrack: savedPrimaryTrack, ready: home.status === 'ready',
+    playlist: home.status === 'ready' ? home.planet?.tracks ?? [] : [],
+    visit: cockpit.exterior === 'visitor' && visitedPlanet ? { planetId: visitedPlanet.id, tracks: visitedPlanet.tracks } : null,
+    preloadTrack: approachingPlanet
+      ? approachingPlanet.tracks.find(track => track.isPrimary && track.audioUrl) ?? null
+      : preflightMusic?.planetId === pendingVisit?.planetId ? preflightMusic?.track ?? null : null,
+  })
+  useEffect(() => {
+    if (!pendingVisit || home.status !== 'ready') { setPreflightMusic(null); return }
+    if (cockpit.travel.status !== 'idle' || !canPreloadMusic()) return
+    const controller = new AbortController(), epoch = accountEpoch.current
+    // This GET is read-only: no visit trace and no incognito decision is made.
+    // The confirmed POST result remains authoritative for the destination.
+    void api.loadPublicPlanet(pendingVisit.planetId, controller.signal).then(planet => {
+      if (!controller.signal.aborted && epoch === accountEpoch.current) {
+        setPreflightMusic({ planetId: planet.id, track: planet.tracks.find(track => track.isPrimary && track.audioUrl) ?? null })
+      }
+    }).catch(() => { /* Preload failure must never block the actual visit. */ })
+    return () => controller.abort()
+  }, [api, pendingVisit?.planetId, home.status, cockpit.travel.status])
   const goHomeRef = useRef(() => {})
   const moderationRequestId = useRef(0)
   const songRequestId = useRef(0)
@@ -832,27 +853,27 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
   const hudSystem = galaxySceneSystems[hudSystemIndex]
   const hudGroup = galaxySceneResponse?.groups.find(group => group.key === hudSystem?.key)
 
-  const openSongPortal = async (track: MusicTrackSummary) => {
+  const openSongPortal = async (track: MusicTrackSummary, sourcePlanetId?: string) => {
     const epoch = accountEpoch.current
     const requestId = ++songRequestId.current
     setView('collision')
     setVisitError('')
-    setSongPortal({ status: 'loading', track })
+    setSongPortal({ status: 'loading', track, sourcePlanetId })
     try {
-      const response = await api.findSongMatches(track.id)
+      const response = await api.findSongMatches(track.id, sourcePlanetId)
       if (epoch !== accountEpoch.current || requestId !== songRequestId.current) return
-      setSongPortal({ status: 'ready', track, response })
+      setSongPortal({ status: 'ready', track, sourcePlanetId, response })
     } catch (error) {
       if (epoch !== accountEpoch.current || requestId !== songRequestId.current) return
-      setSongPortal({ status: 'error', track, message: portalErrorMessage(error) })
+      setSongPortal({ status: 'error', track, sourcePlanetId, message: portalErrorMessage(error) })
     }
   }
 
-  const requestPublicPlanetVisit = (planetId: string, displayName: string, source: MusicPlanetVisitSource = 'direct', trackId?: string) => {
+  const requestPublicPlanetVisit = (planetId: string, displayName: string, source: MusicPlanetVisitSource = 'direct', trackId?: string, sourcePlanetId?: string) => {
     if (visitLock.current || cockpit.travel.status !== 'idle') return
     setVisitError('')
     setIncognitoVisit(false)
-    setPendingVisit({ planetId, displayName, source, ...(trackId ? { trackId } : {}) })
+    setPendingVisit({ planetId, displayName, source, ...(trackId ? { trackId } : {}), ...(sourcePlanetId ? { sourcePlanetId } : {}) })
     setView('preflight')
   }
 
@@ -864,11 +885,11 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
     const requestId = ++visitRequestId.current
     dispatchCockpit({ type: 'depart', token, target: 'visitor', originConsole: cockpit.history.at(-1) })
     const epoch = accountEpoch.current
-    const { planetId, source, trackId } = pendingVisit
+    const { planetId, source, trackId, sourcePlanetId } = pendingVisit
     setVisitingPlanetId(planetId)
     setVisitError('')
     try {
-      const result = await api.visitPublicPlanet(planetId, incognitoVisit, source, trackId)
+      const result = await api.visitPublicPlanet(planetId, incognitoVisit, source, trackId, sourcePlanetId)
       if (epoch !== accountEpoch.current || !flightController.isCurrent(token)) return
       flightController.ready(token, result)
       dispatchCockpit({ type: 'ready', token })
@@ -1444,11 +1465,8 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
   const openConversation = (userId: string, displayName: string) => setConversation({ userId, displayName })
 
   const changeView = (next: ProductView) => {
-    if (next === 'collision' && view === 'planet' && (cockpit.exterior === 'home' || cockpit.console.focus === 'personal')) {
-      const track = planet?.tracks.find(track => track.id === focusedTrackId)
-        ?? planet?.tracks.find(track => track.isPrimary) ?? planet?.tracks[0]
-      if (track) { void openSongPortal(track); return }
-    }
+    // Opening a channel restores its existing results; only an explicit song
+    // action may start a new search and replace the middle monitor's snapshot.
     setView(next)
     if (next === 'galaxy' && galaxy.status === 'idle') void loadGalaxy('genre')
     if (next === 'roam') {
@@ -1484,13 +1502,19 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
   }
   const moveGalaxyJourney = (step: number) => {
     if (!Number.isFinite(step) || !step) return
+    homeWheelApproach.current = 0
+    setHomeAxisApproach(0)
     const progress = galaxyJourneyRef.current
     const nextProgress = Math.max(0, Math.min(TOUR_END, progress + step))
     setGalaxyJourney(nextProgress)
     if (reachesTourHomeEndpoint(progress, step)) goHomeRef.current()
   }
-  const moveGalaxyJourneyRef = useRef(moveGalaxyJourney)
-  moveGalaxyJourneyRef.current = moveGalaxyJourney
+  const homeWheelApproach = useRef(0)
+  const [homeAxisApproach, setHomeAxisApproach] = useState(0)
+  useEffect(() => {
+    homeWheelApproach.current = 0
+    setHomeAxisApproach(0)
+  }, [cockpit.exterior, cockpit.console.focus, galaxy.status === 'idle' ? undefined : galaxy.by])
 
   useEffect(() => {
     if (cockpit.exterior !== 'galaxy' || cockpit.console.focus !== 'overview' || cockpit.travel.status !== 'idle' || galaxy.status !== 'ready') return
@@ -1503,14 +1527,20 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
       const step = normalizeWheelDelta(event.deltaY, event.deltaMode, viewport ? logicalSize(viewport).height : window.innerHeight)
       if (!step) return
       event.preventDefault()
-      moveGalaxyJourneyRef.current(step)
+      const next = advanceGalaxyWheel(galaxyJourneyRef.current, step, homeWheelApproach.current)
+      homeWheelApproach.current = next.approach
+      setHomeAxisApproach(next.approach)
+      setGalaxyJourney(next.journey)
+      if (next.enterHome) goHomeRef.current()
     }
     window.addEventListener('wheel', onWheel, { passive: false })
     return () => window.removeEventListener('wheel', onWheel)
   }, [galaxy.status, cockpit.exterior, cockpit.console.focus, cockpit.travel.status])
 
-  const canOpenSongPortal = (trackId: string) => Boolean(planet?.tracks.some((track) => track.id === trackId)
-    || moments.some((moment) => moment.trackId === trackId && moment.visibility === 'public'))
+  const collisionPlanet = cockpit.exterior === 'visitor' ? visitedPlanet : planet
+  const panelPlanet = view === 'collision' ? collisionPlanet : planet
+  const canOpenSongPortal = (trackId: string) => Boolean(collisionPlanet?.tracks.some((track) => track.id === trackId)
+    || cockpit.exterior !== 'visitor' && moments.some((moment) => moment.trackId === trackId && moment.visibility === 'public'))
 
   const createPlanet = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -1641,6 +1671,12 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
   const jumpHome = () => startHomeFlight(false)
   goHomeRef.current = goHome
   const signal = cockpit.travel.status !== 'idle' ? 'traveling' : visitError || galaxy.status === 'error' ? 'error' : songPortal.status === 'loading' || galaxy.status === 'loading' || discovery.status === 'loading' ? 'loading' : 'idle'
+  const playingMetadata = [...(visitedPlanet?.tracks ?? []), ...(planet?.tracks ?? []), ...tracks].find(track => track.id === musicPlayer.currentTrackId)
+  const monitorVisitor = cockpit.exterior === 'visitor' ? visitedPlanet : null
+  const monitorPlanet = monitorVisitor ?? planet
+  const monitorTrack = monitorVisitor ? monitorVisitor.tracks.find(track => track.id === musicPlayer.currentTrackId) : playingMetadata
+  const scanSignals = songPortal.status === 'ready' ? songPortal.response.matches : songPortal.status === 'idle' && discovery.status === 'ready' ? discovery.response.recommendations : []
+  const scanTitle = songPortal.status === 'ready' ? 'SCAN RESULTS' : songPortal.status === 'loading' ? 'SCANNING' : songPortal.status === 'error' ? 'SCAN FAILED' : cockpit.exterior === 'visitor' ? visitedPlanet?.displayName ?? 'SYSTEM ON' : cockpit.exterior === 'galaxy' ? selectedGalaxyGroup?.label ?? 'SYSTEM ON' : 'SYSTEM ON'
   const socialNotice = social.notice && <div className="music-social-notice" aria-label="好友动态">
     <p role="status">{social.notice}</p>
     <DitherButton type="button" disabled={cockpit.travel.status !== 'idle'} onClick={() => { social.dismiss(); changeView('orbit') }}>{friendRequests?.incoming.length ? '查看好友请求' : '查看好友'}</DitherButton>
@@ -1665,8 +1701,11 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
       classifying={galaxy.status === 'loading' || galaxyRegrouping}
       onOpen={changeView} onOverview={() => dispatchCockpit({ type: 'overview' })} onBack={() => dispatchCockpit({ type: 'back' })}
       onGalaxy={() => { void goGalaxy() }} onHome={jumpHome}
-      personalPreview={<span className="cockpit-personal-preview"><DitherPlanetMark planetId={planet?.id ?? null} visual={planet?.visual} /><strong>{planet?.displayName ?? '创建我的星球'}</strong><small>{friendRequests?.incoming.length ? `${friendRequests.incoming.length} 条好友请求待处理` : planet ? `${planet.tracks.length} 首歌 · ${moments.length} Moments` : '选择三首歌'}</small></span>}
-      explorationPreview={<span className="cockpit-radar-preview"><i /><span>{cockpit.exterior === 'visitor' ? visitedPlanet?.displayName : selectedGalaxyGroup?.label ?? '扫描待命'}</span><small>{songPortal.status === 'ready' ? `${songPortal.response.matches.length} 同歌信号` : discovery.status === 'ready' ? `${discovery.response.recommendations.length} 漫游信号` : '撞歌 / 漫游 / 漂流瓶'}</small></span>}
+      personalPreview={<PersonalTelemetry context={monitorVisitor ? 'visitor' : 'personal'} planetName={monitorPlanet?.displayName ?? '创建我的星球'} planetId={monitorPlanet?.id} visual={monitorPlanet?.visual}
+        songs={monitorPlanet?.tracks.length ?? 0} moments={monitorVisitor ? monitorVisitor.moments.length : momentsLoading ? null : moments.length}
+        bpm={musicPlayer.currentTrackId === DEFAULT_TRACK_ID && (!monitorVisitor || monitorTrack) ? COSMOS_BEAT.bpm : monitorTrack?.visualFeatures?.tempoBpm}
+        durationSeconds={monitorTrack?.durationSeconds} trackTitle={monitorVisitor ? monitorTrack?.title ?? '暂无播放歌曲' : musicPlayer.currentTrack.title} requests={friendRequests?.incoming.length} />}
+      explorationPreview={<SignalMap signals={scanSignals} title={scanTitle} scanning={songPortal.status === 'loading' || songPortal.status === 'ready'} mode={songPortal.status === 'ready' || songPortal.status === 'loading' ? 'SONG LINK' : discovery.status === 'ready' ? 'ROAM LINK' : 'EXPLORATION / NAV'} />}
       scene={<Stage
       planet={planet} friendSatellites={home.friendSatellites} visitedPlanet={cockpit.exterior === 'visitor' ? visitedPlanet : null} previewSeed={previewSeed} reducedMotion={reducedMotion}
       exteriorView={cockpit.exterior === 'galaxy' ? 'galaxy' : 'home'} interactive={cockpit.console.focus === 'overview' && cockpit.travel.status === 'idle'} managedTravel flight={flightController.flight}
@@ -1693,8 +1732,11 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
       onRotate={(delta) => setGalaxyRotation((rotation) => rotation + delta)}
     />}
       windowNavigation={<>{cockpit.exterior === 'galaxy' && galaxy.status === 'ready' && <MusicGalaxyAxis
-      systems={galaxySceneSystems} journey={galaxyJourney} reducedMotion={reducedMotion}
-      onSelect={(index) => animateGalaxyJourney(getTourAnchorProgress(index, galaxySceneSystems.length) * TOUR_END, galaxySceneSystems.length)}
+      systems={galaxySceneSystems} journey={galaxyJourney} homeApproach={homeAxisApproach} reducedMotion={reducedMotion}
+      onSelect={(index) => {
+        homeWheelApproach.current = 0; setHomeAxisApproach(0)
+        animateGalaxyJourney(getTourAnchorProgress(index, galaxySceneSystems.length) * TOUR_END, galaxySceneSystems.length)
+      }}
       onHome={goHome}
     />}
     </>}>
@@ -1895,7 +1937,7 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
           <CdPicker key={visitedPlanet.id} readOnly tracks={visitedPlanet.tracks} selectedIds={[]} onToggle={() => {}}
             query="" onQuery={() => {}} searchId={`visitor-cds-${visitedPlanet.id}`} reducedMotion={reducedMotion}
             primaryId={visitedPlanet.tracks.find(track => track.isPrimary)?.id} player={musicPlayer}
-            canContinue={canOpenSongPortal} onContinue={track => { void openSongPortal(track) }} />
+            canContinue={canOpenSongPortal} onContinue={track => { void openSongPortal(track, visitedPlanet.id) }} />
         </section>
 
         <section className="music-public-section music-moments" aria-label="对方公开的 Moments">
@@ -1912,16 +1954,16 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
         {songPortal.status === 'ready' && <DitherButton className="music-secondary-button" type="button" onClick={() => changeView('collision')}>返回同歌结果</DitherButton>}
       </aside>}
 
-      {planet && (view === 'planet' || view === 'collision' || view === 'moment') && <aside className="music-panel music-planet-panel" aria-label={view === 'collision' ? '同歌搜索' : view === 'moment' ? 'Moment 编辑' : '我的音乐星球'}>
+      {panelPlanet && (view === 'planet' || view === 'collision' || view === 'moment') && <aside className="music-panel music-planet-panel" aria-label={view === 'collision' ? '同歌搜索' : view === 'moment' ? 'Moment 编辑' : '我的音乐星球'}>
         {view !== 'moment' && <>
-        <div className="music-panel-head"><div><span className="music-kicker">星球轨道 · {planet.visibility === 'public' ? '公开访问' : '仅自己'}</span><DitherTitle level={2}>留在这里的歌</DitherTitle></div><span className="music-count">{planet.tracks.length}<i>首</i></span></div>
-        {view === 'collision' ? <CdPicker readOnly tracks={planet.tracks}
+        <div className="music-panel-head"><div><span className="music-kicker">星球轨道 · {panelPlanet.visibility === 'public' ? '公开访问' : '仅自己'}</span><DitherTitle level={2}>留在这里的歌</DitherTitle></div><span className="music-count">{panelPlanet.tracks.length}<i>首</i></span></div>
+        {view === 'collision' ? <CdPicker key={panelPlanet.id} readOnly tracks={panelPlanet.tracks}
           selectedIds={songPortal.status === 'idle' ? [] : [songPortal.track.id]} onToggle={() => {}}
           query="" onQuery={() => {}} searchId="collision-cds" reducedMotion={reducedMotion}
-          primaryId={planet.tracks.find(track => track.isPrimary)?.id} player={musicPlayer}
-          canContinue={canOpenSongPortal} continueLabel="撞歌 ↗" onContinue={track => { void openSongPortal(track) }} />
+          primaryId={panelPlanet.tracks.find(track => track.isPrimary)?.id} player={musicPlayer}
+          canContinue={canOpenSongPortal} continueLabel="撞歌 ↗" onContinue={track => { void openSongPortal(track, cockpit.exterior === 'visitor' ? visitedPlanet?.id : undefined) }} />
         : <div className="music-owned-track-list">
-          {planet.tracks.map((track) => <article className="music-owned-track" key={track.id}>
+          {panelPlanet.tracks.map((track) => <article className="music-owned-track" key={track.id}>
             <DitherTrackMark track={track} />
             <div className="music-track-label"><strong>{track.title}</strong><small>{track.artistName}{track.isPrimary ? ' · 星球主旋律' : ''}{isDemoTrack(track) ? ' · 演示曲目（不可播放）' : ''}</small></div>
             {track.audioUrl ? <DitherButton data-music-toggle type="button" onClick={() => musicPlayer.toggle(track)} aria-label={`${musicPlayer.playing && musicPlayer.currentTrackId === track.id ? '暂停' : '播放'} ${track.title}`}>{musicPlayer.playing && musicPlayer.currentTrackId === track.id ? 'Ⅱ' : '▶'}</DitherButton>
@@ -1935,7 +1977,7 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
         {view === 'collision' && songPortal.status !== 'idle' && <section ref={songPortalResults} className="music-song-portal" aria-label="同歌星球">
           <div className="music-section-heading">
             <DitherTitle level={3}>与《{songPortal.track.title}》同歌</DitherTitle>
-            <DitherButton type="button" className="music-close-inline" aria-label="关闭同歌结果" onClick={() => setSongPortal({ status: 'idle' })}>×</DitherButton>
+            <DitherButton type="button" className="music-close-inline" aria-label="关闭同歌结果" onClick={() => { songRequestId.current++; setSongPortal({ status: 'idle' }) }}>×</DitherButton>
           </div>
           {songPortal.status === 'loading' && <DitherLoadingRing label="正在寻找同歌星球" />}
           {songPortal.status === 'error' && <p className="music-form-error" role="alert">{songPortal.message}</p>}
@@ -1952,7 +1994,7 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
               : <div className="music-discovery-list">
                   <Paginated items={songPortal.response.matches} label="撞歌星球" pageSize={6}>{match => <PlanetCard key={match.planetId} planet={match}
                     reason={matchDescription(match)} busy={visitingPlanetId === match.planetId} disabled={Boolean(visitingPlanetId)}
-                    onVisit={() => requestPublicPlanetVisit(match.planetId, match.displayName, 'song_portal', songPortal.track.id)} />}</Paginated>
+                    onVisit={() => requestPublicPlanetVisit(match.planetId, match.displayName, 'song_portal', songPortal.track.id, songPortal.sourcePlanetId)} />}</Paginated>
                 </div>}
             {visitError && <p className="music-form-error" role="alert">{visitError}</p>}
           </>}
@@ -1962,7 +2004,7 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
           <div className="music-section-heading"><DitherTitle level={3}>留下一个 Moment</DitherTitle><span>最多 500 字</span></div>
           <label htmlFor="music-moment-track">这段 Moment 属于哪首歌</label>
           <select id="music-moment-track" value={momentTrackId} onChange={(event) => setMomentTrackId(event.target.value)}>
-            {planet.tracks.map((track) => <option key={track.id} value={track.id}>{track.title} · {track.artistName}</option>)}
+            {panelPlanet.tracks.map((track) => <option key={track.id} value={track.id}>{track.title} · {track.artistName}</option>)}
           </select>
           <textarea value={momentText} onChange={(event) => setMomentText(event.target.value)} maxLength={500} placeholder="这首歌让你想起了什么？" aria-label="Moment 内容" />
           <MomentPhotoPicker file={momentPhoto} error={momentPhotoFeedback} busy={savingMoment} onChange={(file,error) => { setMomentPhoto(file); setMomentPhotoFeedback(error); setMomentFeedback('') }} />
@@ -2033,7 +2075,7 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
           </article>}</Paginated>}
         </section>}
       </aside>}
-      {!planet && (view === 'moment' || view === 'collision') && <div className="music-panel"><DitherTitle level={2}>{view === 'moment' ? 'Moment' : '撞歌'}</DitherTitle><p>先创建自己的音乐星球。</p><DitherButton onClick={() => changeView('planet')}>创建星球</DitherButton></div>}
+      {!panelPlanet && (view === 'moment' || view === 'collision') && <div className="music-panel"><DitherTitle level={2}>{view === 'moment' ? 'Moment' : '撞歌'}</DitherTitle><p>先创建自己的音乐星球。</p><DitherButton onClick={() => changeView('planet')}>创建星球</DitherButton></div>}
 
       {view === 'galaxy' && <aside className="music-panel music-galaxy-panel" aria-label="Galaxy 公开星球发现">
         <div className="music-panel-head"><div><span className="music-kicker">公开星球 · 可直接访问</span><DitherTitle level={2}>Galaxy</DitherTitle></div></div>

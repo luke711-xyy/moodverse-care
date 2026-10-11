@@ -39,7 +39,7 @@ async function renderCockpit() {
 async function openGalaxyList() {
   if (screen.queryByRole('button', { name: '返回驾驶舱' })) fireEvent.click(screen.getByRole('button', { name: '返回驾驶舱' }))
   if (document.querySelector('.cockpit')?.getAttribute('data-exterior') !== 'galaxy') {
-    fireEvent.click(screen.getByRole('button', { name: '跃迁' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Galaxy', exact: true }))
     await waitFor(() => expect(document.querySelector('.cockpit[data-exterior="galaxy"]:not(.is-in-flight)')).toBeTruthy())
   }
   fireEvent.click(screen.getByRole('button', { name: '查看 Galaxy 星球列表' }))
@@ -200,6 +200,7 @@ test('photo Moment publishing preserves the selected file on failure and clears 
 })
 
 test('jump lever switches the persistent windshield between Galaxy and home without opening a terminal', async () => {
+  vi.spyOn(document,'hidden','get').mockReturnValue(false)
   const owner = { id:'jump-owner', displayName:'跃迁测试', tagline:'', visibility:'public', visualSchemaVersion:3,
     visual:createDitherSpec({planetId:'jump-owner',tracks}), tracks:tracks.slice(0,3) }
   vi.stubGlobal('fetch', vi.fn(async (request:RequestInfo|URL) => {
@@ -211,16 +212,20 @@ test('jump lever switches the persistent windshield between Galaxy and home with
     throw Error(path)
   }))
   render(<MusicApp />)
-  const jump=await screen.findByRole('button',{name:'跃迁'})
+  await waitFor(()=>expect(document.querySelector<HTMLButtonElement>('.music-app.has-planet .cockpit-flight-lever')?.disabled).toBe(false),{timeout:10000,onTimeout:()=>new Error('Navigation key did not become ready')})
+  const jump=screen.getByRole('button',{name:'回星球'})
   expect(document.querySelector('.cockpit')!.getAttribute('data-exterior')).toBe('galaxy')
   fireEvent.click(jump)
-  await waitFor(()=>expect(document.querySelector('.cockpit[data-exterior="home"]:not(.is-in-flight)')).toBeTruthy())
+  await waitFor(()=>expect(document.querySelector('.cockpit[data-exterior="home"]:not(.is-in-flight)')).toBeTruthy(),{timeout:10000,onTimeout:()=>new Error('Home arrival did not finish')})
+  expect(jump.getAttribute('aria-label')).toBe('Galaxy')
+  expect(jump.querySelector('small')?.textContent).toBe('Galaxy')
   expect(document.querySelector('.cockpit')!.getAttribute('data-focus')).toBe('overview')
   expect(screen.getByRole('img',{name:'航速：0%'})).toBeTruthy()
   fireEvent.click(jump)
-  await waitFor(()=>expect(document.querySelector('.cockpit[data-exterior="galaxy"]:not(.is-in-flight)')).toBeTruthy())
+  await waitFor(()=>expect(document.querySelector('.cockpit[data-exterior="galaxy"]:not(.is-in-flight)')).toBeTruthy(),{timeout:10000,onTimeout:()=>new Error('Galaxy arrival did not finish')})
+  expect(jump.getAttribute('aria-label')).toBe('回星球')
   expect(document.querySelector('.cockpit')!.getAttribute('data-focus')).toBe('overview')
-})
+},30000)
 
 test.each(['keyboard', 'drag', 'wheel'] as const)('Galaxy journey endpoint returns home with %s input', async (input) => {
   vi.stubGlobal('PointerEvent', MouseEvent)
@@ -1402,7 +1407,7 @@ test('settings can remove a virtual friend satellite without treating it as a re
   expect(state.deleted).toEqual(['friend-virtual-a'])
 })
 
-function installCockpitFixture(onVisit?: (init?: RequestInit) => Promise<Response>) {
+function installCockpitFixture(onVisit?: (init?: RequestInit) => Promise<Response>, onRead?: () => Promise<Response>, galaxyGroups = [{key:'ambient',label:'ambient',planetCount:0,planets:[]}], matchCount = 1) {
   const owner = { id: 'cockpit-owner', displayName: '驾驶舱测试星球', tagline: '', visibility: 'public', visualSchemaVersion: 3,
     visual: createDitherSpec({ planetId: 'cockpit-owner', tracks }), tracks: tracks.slice(0,3) }
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -1412,14 +1417,203 @@ function installCockpitFixture(onVisit?: (init?: RequestInit) => Promise<Respons
     if (path === '/api/me/music-planet/moments') return Response.json({ moments: [] })
     if (path === '/api/me/orbit') return Response.json({ date: '2026-10-09', groups: { songEncounters: [], friends: [], visitedByMe: [], visitorsToMe: [], dailyRoam: [] } })
     if (path === '/api/me/friend-requests') return Response.json({ incoming: [], outgoing: [] })
-    if (path === '/api/music/galaxy') return Response.json({ by: 'genre', groups: [{ key: 'ambient', label: 'ambient', planetCount: 0, planets: [] }] })
+    if (path === '/api/music/galaxy') return Response.json({ by: 'genre', groups: galaxyGroups })
     if (path === '/api/music/galaxy-content') return Response.json({ by: 'genre', key: 'ambient', label: 'Ambient', description: null, tracks: [], hasMore: false, nextOffset: null, status: 'local' })
-    if (path === '/api/music/song-portal') return Response.json({ trackId: 'song-a', ranking: { mode: 'rule', status: 'ready' }, matches: [{ planetId: 'cockpit-target', displayName: '下一站', matchSource: 'active_selection', reasonCode: 'shared_song_selection' }] })
+    if (path === '/api/music/song-portal') return Response.json({ trackId: 'song-a', ranking: { mode: 'rule', status: 'ready' }, matches: [{ planetId: 'cockpit-target', displayName: '下一站', matchSource: 'active_selection', reasonCode: 'shared_song_selection' }].slice(0,matchCount) })
     if (path === '/api/music/planets/cockpit-target/visit' && onVisit) return onVisit(init)
+    if (path === '/api/music/planets/cockpit-target' && onRead) return onRead()
     throw Error(path)
   }))
   return owner
 }
+
+test('personal monitor is a ship telemetry panel with equal song and Moment counters plus sourced playback BPM', async () => {
+  const owner = installCockpitFixture()
+  render(<MusicApp />)
+  await waitFor(() => expect(document.querySelector('.cockpit[data-focus="overview"]')).toBeTruthy(), {timeout:10000})
+  const panel=document.querySelector('.cockpit-personal-telemetry')
+  expect(panel).toBeTruthy()
+  const thumbnail = panel?.querySelector('.telemetry-identity [role="img"]')
+  expect(thumbnail?.getAttribute('aria-label')).toBe(`${owner.displayName}的星球缩略图`)
+  expect(thumbnail?.querySelector('canvas.dither-thumb')).toBeTruthy()
+  expect(panel?.querySelector('svg[aria-label="飞船框架示意图"]')).toBeTruthy()
+  expect(panel?.querySelector('[data-metric="SONGS"] dd')?.textContent).toBe('03')
+  expect(panel?.querySelector('[data-metric="MOMENTS"] dd')?.textContent).toBe('00')
+  expect(panel?.querySelector('[data-metric="BPM"] dd')?.textContent).toBe('105.1')
+  expect(panel?.querySelector('[data-metric="LENGTH"] dd')?.textContent).toBe('—')
+},20000)
+
+test('personal telemetry follows the selected song metadata and clears BPM for a song without a measured tempo', async () => {
+  const owner=installCockpitFixture()
+  owner.tracks[0]=Object.assign({},owner.tracks[0],{audioUrl:'/api/music/tracks/song-a/stream',visualFeatures:{source:'audius',tempoBpm:128.4}})
+  owner.tracks[1]=Object.assign({},owner.tracks[1],{audioUrl:'/api/music/tracks/song-b/stream'})
+  await renderCockpit()
+  const value=(label:string)=>document.querySelector(`[data-metric="${label}"] dd`)?.textContent
+  // The existing player starts the first playable owned song automatically.
+  await waitFor(()=>expect(value('BPM')).toBe('128.4'))
+  expect(value('LENGTH')).toBe('3:35')
+  expect(document.querySelector('.telemetry-audio')?.textContent).toContain('夜航')
+  fireEvent.click(document.querySelector<HTMLButtonElement>('[aria-label="播放 潮汐之间"]')!)
+  await waitFor(()=>expect(value('BPM')).toBe('—'))
+  expect(value('LENGTH')).toBe('3:23')
+  expect(document.querySelector('.telemetry-audio')?.textContent).toContain('潮汐之间')
+  fireEvent.click(document.querySelector<HTMLButtonElement>('[aria-label="播放 夜航"]')!)
+  await waitFor(()=>expect(value('BPM')).toBe('128.4'))
+},20000)
+
+test.each([true,false])('left monitor follows the visited planet and restores the owner on return (playable: %s)', async (playable) => {
+  vi.spyOn(document,'hidden','get').mockReturnValue(false)
+  const visitorTracks=[{...tracks[3],isPrimary:true,
+    ...(playable ? {audioUrl:'/api/music/tracks/song-d/stream',visualFeatures:{source:'audius',tempoBpm:135}} : {})},tracks[4]]
+  const visitor={id:'cockpit-target',displayName:'客星',tagline:'',visibility:'public',tracks:visitorTracks,
+    moments:[{id:'visitor-moment',trackId:'song-d',track:visitorTracks[0],contentText:'远岸的片刻',photoUrl:null,visibility:'public',publishedAt:'2026-10-10',createdAt:'2026-10-10',updatedAt:'2026-10-10'}],
+    visual:createDitherSpec({planetId:'cockpit-target',tracks:visitorTracks})}
+  const owner=installCockpitFixture(async()=>Response.json({planet:visitor}),async()=>Response.json({planet:visitor}))
+  owner.tracks[0]=Object.assign({},owner.tracks[0],{audioUrl:'/api/music/tracks/song-a/stream',visualFeatures:{source:'audius',tempoBpm:128.4}})
+  await renderCockpit()
+  const panel=()=>document.querySelector('.cockpit-personal-telemetry')!
+  const value=(label:string)=>panel().querySelector(`[data-metric="${label}"] dd`)?.textContent
+  expect(panel().querySelector('.telemetry-callsign')?.textContent).toBe('驾驶舱测试星球')
+  fireEvent.click(screen.getByRole('button',{name:'寻找与《夜航》同歌的星球'}))
+  fireEvent.click(await screen.findByRole('button',{name:'访问星球 下一站'}))
+  expect(panel().querySelector('.telemetry-callsign')?.textContent).toBe('驾驶舱测试星球')
+  fireEvent.click(await screen.findByRole('button',{name:'继续访问'}))
+  await waitFor(()=>expect(document.querySelector('.cockpit[data-exterior="visitor"]:not(.is-in-flight)')).toBeTruthy(),{timeout:10000,onTimeout:()=>new Error('Visitor arrival did not finish')})
+  expect(panel().querySelector('.telemetry-callsign')?.textContent).toBe('客星')
+  expect(panel().querySelector('[aria-label="客星的星球缩略图"] canvas')).toBeTruthy()
+  expect(panel().querySelector('.telemetry-header')?.textContent).toContain('PUBLIC LINK')
+  expect(value('SONGS')).toBe('02');expect(value('MOMENTS')).toBe('01')
+  await waitFor(()=>expect(value('BPM')).toBe(playable ? '135' : '—'))
+  expect(value('LENGTH')).toBe(playable ? '3:00' : '—')
+  expect(panel().querySelector('.telemetry-audio')?.textContent).toContain(playable ? '远岸' : '暂无播放歌曲')
+  fireEvent.click(screen.getByRole('button',{name:'回星球'}))
+  await waitFor(()=>expect(document.querySelector('.cockpit[data-exterior="home"]:not(.is-in-flight)')).toBeTruthy(),{timeout:10000,onTimeout:()=>new Error('Home arrival did not finish')})
+  expect(panel().querySelector('.telemetry-callsign')?.textContent).toBe('驾驶舱测试星球')
+  expect(panel().querySelector('[aria-label="驾驶舱测试星球的星球缩略图"] canvas')).toBeTruthy()
+  expect(panel().querySelector('.telemetry-header')?.textContent).toContain('LOCAL LINK')
+  expect(value('SONGS')).toBe('03');expect(value('MOMENTS')).toBe('00')
+  await waitFor(()=>expect(value('BPM')).toBe('128.4'))
+  expect(value('LENGTH')).toBe('3:35')
+},30000)
+
+test('explicitly cancelling collision results clears the named mini-map contacts', async () => {
+  installCockpitFixture()
+  await renderCockpit()
+  fireEvent.click(document.querySelector<HTMLButtonElement>('[aria-label="寻找与《夜航》同歌的星球"]')!)
+  await waitFor(() => expect(document.querySelector('.cockpit-radar-preview small')?.textContent).toMatch(/1/), {timeout:10000})
+  const nodes=document.querySelectorAll('.cockpit-signal-map [data-signal-id]')
+  expect(nodes).toHaveLength(1)
+  expect(nodes[0].getAttribute('data-signal-id')).toBe('cockpit-target')
+  expect(nodes[0].textContent).toContain('下一站')
+  fireEvent.click(document.querySelector<HTMLButtonElement>('[aria-label="关闭同歌结果"]')!)
+  expect(document.querySelectorAll('.cockpit-signal-map [data-signal-id]')).toHaveLength(0)
+  expect(document.querySelector('.music-song-portal')).toBeNull()
+  expect(document.querySelector('.cockpit')?.getAttribute('data-focus')).toBe('exploration')
+  fireEvent.click(screen.getByRole('button',{name:'返回驾驶舱'}))
+  expect(document.querySelectorAll('.cockpit-signal-map [data-signal-id]')).toHaveLength(0)
+},20000)
+
+test.each([0,1])('exploration preview retains %i scan results on ordinary return but clears on explicit cancellation', async (count) => {
+  installCockpitFixture(undefined,undefined,undefined,count)
+  await renderCockpit()
+  fireEvent.click(document.querySelector<HTMLButtonElement>('[aria-label="寻找与《夜航》同歌的星球"]')!)
+  await waitFor(() => expect(document.querySelector('.music-song-portal .music-close-inline')).toBeTruthy(), {timeout:10000})
+  const preview = () => document.querySelector<HTMLElement>('.cockpit-radar-preview')!
+  await waitFor(() => expect(preview().querySelector('small')?.textContent).toBe(`${count} SIGNALS`), {timeout:10000})
+  expect(preview().querySelector('span')?.textContent).toBe('SCAN RESULTS')
+  expect(preview().dataset.scanning).toBe('true')
+  fireEvent.click(document.querySelector<HTMLButtonElement>('[aria-label="返回驾驶舱"]')!)
+  expect(preview().querySelector('span')?.textContent).toBe('SCAN RESULTS')
+  expect(preview().dataset.scanning).toBe('true')
+  fireEvent.click(document.querySelector<HTMLButtonElement>('.cockpit-exploration-monitor')!)
+  fireEvent.click(document.querySelector<HTMLButtonElement>('[aria-label="关闭同歌结果"]')!)
+  expect(preview().dataset.scanning).toBe('false')
+  expect(preview().querySelector('span')?.textContent).toBe('SYSTEM ON')
+  expect(preview().querySelector('small')?.textContent).toBe('0 SIGNALS')
+  fireEvent.click(screen.getByRole('button',{name:'返回驾驶舱'}))
+  fireEvent.click(screen.getByRole('button',{name:'打开探索终端'}))
+  expect(document.querySelector('.music-song-portal')).toBeNull()
+},30000)
+
+test('cancelling an in-flight song search prevents its late response from restoring the results', async () => {
+  installCockpitFixture()
+  const originalFetch=globalThis.fetch
+  let completeSearch!: (response:Response) => void
+  vi.stubGlobal('fetch',(input:RequestInfo|URL,init?:RequestInit) => {
+    if(new URL(String(input),'https://moodverse.test').pathname==='/api/music/song-portal') return new Promise<Response>(resolve=>{completeSearch=resolve})
+    return originalFetch(input,init)
+  })
+  await renderCockpit()
+  fireEvent.click(document.querySelector<HTMLButtonElement>('[aria-label="寻找与《夜航》同歌的星球"]')!)
+  await waitFor(()=>expect(document.querySelector('.music-song-portal .music-close-inline')).toBeTruthy(),{timeout:10000})
+  fireEvent.click(document.querySelector<HTMLButtonElement>('[aria-label="关闭同歌结果"]')!)
+  expect(document.querySelector('.music-song-portal')).toBeNull()
+  await act(async()=>{
+    completeSearch(Response.json({trackId:'song-a',ranking:{mode:'rule',status:'ready'},matches:[{planetId:'late-match',displayName:'不应回来',matchSource:'active_selection',reasonCode:'shared_song_selection'}]}))
+  })
+  expect(document.querySelector('.music-song-portal')).toBeNull()
+  expect(document.querySelectorAll('.cockpit-signal-map [data-signal-id]')).toHaveLength(0)
+  expect(document.querySelector('.cockpit-signal-map')?.getAttribute('data-scanning')).toBe('false')
+},20000)
+
+test.each(['home','visitor'])('opening the middle monitor from %s only restores the previous song results', async (destination) => {
+  vi.spyOn(document,'hidden','get').mockReturnValue(false)
+  const visitorTracks=[{...tracks[3],isPrimary:true,audioUrl:'/api/music/tracks/song-d/stream'},tracks[4]]
+  const visitor={id:'cockpit-target',displayName:'客星',tagline:'',visibility:'public',tracks:visitorTracks,moments:[],visual:createDitherSpec({planetId:'cockpit-target',tracks:visitorTracks})}
+  installCockpitFixture(async()=>Response.json({planet:visitor}),async()=>Response.json({planet:visitor}))
+  await renderCockpit()
+  const searches=()=>vi.mocked(fetch).mock.calls.map(([input])=>new URL(String(input),'https://moodverse.test')).filter(url=>url.pathname==='/api/music/song-portal').map(url=>url.searchParams.get('trackId'))
+  const preview=()=>document.querySelector('.cockpit-signal-map')!.innerHTML
+  fireEvent.click(screen.getByRole('button',{name:'寻找与《潮汐之间》同歌的星球'}))
+  await screen.findByRole('button',{name:'访问星球 下一站'})
+  const savedPreview=preview()
+  expect(searches()).toEqual(['song-b'])
+  if(destination==='visitor') {
+    fireEvent.click(screen.getByRole('button',{name:'访问星球 下一站'}))
+    fireEvent.click(await screen.findByRole('button',{name:'继续访问'}))
+    await waitFor(()=>expect(document.querySelector('.cockpit[data-exterior="visitor"]:not(.is-in-flight)')).toBeTruthy(),{timeout:10000,onTimeout:()=>new Error('Visitor arrival did not finish')})
+  } else {
+    fireEvent.click(screen.getByRole('button',{name:'返回驾驶舱'}))
+    fireEvent.click(screen.getByRole('button',{name:'回星球'}))
+    await waitFor(()=>expect(document.querySelector('.cockpit[data-exterior="home"]:not(.is-in-flight)')).toBeTruthy(),{timeout:10000,onTimeout:()=>new Error('Home arrival did not finish')})
+  }
+  expect(preview()).toBe(savedPreview)
+  fireEvent.click(screen.getByRole('button',{name:'打开探索终端'}))
+  expect(searches()).toEqual(['song-b'])
+  expect(screen.getByRole('heading',{name:'与《潮汐之间》同歌'})).toBeTruthy()
+  expect(preview()).toBe(savedPreview)
+  fireEvent.click(screen.getByRole('button',{name:'返回驾驶舱'}))
+  fireEvent.click(screen.getByRole('button',{name:'打开个人终端'}))
+  fireEvent.click(screen.getByRole('button',{name:'返回驾驶舱'}))
+  fireEvent.click(screen.getByRole('button',{name:'撞歌',exact:true}))
+  expect(searches()).toEqual(['song-b'])
+  expect(preview()).toBe(savedPreview)
+},30000)
+
+test('visit confirmation preloads only the destination song without playing it or recording a visit', async () => {
+  vi.spyOn(document, 'hidden', 'get').mockReturnValue(false)
+  const sources: Array<{ src: string; paused: boolean; plays: number }> = []
+  vi.stubGlobal('Audio', class extends EventTarget {
+    src = ''; paused = true; plays = 0; currentTime = 0; preload = ''; loop = false; volume = 0
+    constructor() { super(); sources.push(this) }
+    play() { this.plays++; this.paused = false; this.dispatchEvent(new Event('play')); return Promise.resolve() }
+    pause() { this.paused = true; this.dispatchEvent(new Event('pause')) }
+    load() {} removeAttribute() { this.src = '' }
+  })
+  let posts = 0
+  installCockpitFixture(async () => { posts++; return Response.json({}) }, async () => Response.json({ planet: {
+    id: 'cockpit-target', tracks: [{ ...tracks[0], id: 'audius:target', isPrimary: true, audioUrl: '/api/music/tracks/audius%3Atarget/stream' }],
+  } }))
+  await renderCockpit()
+  fireEvent.click(screen.getByRole('button', { name: '寻找与《夜航》同歌的星球' }))
+  fireEvent.click(await screen.findByRole('button', { name: '访问星球 下一站' }))
+  await waitFor(() => expect(sources.some(audio => audio.src === '/api/music/tracks/audius%3Atarget/stream')).toBe(true))
+  const warmed = sources.find(audio => audio.src === '/api/music/tracks/audius%3Atarget/stream')!
+  expect(warmed.paused).toBe(true); expect(warmed.plays).toBe(0); expect(posts).toBe(0)
+  fireEvent.click(screen.getByRole('button', { name: '暂不访问' }))
+  await waitFor(() => expect(warmed.src).toBe(''))
+  expect(posts).toBe(0)
+})
 
 test('clicking a Galaxy star opens a dismissible floating window without entering the exploration terminal', async () => {
   installCockpitFixture()
@@ -1448,6 +1642,92 @@ test('the cockpit boots directly into Galaxy; opening my planet never replaces i
   expect(screen.getByRole('button', {name:'场景星系：ambient'})).toBeTruthy()
 })
 
+test.each([['genre','GENRE'],['artist','ARTIST'],['song','SONG']] as const)('returning from a selected %s Galaxy restores the exploration standby preview', async (by, label) => {
+  vi.spyOn(document,'hidden','get').mockReturnValue(false)
+  const owner = {id:'preview-owner',displayName:'我的星球',visibility:'public',tagline:'',tracks:tracks.slice(0,3),visual:createDitherSpec({planetId:'preview-owner',tracks})}
+  vi.stubGlobal('fetch',vi.fn(async (input:RequestInfo|URL)=>{
+    const url=new URL(String(input),'https://moodverse.test')
+    if(url.pathname==='/api/me/music-planet') return Response.json({planet:owner})
+    if(url.pathname==='/api/music/catalog') return Response.json({tracks})
+    if(url.pathname==='/api/music/galaxy') { const dimension=url.searchParams.get('by') ?? 'genre';return Response.json({by:dimension,groups:[{key:'selected',label:`selected-${dimension}`,planetCount:0,planets:[]}]}) }
+    if(url.pathname==='/api/music/galaxy-content') return Response.json({by,key:'selected',tracks:[],status:'local',hasMore:false,nextOffset:null})
+    return Response.json({moments:[],incoming:[],outgoing:[]})
+  }))
+  render(<MusicApp />)
+  await screen.findByRole('button',{name:'场景星系：selected-genre'},{timeout:10000})
+  if(by!=='genre') fireEvent.click(screen.getByRole('button',{name:label,exact:true}))
+  fireEvent.click(await screen.findByRole('button',{name:`场景星系：selected-${by}`},{timeout:10000}))
+  expect(document.querySelector('.cockpit-radar-preview > span')?.textContent).toBe(`selected-${by}`)
+  fireEvent.click(screen.getByRole('button',{name:'关闭星系窗口'}))
+  fireEvent.click(screen.getByRole('button',{name:'回星球'}))
+  await waitFor(()=>expect(document.querySelector('.cockpit[data-exterior="home"]:not(.is-in-flight)')).toBeTruthy(),{timeout:10000})
+  expect(document.querySelector('.cockpit-radar-preview > span')?.textContent).toBe('SYSTEM ON')
+},30000)
+
+test('collision on a visited planet uses its songs and carries its source into the onward search', async () => {
+  vi.spyOn(document,'hidden','get').mockReturnValue(false)
+  const visitor = {id:'cockpit-target',displayName:'客星',tagline:'',visibility:'public',tracks:[{...tracks[3],isPrimary:true},{...tracks[4],audioUrl:'/api/music/tracks/song-e/stream'}],moments:[],visual:createDitherSpec({planetId:'cockpit-target',tracks:tracks.slice(3)})}
+  installCockpitFixture(async()=>Response.json({planet:visitor}),async()=>Response.json({planet:visitor}))
+  await renderCockpit()
+  fireEvent.click(screen.getByRole('button',{name:'寻找与《夜航》同歌的星球'}))
+  fireEvent.click(await screen.findByRole('button',{name:'访问星球 下一站'}))
+  fireEvent.click(await screen.findByRole('button',{name:'继续访问'}))
+  await waitFor(()=>expect(document.querySelector('.cockpit[data-exterior="visitor"]:not(.is-in-flight)')).toBeTruthy(),{timeout:10000,onTimeout:()=>new Error('Visitor arrival did not finish')})
+  fireEvent.click(screen.getByRole('button',{name:'查看星球：客星'}))
+  fireEvent.click(screen.getByRole('button',{name:'返回驾驶舱'}))
+  fireEvent.click(screen.getByRole('button',{name:'撞歌',exact:true}))
+  const collision=screen.getByRole('complementary',{name:'同歌搜索'})
+  expect(within(collision).getAllByText('远岸').length).toBeGreaterThan(0)
+  expect(within(collision).getAllByText('月面信号').length).toBeGreaterThan(0)
+  expect(within(collision).queryByText('雾灯')).toBeNull()
+  let requested=vi.mocked(fetch).mock.calls.map(([input])=>new URL(String(input),'https://moodverse.test'))
+  expect(requested.filter(u=>u.pathname==='/api/music/song-portal')).toHaveLength(1)
+  fireEvent.click(within(collision).getByRole('button',{name:'下一张 CD'}))
+  requested=vi.mocked(fetch).mock.calls.map(([input])=>new URL(String(input),'https://moodverse.test'))
+  expect(requested.filter(u=>u.pathname==='/api/music/song-portal')).toHaveLength(1)
+  fireEvent.click(within(collision).getByRole('button',{name:'播放 月面信号'}))
+  requested=vi.mocked(fetch).mock.calls.map(([input])=>new URL(String(input),'https://moodverse.test'))
+  expect(requested.filter(u=>u.pathname==='/api/music/song-portal')).toHaveLength(1)
+  expect(screen.getByRole('heading',{name:'与《夜航》同歌'})).toBeTruthy()
+  fireEvent.click(within(collision).getByRole('button',{name:'撞歌 ↗'}))
+  requested=vi.mocked(fetch).mock.calls.map(([input])=>new URL(String(input),'https://moodverse.test'))
+  expect(requested.filter(u=>u.pathname==='/api/music/song-portal').at(-1)?.searchParams.get('trackId')).toBe('song-e')
+  expect(requested.filter(u=>u.pathname==='/api/music/song-portal').at(-1)?.searchParams.get('sourcePlanetId')).toBe('cockpit-target')
+  await waitFor(()=>expect(document.querySelector('.signal-map-heading')?.textContent).toBe('SCAN RESULTS'))
+  const savedPreview=document.querySelector('.cockpit-signal-map')!.innerHTML
+  fireEvent.click(screen.getByRole('button',{name:'返回驾驶舱'}))
+  fireEvent.click(screen.getByRole('button',{name:'回星球'}))
+  await waitFor(()=>expect(document.querySelector('.cockpit[data-exterior="home"]:not(.is-in-flight)')).toBeTruthy(),{timeout:10000,onTimeout:()=>new Error('Home arrival did not finish')})
+  fireEvent.click(screen.getByRole('button',{name:'打开探索终端'}))
+  expect(screen.getByRole('heading',{name:'与《月面信号》同歌'})).toBeTruthy()
+  expect(document.querySelector('.cockpit-signal-map')!.innerHTML).toBe(savedPreview)
+  requested=vi.mocked(fetch).mock.calls.map(([input])=>new URL(String(input),'https://moodverse.test'))
+  expect(requested.filter(u=>u.pathname==='/api/music/song-portal')).toHaveLength(2)
+  expect(requested.filter(u=>u.pathname==='/api/music/song-portal').at(-1)?.searchParams.get('sourcePlanetId')).toBe('cockpit-target')
+},30000)
+
+test('wheel fills the final axis leg before the shorter separate home approach enters flight', async () => {
+  vi.spyOn(document,'hidden','get').mockReturnValue(false)
+  installCockpitFixture(undefined,undefined,Array.from({length:8},(_,index)=>({key:index?`sector-${index}`:'ambient',label:index?`sector-${index}`:'ambient',planetCount:0,planets:[]})))
+  render(<MusicApp />)
+  await waitFor(()=>expect(document.querySelector('[aria-label="前往星系 ambient"]')).toBeTruthy(),{timeout:30000})
+  const stage=document.querySelector('.dither-stage')!
+  fireEvent.click(document.querySelector('[aria-label="前往星系 ambient"]')!)
+  const axisFill=()=>Number(document.querySelector<HTMLElement>('.music-galaxy-axis-track > i')?.style.transform.match(/scaleX\(([^)]+)\)/)?.[1])
+  for(let n=0;n<28;n++) fireEvent.wheel(stage,{deltaY:-10000})
+  expect(axisFill(),JSON.stringify({connected:stage.isConnected,exterior:document.querySelector('.cockpit')?.getAttribute('data-exterior'),focus:document.querySelector('.cockpit')?.getAttribute('data-focus')})).toBeCloseTo(.875)
+  fireEvent.wheel(stage,{deltaY:-10000})
+  expect(axisFill()).toBeGreaterThan(.875)
+  expect(axisFill()).toBeLessThan(1)
+  for(let n=0;n<3;n++) fireEvent.wheel(stage,{deltaY:-10000})
+  expect(document.querySelector('.cockpit')?.getAttribute('data-exterior')).toBe('galaxy')
+  expect(document.querySelector('.cockpit.is-in-flight')).toBeNull()
+  fireEvent.wheel(stage,{deltaY:-10000})
+  expect(axisFill()).toBe(1)
+  expect(document.querySelector('.cockpit.is-in-flight')).toBeTruthy()
+  await waitFor(()=>expect(document.querySelector('.cockpit[data-exterior="home"]:not(.is-in-flight)')).toBeTruthy(),{timeout:10000,onTimeout:()=>new Error('Home arrival did not finish')})
+},30000)
+
 test('cockpit channels keep the same world renderer and preserve a Moment draft across Orbit and overview', async () => {
   installCockpitFixture()
   await renderCockpit()
@@ -1467,16 +1747,19 @@ test('cockpit channels keep the same world renderer and preserve a Moment draft 
 
 test('terminal wheel scrolling never advances the exterior Galaxy journey', async () => {
   installCockpitFixture()
-  await renderCockpit()
+  render(<MusicApp />)
+  await waitFor(()=>expect(document.querySelector('[aria-label="前往星系 ambient"]')).toBeTruthy(),{timeout:30000})
   await openGalaxyList()
   const before = document.querySelector('.cockpit-viewport .music-galaxy-axis')?.innerHTML
   for (let i = 0; i < 100; i++) fireEvent.wheel(document.querySelector('.cockpit-terminal-content')!, { deltaY: -10000 })
   expect(document.querySelector('.cockpit')?.getAttribute('data-exterior')).toBe('galaxy')
   expect(document.querySelector('.cockpit-viewport .music-galaxy-axis')?.innerHTML).toBe(before)
   expect(document.querySelector('.cockpit.is-in-flight')).toBeNull()
-})
+},60000)
 
 test('a slow visit holds in the nebula without a cancel button, double confirmation posts once, and arrival resumes when ready', async () => {
+  // Navigation is exercised in a visible page; jsdom defaults to hidden.
+  vi.spyOn(document, 'hidden', 'get').mockReturnValue(false)
   const responses: Array<(value: Response) => void> = []
   let posts = 0
   const owner = installCockpitFixture(async () => { posts++; return new Promise<Response>(resolve => responses.push(resolve)) })
@@ -1486,7 +1769,7 @@ test('a slow visit holds in the nebula without a cancel button, double confirmat
   const confirm = screen.getByRole('button', { name: '继续访问' })
   fireEvent.click(confirm)
   fireEvent.click(confirm)
-  await waitFor(() => expect(document.querySelector('.dither-stage')?.getAttribute('data-flight-progress')).toBe('0.5'))
+  await waitFor(() => expect(document.querySelector('.dither-stage')?.getAttribute('data-flight-progress')).toBe('0.5'), { timeout: 10000, onTimeout: () => new Error(`Flight did not reach hold: ${document.querySelector('.dither-stage')?.getAttribute('data-flight-progress')}; hidden=${document.hidden}`) })
   expect(posts).toBe(1)
   expect(document.querySelector('.cockpit')?.getAttribute('data-exterior')).toBe('galaxy')
   expect(screen.queryByRole('button', { name: '取消航行' })).toBeNull()

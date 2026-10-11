@@ -1,3 +1,6 @@
+@font-face { font-family: 'MOSIC Console'; src: url('/fonts/rajdhani-latin-500.woff2') format('woff2'); font-style: normal; font-weight: 500; font-display: swap; }
+@font-face { font-family: 'MOSIC Console'; src: url('/fonts/rajdhani-latin-600.woff2') format('woff2'); font-style: normal; font-weight: 600; font-display: swap; }
+@font-face { font-family: 'MOSIC Console Han'; src: url('/fonts/zcool-console-han.woff2') format('woff2'); font-style: normal; font-weight: 400; font-display: swap; }
 /* Full-coverage color dithering preserves solid hardware alpha. */
 .cockpit, .music-galaxy-dialog {
   --case: #c5aa73; --case-light: #f0d596; --case-shadow: #393225;
@@ -5,16 +8,25 @@
   --phosphor-muted: #bba77e; --lamp: #ffe4a2; --hardware-line: #b6985b;
   --space-xs: 4px; --space-sm: 8px; --space-md: 12px; --space-lg: 16px; --space-xl: 24px;
   --cockpit-body: -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;
-  --cockpit-label: var(--pixel,ui-monospace,monospace); --z-world: 0; --z-window: 1; --z-hardware: 2; --z-terminal: 3;
+  --cockpit-label: var(--pixel,ui-monospace,monospace);
+  --z-world: 0; --z-window: 1; --z-hardware: 2; --z-terminal: 3;
 }
 .cockpit {
   position: relative; isolation: isolate; width: 100%; height: 100dvh; min-height: 0;
   overflow: clip; background: var(--dither-black); color: var(--phosphor); font-family: var(--cockpit-body); font-size: 16px;
   --console-height: max(29%,225px);
 }
+/* Display lettering belongs to the fixed cockpit, never content windows. */
+.cockpit-console-scroll,.cockpit-viewport,.cockpit-pan-nav {
+  --cockpit-body: 'MOSIC Console','MOSIC Console Han','PingFang SC','Microsoft YaHei',sans-serif;
+  --cockpit-label: var(--cockpit-body); --pixel: var(--cockpit-body); --body: var(--cockpit-body);
+  font-family: var(--cockpit-body);
+}
 .cockpit [hidden] { display: none !important; }
 .cockpit button { cursor: pointer; font-family: var(--cockpit-body); font-weight: 650; }
 .cockpit button:disabled { opacity: .48; cursor: not-allowed; }
+/* Flight locks input without dimming the three otherwise-live devices. */
+.cockpit.is-in-flight :is(.cockpit-wing,.cockpit-center,.cockpit-gauge-bay) button:disabled { opacity: 1; }
 .cockpit :is(button,input,textarea,select,a):focus-visible { outline: 2px solid var(--phosphor); outline-offset: 3px; }
 .cockpit-viewport { position: absolute; inset: 10px 10px var(--console-height) 10px; z-index: var(--z-world); overflow: hidden; border-radius: 20px; }
 .cockpit-viewport .dither-stage { inset: 0; }
@@ -45,7 +57,7 @@
 .cockpit-monitor-content { display: flex; height: 100%; width: 100%; align-items: center; justify-content: center; }
 .cockpit-monitor-content .dither-thumb { width: auto; height: 90%; max-width: 100%; image-rendering: pixelated; }
 .cockpit-monitor-channel { position: absolute; bottom: 5px; right: 6px; font: .625rem var(--cockpit-label); }
-.cockpit-personal-monitor:has(.cockpit-personal-preview) .cockpit-monitor-channel { display: none; }
+.cockpit-personal-monitor:has(.cockpit-personal-preview,.cockpit-personal-telemetry) .cockpit-monitor-channel { display: none; }
 .cockpit-mini-caption { font: .875rem var(--cockpit-label); }
 .cockpit-keys { display: flex; gap: var(--space-xs); margin-top: var(--space-sm); }
 .cockpit-keys button,.cockpit-settings-key,.cockpit-terminal :is(header,footer) button { flex: 1; min-height: 44px; padding: var(--space-xs) var(--space-sm); color: var(--case-ink); background: var(--case-light); border: 2px solid var(--case-shadow); border-top-color: #eee1b9; border-radius: 4px; box-shadow: 0 3px 0 #393125; font-size: .8125rem; white-space: nowrap; }
@@ -57,6 +69,8 @@
 .gauge-case { fill: #3c3428; stroke: #dfc590; stroke-width: 2px; }.gauge-face { fill: #bca67a; stroke: #090907; stroke-width: 2px; }
 .gauge-tick { stroke: #332a1e; stroke-width: 1px; }.gauge-tick.major { stroke-width: 2px; }
 .instrument-needle { transition: transform 400ms cubic-bezier(.22,1,.36,1); }
+/* Flight progress already eases each frame; a second transition trails the cloud. */
+.cockpit [data-gauge="航速"] .instrument-needle { transition: none; }
 .gauge-needle { transform-origin: 60px 60px; fill: #473323; }.gauge-needle circle { fill: #c68137; }
 .cockpit-gauge text { font: 700 17px var(--cockpit-body); fill: #251e15; }
 .cockpit-lamp { display: block; flex: none; width: 11px; height: 11px; border: 2px solid #7c5a2e; border-radius: 50%; background: #624626; }

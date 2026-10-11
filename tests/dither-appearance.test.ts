@@ -7,6 +7,34 @@ const song = (id: string, genres: string[] = [], extras: Partial<MusicTrackSumma
 })
 
 describe('deterministic dither appearance', () => {
+  test('ordinary planets share size one, including older generated sizes, without erasing manual choices', () => {
+    for (const id of ['anonymous-owner', 'other-user', 'demo-looking-user']) {
+      const saved = createDitherSpec({ planetId: id, tracks: [] })
+      expect(saved.generated.size).toBe(1)
+      const old = { ...saved, generated: { ...saved.generated, size: 1.3 } }
+      expect(effectiveDitherParameters(resolveDitherSpec(id, [], old)).size).toBe(1)
+      const custom = { ...old, overrides: { ...old.overrides, size: 1.2 } }
+      expect(effectiveDitherParameters(resolveDitherSpec(id, [], custom)).size).toBe(1.2)
+      expect(old.generated.size).toBe(1.3)
+    }
+  })
+  test('only demo planets get bounded stable size variety, including already saved appearances', () => {
+    const sizes: number[] = []
+    for (const slug of ['mist-route', 'moon-greenhouse', 'glass-sea', 'forest-radio', 'night-bus', 'far-shore-letter']) {
+      const id = `demo:planet:${slug}`
+      const spec = createDitherSpec({ planetId: id, tracks: [] })
+      const size = effectiveDitherParameters(spec).size
+      sizes.push(size)
+      expect(size).toBeGreaterThanOrEqual(.85); expect(size).toBeLessThanOrEqual(1.15)
+      const saved = { ...spec, generated: { ...spec.generated, size: 1 } }
+      expect(effectiveDitherParameters(resolveDitherSpec(id, [], saved)).size).toBe(size)
+      expect(createDitherSpec({ planetId: id, tracks: [song('new', ['metal'])] }).generated.size).toBe(size)
+      expect(isDitherSpec(resolveDitherSpec(id, [], saved))).toBe(true)
+    }
+    expect(new Set(sizes).size).toBeGreaterThan(3)
+    expect(Math.min(...sizes)).toBeLessThan(1)
+    expect(Math.max(...sizes)).toBeGreaterThan(1)
+  })
   test('album texture follows a selected song and clears when that song is removed', () => {
     const tracks = [song('a', [], { coverUrl: 'https://example.com/album.jpg' }), song('b')]
     const spec = createDitherSpec({ planetId: 'cover', tracks, overrides: { coverTrackId: 'a' } })

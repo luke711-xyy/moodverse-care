@@ -3,8 +3,20 @@ import React from 'react'
 import { cleanup, render } from '@testing-library/react'
 import { afterEach, expect, test } from 'vitest'
 import { DitherSurfaceDefinitions, INK_FILTER, SURFACE_FILTER } from '../src/music/cockpit/surface'
+import { DeskObjects } from '../src/music/cockpit/DeskObjects'
 
 afterEach(cleanup)
+test('animated vapor has an independent paint root from the static filtered desk', () => {
+  const { container } = render(<DeskObjects />)
+  const hardware = container.querySelector('.cockpit-desk-objects')!
+  const vapor = container.querySelector('.coffee-steam')!
+  expect(hardware.contains(vapor)).toBe(false)
+  const vaporRoot = vapor.closest('svg')!
+  expect(vaporRoot.getAttribute('viewBox')).toBe(hardware.getAttribute('viewBox'))
+  expect(vaporRoot.getAttribute('aria-hidden')).toBe('true')
+  expect(vapor.parentElement!.getAttribute('transform')).toBe('translate(1438 30)')
+  expect(vapor.querySelectorAll('.coffee-steam-layer')).toHaveLength(4)
+})
 test('hardware and ink dither RGB, never punch holes into source alpha', () => {
   const { container } = render(<DitherSurfaceDefinitions />)
   for (const id of [SURFACE_FILTER, INK_FILTER]) {

@@ -1,11 +1,24 @@
 import { TOUR_END } from '../universe'
 
+const HOME_APPROACH_DISTANCE = .12
+
+/** The last sector remains in view while the wheel travels the home approach.
+ * Reversing immediately resumes the tour; momentum arriving at the last node
+ * is not carried into the separate home leg.
+ */
+export function advanceGalaxyWheel(progress: number, step: number, approach: number) {
+  const journey = Math.max(0, Math.min(TOUR_END, progress + step))
+  const nextApproach = step > 0 && progress >= TOUR_END ? Math.min(HOME_APPROACH_DISTANCE, approach + step) : 0
+  return { journey, approach: nextApproach, enterHome: nextApproach >= HOME_APPROACH_DISTANCE }
+}
+
 /** One coordinate for the viewport, selected label, and navigation marker.
  * The final home node is a travel button, not another galaxy stop.
  */
-export function galaxyTourPosition(progress: number, count: number) {
+export function galaxyTourPosition(progress: number, count: number, homeApproach = 0) {
   const systemIndex = Math.max(0, Math.min(1, progress)) * Math.max(0, count - 1)
-  return { systemIndex, currentIndex: Math.round(systemIndex), axisProgress: count ? systemIndex / count : 0 }
+  const homeLeg = progress >= 1 ? Math.max(0, Math.min(1, homeApproach / HOME_APPROACH_DISTANCE)) : 0
+  return { systemIndex, currentIndex: Math.round(systemIndex), axisProgress: count ? (systemIndex + homeLeg) / count : 0 }
 }
 
 export type GalaxyJourneyMotion = { from: number; to: number; durationMs: number }

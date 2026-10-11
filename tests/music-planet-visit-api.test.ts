@@ -158,3 +158,28 @@ test('a caller cannot create a Song Portal encounter without owning an exact-son
   expect(fixture.sqlite.prepare('SELECT count(*) AS count FROM music_planet_visits').get()).toEqual({ count: 1 })
   expect(fixture.sqlite.prepare('SELECT count(*) AS count FROM music_song_encounters').get()).toEqual({ count: 0 })
 })
+
+test('a confirmed onward song visit records exact evidence from the visited source without adding the song to my planet', async () => {
+  const sourceOwner = await createIdentity('onward-source-owner')
+  fixture.sqlite.prepare(`INSERT INTO music_planets (id, owner_user_id, display_name, tagline, visibility, created_at, updated_at)
+    VALUES ('planet-source', ?, '出发星球', '', 'public', '2026-10-10', '2026-10-10')`).run(sourceOwner)
+  fixture.sqlite.prepare(`INSERT INTO music_planet_tracks (planet_id, track_id, position, is_primary, selected_at)
+    VALUES ('planet-source', 'visit-song', 0, 1, '2026-10-10')`).run()
+  const response = await visit('planet-public', 'visit-visitor', {source:'song_portal',trackId:'visit-song',sourcePlanetId:'planet-source'})
+  expect(response.status).toBe(200)
+  expect(fixture.sqlite.prepare('SELECT planet_id,track_id FROM music_song_encounters').get()).toEqual({planet_id:'planet-public',track_id:'visit-song'})
+  expect(fixture.sqlite.prepare("SELECT count(*) AS count FROM music_planet_tracks WHERE planet_id = 'planet-private'").get()).toEqual({count:0})
+})
+
+test('an unavailable onward source cannot authorize a visit or write encounter evidence', async () => {
+  const response = await visit('planet-public', 'visit-visitor', {source:'song_portal',trackId:'visit-song',sourcePlanetId:'planet-private'})
+  expect(response.status).toBe(403)
+  expect(fixture.sqlite.prepare('SELECT count(*) AS count FROM music_planet_visits').get()).toEqual({count:0})
+  expect(fixture.sqlite.prepare('SELECT count(*) AS count FROM music_song_encounters').get()).toEqual({count:0})
+})
+
+test.each([null, 12, '', 'planet-public', 'x'.repeat(129)])('malformed onward source %s cannot write a visit', async sourcePlanetId => {
+  const response = await visit('planet-public', 'visit-visitor', {source:'song_portal',trackId:'visit-song',sourcePlanetId})
+  expect(response.status).toBe(400)
+  expect(fixture.sqlite.prepare('SELECT count(*) AS count FROM music_planet_visits').get()).toEqual({count:0})
+})

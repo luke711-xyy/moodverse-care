@@ -1,6 +1,23 @@
 /* Equal side tracks anchor the main terminal to the viewport center, independent
    of personal-screen / radio / controls widths. Desk props occupy their own plane. */
-.cockpit { --console-height: clamp(320px,40cqh,410px); --desk-depth: 116px; }
+@font-face {
+  font-family: 'Unifont'; src: url('/fonts/unifont-controls-400.woff2') format('woff2');
+  font-style: normal; font-weight: 400; font-display: swap;
+}
+.cockpit {
+  --console-height: clamp(320px,40cqh,410px); --desk-depth: 116px;
+  --cockpit-key-font: 'Unifont','PingFang SC','Microsoft YaHei',sans-serif;
+}
+/* Expanded-window actions use the same lettering as the physical keys.
+   Keep the body/heading tokens separate so prose and user content stay legible. */
+.cockpit .cockpit-terminal button,
+.music-galaxy-dialog :is(button,.dither-button),
+.mosic-communicator :is(button,.communicator-photo-button),
+.music-moment-photo-viewer[data-standalone=true] button {
+  font-family: 'Unifont','PingFang SC','Microsoft YaHei',sans-serif;
+  font-weight: 400; font-synthesis: none;
+}
+.cockpit-terminal .music-cd-no-art { font-family: var(--cockpit-body); }
 .cockpit-console {
   padding: 0 4% var(--desk-depth); gap: 18px;
   grid-template-columns: minmax(0,1fr) clamp(330px,34cqw,540px) minmax(0,1fr);
@@ -27,19 +44,60 @@
 .cockpit-galaxy-list-key { width: 100%; padding: 0; border: 0; background: none; text-align: left; }
 .cockpit-keys { gap: 5px; flex-shrink: 0; width: 70%; align-self: center; margin-top: 8px; }
 .cockpit-keys button { min-height: 31px; padding: 3px 4px; font-size: .6875rem; }
+.cockpit #cockpit-exploration .cockpit-keys button { font-size: .875rem; }
+/* Printed legends stay crisp; only the raised keycaps use material dithering.
+   The requested Unifont face unifies Chinese, Latin and the settings key. */
+.cockpit .cockpit-keys { filter: none; }
+.cockpit #cockpit-personal .cockpit-keys { width: 100%; }
+.cockpit .cockpit-console-scroll :is(.cockpit-keys button,.cockpit-settings-key) {
+  position: relative; isolation: isolate; min-width: 0;
+  font-family: var(--cockpit-key-font);
+  font-size: .875rem; font-weight: 400; font-synthesis: none;
+  line-height: 1.35; letter-spacing: .08em; white-space: normal;
+  color: #292116; text-shadow: none;
+  background: none; border-color: transparent; box-shadow: none; filter: none;
+}
+.cockpit .cockpit-console-scroll :is(.cockpit-keys button,.cockpit-settings-key)::before {
+  content: ''; position: absolute; inset: -2px; z-index: -1;
+  pointer-events: none; border: 2px solid #59472e;
+  border-top-color: #ffe6ab; border-left-color: #ebcc8b;
+  border-radius: inherit;
+  background: linear-gradient(140deg,#fbe0a0,#e0bd79 44%,#b39864);
+  box-shadow: inset -2px -3px 0 #93764a,0 5px 0 #423522,2px 7px 0 #2a2116,0 8px 8px #0009;
+  filter: url(#moodverse-hardware-dither);
+}
+.cockpit .cockpit-console-scroll :is(.cockpit-keys button,.cockpit-settings-key)[aria-pressed=true]::before {
+  background: linear-gradient(145deg,#ffe8ac,#f0ce88 40%,#d4ad69);
+  box-shadow: inset 0 0 4px #ffeeb6,0 3px 0 #5b472c,0 7px 14px #f7d38a33;
+}
+.cockpit .cockpit-console-scroll :is(.cockpit-keys button,.cockpit-settings-key):active::before { box-shadow: 0 1px 0 #393125; }
 .cockpit-settings-key { min-height: 31px; padding: 3px 8px; font-size: .6875rem; }
-.cockpit-gauge-bay { height: 90%; display: grid; grid-template-rows: 11px minmax(0,1fr) minmax(0,1fr) 54px; gap: 5px; }
+.cockpit-gauge-bay { height: 90%; display: grid; grid-template-rows: 11px minmax(0,1fr) minmax(0,1fr) 64px; gap: 5px; }
 .cockpit-gauge-bay > .cockpit-lamp { margin: 0 auto; }
 .cockpit-gauge-bay .cockpit-gauge { min-height: 0; display: grid; place-items: center; }
 .cockpit-gauge-bay .cockpit-gauge svg { height: 100%; width: auto; max-width: 100%; }
 .cockpit-gauge text { font-size: 14px; }
-.cockpit-flight-lever { height: 54px; }
-.cockpit-flight-lever > span { height: 28px; }
+/* Keep the original rounded key shape; enlarge it and leave its legend crisp. */
+.cockpit .cockpit-flight-lever { height: 64px; justify-content: flex-start; filter: none; }
+.cockpit .cockpit-flight-lever > .flight-keycap {
+  display: block; flex-shrink: 0; width: 32px; height: 38px;
+  transform: translateY(0); transition: transform 120ms ease-out,box-shadow 120ms ease-out;
+  filter: url(#moodverse-hardware-dither);
+}
+.cockpit .cockpit-flight-lever small {
+  margin-top: 7px; font: 400 .8125rem/1.35 var(--cockpit-key-font); font-synthesis: none;
+  letter-spacing: .08em; white-space: nowrap; color: #292116; text-shadow: none;
+}
+.cockpit .cockpit-flight-lever:active:not(:disabled) > .flight-keycap { transform: translateY(3px); box-shadow: inset 2px 0 0 #ffe3a0,2px 1px 0 #302719; }
+.cockpit[data-reduced-motion="true"] .flight-keycap { transition: none; }
+@media (prefers-reduced-motion:reduce) { .cockpit .flight-keycap { transition: none; } }
 .cockpit-window-nav { bottom: 78px; }
 .cockpit-deck { top: -28px; height: calc(100% + 28px); }
-/* Extend the filter's actual paint box upward for vapor. Matching the viewBox
-   height ratio preserves every desk prop's scale and bottom alignment. */
-.cockpit-desk-objects { position: absolute; left: 0; bottom: 0; width: 100%; height: calc(var(--desk-depth) * 285 / 170); pointer-events: none; filter: url(#moodverse-hardware-dither); overflow: visible; }
+/* Matching viewBoxes preserve alignment; animated vapor no longer invalidates
+   the large filtered keyboard/headphone/cup surface each animation frame. */
+.cockpit-desk-objects, .cockpit-desk-vapor { position: absolute; left: 0; bottom: 0; width: 100%; height: calc(var(--desk-depth) * 285 / 170); pointer-events: none; overflow: visible; }
+.cockpit-desk-objects { filter: url(#moodverse-hardware-dither); }
+.cockpit-desk-vapor .coffee-steam { filter: url(#moodverse-hardware-dither); }
 .desk-signals { position: absolute; left: 12px; bottom: -17px; width: calc(100% - 24px); height: 14px; pointer-events: none; filter: url(#moodverse-hardware-dither); }
 .cockpit-radio { height: 93%; width: 100%; display: flex; align-items: end; transform: rotateX(-7deg); transform-origin: center bottom; }
 .cockpit-radio-body { position: relative; width: 100%; aspect-ratio: 150 / 220; container-type: inline-size; }
@@ -96,14 +154,17 @@
   .cockpit .cockpit-terminal :is(button,.music-primary-button,.music-secondary-button,.music-track-portal-button) { font-size: 12px; line-height: 1.25; }
   .cockpit .cockpit-personal-preview strong { font-size: 11px; }
   .cockpit .cockpit-radar-preview { font-size: 11px; line-height: 1.25; }
+  .cockpit .cockpit-radar-preview > span { font-size: .6875rem; }
 }
 @container music-viewport (max-height:600px) and (min-width:640px) {
   .cockpit { --console-height: 230px; --desk-depth: 68px; }
   .cockpit-wing,.cockpit-center { padding: 7px 10px 10px; }
   .cockpit-radio { height: 94%; }
   .cockpit-gauge-bay { padding-top: 5px; }
-  .cockpit-flight-lever { height: 43px; }
-  .cockpit-flight-lever > span { height: 24px; }
+  .cockpit-gauge-bay { grid-template-rows: 11px minmax(0,1fr) minmax(0,1fr) 52px; }
+  .cockpit .cockpit-flight-lever { height: 52px; }
+  .cockpit .cockpit-flight-lever > .flight-keycap { width: 26px; height: 30px; }
+  .cockpit .cockpit-flight-lever small { margin-top: 5px; font-size: .75rem; }
   .cockpit-window-nav { bottom: 56px; }
 }
 /* Phone landscape keeps all three devices in view, rather than stacking or
@@ -115,7 +176,7 @@
   .cockpit-console-side { gap: 7px; }
   .cockpit-console-side-left { grid-template-columns: minmax(0,1fr) 48px; }
   .cockpit-console-side-right { grid-template-columns: 65px minmax(0,1fr); }
-  .cockpit-gauge-bay { grid-template-rows: 8px minmax(0,1fr) minmax(0,1fr) 44px; gap: 3px; padding: 5px 3px; }
+  .cockpit-gauge-bay { grid-template-rows: 8px minmax(0,1fr) minmax(0,1fr) 52px; gap: 3px; padding: 5px 3px; }
   .cockpit-gauge-bay > .cockpit-lamp { width: 8px; height: 8px; }
   .cockpit-wing,.cockpit-center { padding: 6px 7px 10px; }
   .cockpit-deck,.cockpit-desk-objects { width: 100%; }
@@ -126,7 +187,7 @@
   .cockpit-keys button { min-width: 0; }
   .cockpit-monitor { height: 48px; min-height: 48px; border-width: 5px; }
   .cockpit-personal-monitor,.cockpit-exploration-monitor { height: auto; min-height: 0; }
-  .cockpit-flight-lever { height: 44px; }
+  .cockpit .cockpit-flight-lever { height: 52px; }
   .cockpit-knob { height: 62px; }
   .cockpit-knob-label { top: 8px; font-size: 11px; }
   .knob-artist { top: -10px; }
@@ -153,9 +214,9 @@
 @container music-viewport (max-width:700px) and (max-height:600px) {
   .cockpit-console { padding-inline: 2%; gap: 6px; grid-template-columns: minmax(0,1fr) 37% minmax(0,1fr); }
   .cockpit-console-side-left { position: relative; grid-template-columns: minmax(0,1fr); }
-  .cockpit-console-side-left .cockpit-gauge-bay { position: absolute; left: 8px; bottom: calc(100% - 8px); width: 44px; height: 140px; padding: 5px 2px; grid-template-rows: minmax(0,1fr) minmax(0,1fr) 44px; }
+  .cockpit-console-side-left .cockpit-gauge-bay { position: absolute; left: 8px; bottom: calc(100% - 8px); width: 44px; height: 148px; padding: 5px 2px; grid-template-rows: minmax(0,1fr) minmax(0,1fr) 52px; }
   .cockpit-console-side-left .cockpit-gauge-bay > .cockpit-lamp { display: none; }
-  .cockpit-console-side-left .cockpit-flight-lever { height: 44px; }
+  .cockpit-console-side-left .cockpit-flight-lever { height: 52px; }
   .cockpit-console-side-right { grid-template-columns: 44px minmax(0,1fr); }
   .cockpit-wing,.cockpit-center { padding-inline: 5px; }
   .cockpit-keys { gap: 2px; }

@@ -44,6 +44,12 @@ export function stableHash(value: string): number {
   return hash >>> 0
 }
 
+// Real planets start from one shared size. Seeded demo variation survives
+// reloads/song changes and does not depend on who is viewing the planet.
+function defaultPlanetSize(planetId: string) {
+  return planetId.startsWith('demo:planet:') ? round(.85 + stableHash('demo-size:' + planetId) % 301 / 1000) : 1
+}
+
 export function validateMusicVisualFeatures(value: unknown): Validation<MusicVisualFeatures> {
   return validateMusicFeatures(value)
 }
@@ -112,7 +118,7 @@ export function createDitherSpec({ planetId, tracks, previous, overrides }: { pl
   const blue = round(.2 + .4 * (1 - energy) + (main?.calm ? .15 : 0))
   const generated: DitherParameters = {
     form: main?.form ?? DITHER_FORMS[stableHash(planetId) % 4], motif: main?.motif ?? 'flow', algorithm: 'bayer8',
-    size: 1, textureScale: round(.3 + hardness * .45), disturbance: round(.1 + .7 * hardness + .15 * energy),
+    size: defaultPlanetSize(planetId), textureScale: round(.3 + hardness * .45), disturbance: round(.1 + .7 * hardness + .15 * energy),
     density: round(.35 + .4 * energy), pixelSize: 3, exposure: 1.2, contrast: round(1.05 + hardness * .6), gamma: 1.05,
     blue, violet: .5, pink, glow: round(.2 + .35 * energy), speed: round(.12 + .65 * tempo + .35 * energy),
     pulse: round(.08 + .35 * energy), pointer: 'weak', seedOffset: 0,
@@ -156,6 +162,11 @@ export function isDitherSpec(value: unknown): value is DitherPlanetSpec {
 }
 
 export function resolveDitherSpec(planetId: string, tracks: Track[], visual: unknown): DitherPlanetSpec {
-  if (isDitherSpec(visual) && visual.seed === planetId) return visual
+  if (isDitherSpec(visual) && visual.seed === planetId) {
+    const size = defaultPlanetSize(planetId)
+    // Adapt old generated defaults without mutating stored artwork or explicit
+    // user overrides; an ordinary customized size remains customizable.
+    return visual.generated.size === size ? visual : { ...visual, generated: { ...visual.generated, size } }
+  }
   return createDitherSpec({ planetId, tracks })
 }

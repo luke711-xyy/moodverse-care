@@ -3,16 +3,18 @@ import { advanceFlight, getFlightSpeed, type CockpitFlight } from '../src/music/
 import { buildCockpitFlightFrame } from '../src/music/cockpit/flight-frame'
 import { createDitherSpec } from '../src/music/dither/appearance'
 
-test('speed follows the flight envelope, idles when absent, and eases down when holding for data', () => {
+test('speed accelerates into the cloud, stays high while crossing or awaiting data, and brakes only on arrival', () => {
   expect(getFlightSpeed).toBeTypeOf('function')
   const flight: CockpitFlight = {token:1,from:'galaxy',to:'home',progress:0,ready:true,sourceVisitor:null,targetVisitor:null,returning:false}
   expect(getFlightSpeed(null)).toBe(0)
   expect(getFlightSpeed(flight)).toBe(0)
   expect(getFlightSpeed({...flight,progress:.25})).toBeGreaterThan(.5)
   expect(getFlightSpeed({...flight,progress:.5})).toBeCloseTo(1)
-  expect(getFlightSpeed({...flight,progress:.75})).toBeCloseTo(getFlightSpeed({...flight,progress:.25}))
+  expect(getFlightSpeed({...flight,progress:.75})).toBeCloseTo(1)
+  expect(getFlightSpeed({...flight,progress:.8})).toBeCloseTo(1)
+  expect(getFlightSpeed({...flight,progress:.9})).toBeLessThan(getFlightSpeed({...flight,progress:.8}))
   expect(getFlightSpeed({...flight,progress:1})).toBe(0)
-  expect(getFlightSpeed({...flight,progress:.5,ready:false})).toBeLessThan(.2)
+  expect(getFlightSpeed({...flight,progress:.5,ready:false})).toBeCloseTo(1)
   expect(getFlightSpeed({...flight,progress:NaN})).toBe(0)
 })
 

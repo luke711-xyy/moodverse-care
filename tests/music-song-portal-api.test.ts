@@ -84,9 +84,9 @@ async function createIdentity(subject: string) {
   return identity!.userId
 }
 
-async function getSongPortal(trackId: string, subject = 'portal-owner', overrides: Partial<Env> = {}) {
+async function getSongPortal(trackId: string, subject = 'portal-owner', overrides: Partial<Env> = {}, sourcePlanetId?: string) {
   const signed = await authority.request({ sub: subject, email: `${subject}@example.com` })
-  const request = new Request(`https://moodverse.test/api/music/song-portal?trackId=${encodeURIComponent(trackId)}`, {
+  const request = new Request(`https://moodverse.test/api/music/song-portal?trackId=${encodeURIComponent(trackId)}${sourcePlanetId ? `&sourcePlanetId=${encodeURIComponent(sourcePlanetId)}` : ''}`, {
     headers: signed.headers,
   })
   return onRequestSongPortal({ request, env: env(overrides) } as never)
@@ -100,6 +100,30 @@ test('song portal never returns candidates without a verified Cloudflare Access 
 
   expect(response.status).toBe(401)
   expect(await response.json()).toEqual({ error: 'UNAUTHENTICATED' })
+})
+
+test('song portal can continue from a visible visited planet using its selected song and excludes that source', async () => {
+  const sourceOwner = await createIdentity('source-owner')
+  const nextOwner = await createIdentity('next-owner')
+  createPlanet('planet-source', sourceOwner, 'public')
+  createPlanet('planet-next', nextOwner, 'public')
+  addSelection('planet-source', 'track-unselected')
+  addSelection('planet-next', 'track-unselected')
+  const response = await getSongPortal('track-unselected', 'portal-owner', {}, 'planet-source')
+  expect(response.status).toBe(200)
+  expect(await response.json()).toMatchObject({trackId:'track-unselected',matches:[{planetId:'planet-next'}]})
+})
+
+test.each(['private','viewer-block','source-block','wrong-song','missing'] as const)('visited-source song portal rejects %s source evidence even for an owned song', async reason => {
+  const sourceOwner = await createIdentity('source-owner')
+  createPlanet('planet-source', sourceOwner, reason === 'private' ? 'private' : 'public')
+  addSelection('planet-source', reason === 'wrong-song' ? 'track-b' : 'track-a')
+  if (reason === 'viewer-block' || reason === 'source-block') fixture.sqlite.prepare(`
+    INSERT INTO music_user_blocks (blocker_user_id, blocked_user_id, created_at) VALUES (?, ?, '2026-10-10')
+  `).run(reason === 'viewer-block' ? ownerId : sourceOwner, reason === 'viewer-block' ? sourceOwner : ownerId)
+  const response = await getSongPortal('track-a', 'portal-owner', {}, reason === 'missing' ? 'no-planet' : 'planet-source')
+  expect(response.status).toBe(403)
+  expect(await response.json()).toEqual({error:'TRACK_NOT_IN_SOURCE_PLANET'})
 })
 
 test('song portal falls back without calling the AI gateway when its origin bearer is unset', async () => {
@@ -274,6 +298,29 @@ test('same title and artist with a different canonical track ID does not create 
   const response = await getSongPortal('track-a')
   expect(response.status).toBe(200)
   expect(await response.json()).toMatchObject({ trackId: 'track-a', matches: [] })
+})
+
+test('a visited song source made private during ranking is rejected before returning matches', async () => {
+  const sourceOwner = await createIdentity('changing-source-owner')
+  const nextOwner = await createIdentity('changing-next-owner')
+  createPlanet('planet-changing-source', sourceOwner, 'public')
+  createPlanet('planet-changing-next', nextOwner, 'public')
+  addSelection('planet-changing-source', 'track-unselected')
+  addSelection('planet-changing-next', 'track-unselected')
+  const originalFetch = globalThis.fetch
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (new URL(input.toString()).origin === issuer) return originalFetch(input, init)
+    fixture.sqlite.prepare("UPDATE music_planets SET visibility = 'private' WHERE id = 'planet-changing-source'").run()
+    return Response.json({ model: { name: 'local', version: '1' }, ranking: [{ planetId: 'planet-changing-next', score: 0.8 }] })
+  }))
+  const response = await getSongPortal('track-unselected', 'portal-owner', {
+    MUSIC_AI_SONG_PORTAL_URL: 'https://ai.example/v1/song-portal/rank',
+    MUSIC_AI_ACCESS_CLIENT_ID: 'access-client-id',
+    MUSIC_AI_ACCESS_CLIENT_SECRET: 'access-client-secret',
+    MUSIC_AI_GATEWAY_TOKEN: 'test-gateway-secret',
+  }, 'planet-changing-source')
+  expect(response.status).toBe(403)
+  expect(await response.json()).toEqual({ error: 'TRACK_NOT_IN_SOURCE_PLANET' })
 })
 
 test('song portal sends only exact public candidates to the local model and applies its validated ranking', async () => {

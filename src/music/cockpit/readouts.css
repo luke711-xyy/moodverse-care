@@ -1,0 +1,62 @@
+/* Technical CRT readouts: one shared data hierarchy, no nested interactive controls. */
+.cockpit .cockpit-personal-telemetry,.cockpit .cockpit-signal-map {
+  --readout-ink: #d6e5d7; --readout-line: #83b7a2; --readout-data: #efd79f;
+  box-sizing: border-box; width: 100%; min-height: 100%; padding: 8px 10px;
+  color: var(--readout-ink); font-family: var(--cockpit-label); font-weight: 500; text-align: left; line-height: 1.1;
+}
+.cockpit .cockpit-personal-telemetry { display: grid; grid-template-rows: auto auto minmax(52px,1fr) auto; gap: 4px; background: #0d1712; }
+.telemetry-header,.signal-map-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: .5625rem; letter-spacing: .07em; color: var(--readout-line); }
+.telemetry-identity { position: relative; display: grid; grid-template-columns: minmax(0,1fr) 26px minmax(0,1fr); align-items: center; gap: 8px; min-width: 0; }
+.telemetry-identity:not(:has(.telemetry-planet-thumbnail)) { grid-template-columns: minmax(0,1fr); }
+.telemetry-planet-thumbnail { display: block; grid-column: 2; width: 26px; height: 26px; }
+.telemetry-planet-thumbnail .dither-planet-mark { display: block; width: 100%; height: 100%; transform: scale(1.6); transform-origin: left bottom; }
+.cockpit .telemetry-planet-thumbnail .dither-thumb { width: 100%; height: 100%; object-fit: contain; }
+.cockpit .telemetry-callsign { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .9375rem; font-weight: 600; line-height: 1.1; color: var(--readout-data); }
+.telemetry-body { display: grid; grid-template-columns: minmax(0,.9fr) minmax(0,1.1fr); align-items: center; gap: 8px; min-width: 0; }
+.telemetry-ship { display: block; width: 100%; max-height: 82px; fill: none; stroke: var(--readout-line); stroke-width: 1.2; }
+.ship-guides { stroke-width: .5; stroke-dasharray: 2 3; opacity: .55; }
+.ship-registration { fill: var(--readout-line); stroke: none; font-size: 8px; letter-spacing: .08em; }
+.cockpit .telemetry-metrics { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 5px 8px; margin: 0; min-width: 0; font-variant-numeric: tabular-nums; }
+.telemetry-metrics > div { min-width: 0; }
+.telemetry-metrics dt { font-size: .625rem; letter-spacing: .06em; color: var(--readout-line); }
+.telemetry-metrics dd { margin: 1px 0 0; font-size: 1.125rem; font-weight: 600; color: var(--readout-data); line-height: 1.05; }
+.telemetry-audio { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; font-size: .6875rem; line-height: 1.15; }
+.telemetry-audio > span { color: var(--readout-line); letter-spacing: .08em; }
+.cockpit .cockpit-radar-preview.cockpit-signal-map { position: relative; display: grid; grid-template-columns: minmax(0,1fr) auto; grid-template-rows: auto minmax(64px,1fr) auto; align-content: stretch; align-items: center; gap: 4px 8px; height: 100%; padding: 8px 10px; background: #101d21; }
+.cockpit .cockpit-signal-map > .signal-map-heading { font-size: .875rem; font-weight: 600; line-height: 1.1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.cockpit .cockpit-signal-map > small { display: block; color: var(--readout-data); font-size: .75rem; line-height: 1.1; font-weight: 600; letter-spacing: .05em; }
+.signal-map-chart { display: block; grid-column: 1 / -1; width: 100%; height: 100%; min-height: 0; overflow: hidden; fill: none; stroke: #93c7ca; stroke-width: .7; }
+.signal-chart-grid { stroke: #80a4ae; stroke-width: .45; opacity: .26; }
+.signal-chart-range { stroke: #85cdd1; stroke-width: .8; opacity: .55; }
+.signal-radar-sweep { fill: #83d0c115; stroke: #9cdbc0; stroke-width: .7; opacity: .65; }
+.cockpit-signal-map[data-scanning="true"] .signal-radar-sweep,.cockpit.is-in-flight .signal-radar-sweep { animation: cockpit-radar 6s linear infinite; }
+.signal-chart-links { opacity: .4; stroke-width: .55; }
+.signal-chart-node { stroke: #efd79f; stroke-width: .85; }
+.signal-node-name { fill: var(--readout-ink); stroke: none; font-size: 13px; font-weight: 600; }
+.signal-node-coordinate { fill: #a5c0bc; stroke: none; font-size: 9px; font-variant-numeric: tabular-nums; }
+.signal-chart-origin { stroke: #efd79f; fill: none; }
+.signal-chart-origin text { fill: #efd79f; stroke: none; font-size: 9px; letter-spacing: .1em; }
+.signal-no-contacts { fill: #a5c0bc; stroke: none; font-size: 13px; letter-spacing: .14em; }
+.signal-chart-brackets { stroke: #efd79f; stroke-width: 1; }
+.cockpit .cockpit-signal-map > .signal-map-footer { grid-column: 1 / -1; font-size: .5625rem; font-weight: 500; color: var(--readout-line); }
+.cockpit .cockpit-signal-map[data-dense="true"] { height: auto; grid-template-rows: auto auto auto; }
+.cockpit .cockpit-signal-map[data-dense="true"] .signal-map-chart { height: auto; }
+.cockpit[data-reduced-motion="true"] .signal-radar-sweep { animation: none; }
+@media (prefers-reduced-motion: reduce) { .cockpit .signal-radar-sweep { animation: none; } }
+@container music-viewport (max-height:600px) {
+  .cockpit .cockpit-personal-telemetry { padding: 4px 6px; gap: 2px; grid-template-rows: auto auto minmax(36px,1fr) auto; }
+  .telemetry-header { font-size: .5rem; }
+  .cockpit .telemetry-callsign { font-size: .8125rem; }
+  .telemetry-identity { grid-template-columns: minmax(0,1fr) 22px minmax(0,1fr); }
+  .telemetry-planet-thumbnail { width: 22px; height: 22px; }
+  .telemetry-body { gap: 4px; }
+  .telemetry-ship { max-height: 54px; }
+  .cockpit .telemetry-metrics { gap: 2px 5px; }
+  .telemetry-metrics dt { font-size: .5rem; }
+  .telemetry-metrics dd { font-size: .875rem; }
+  .telemetry-audio { font-size: .5625rem; }
+  .cockpit .cockpit-radar-preview.cockpit-signal-map { padding: 4px 7px; gap: 2px 5px; grid-template-rows: auto minmax(44px,1fr) auto; }
+  .cockpit .cockpit-signal-map > .signal-map-heading { font-size: .75rem; }
+  .cockpit .cockpit-signal-map > small { font-size: .625rem; }
+  .cockpit .cockpit-signal-map > .signal-map-footer { font-size: .5rem; }
+}

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { useMusicPlayer } from '../src/music/useMusicPlayer'
 import { DEFAULT_AUDIO_URL } from '../src/music/default-track'
 import { getMusicBeatClock } from '../src/music/audio-clock'
+import * as musicClock from '../src/music/audio-clock'
 import type { MusicTrackSummary } from '../src/music-domain'
 import { StrictMode } from 'react'
 
@@ -16,6 +17,7 @@ class AudioStub extends EventTarget {
   loop = false
   preload = ''
   volume = 1
+  readyState = 0
   requests: PlayResult[] = []
   constructor(public src: string) { super(); AudioStub.instances.push(this) }
   play = vi.fn(() => new Promise<void>((resolve, reject) => {
@@ -30,14 +32,19 @@ class AudioStub extends EventTarget {
   removeAttribute(name: string) { if (name === 'src') this.src = '' }
 }
 let documentListeners: ReturnType<typeof vi.spyOn>
+let clockSources: ReturnType<typeof vi.spyOn>
 beforeEach(() => {
   AudioStub.instances = []
   vi.stubGlobal('Audio', AudioStub)
   documentListeners = vi.spyOn(document, 'addEventListener')
+  clockSources = vi.spyOn(musicClock, 'setMusicClockSource')
+  vi.spyOn(document, 'hidden', 'get').mockReturnValue(false)
 })
-afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); Reflect.deleteProperty(navigator, 'connection') })
 
-function player() { return AudioStub.instances.at(-1)! }
+// Observe the actual audio-clock binding; the most recently constructed element
+// may only be warming and must not be mistaken for the audible player.
+function player() { return ([...clockSources.mock.calls].reverse().find(([source]) => source)?.[0] as AudioStub | undefined) ?? AudioStub.instances.at(-1)! }
 async function rejectPlay(name: string, request = player().requests.at(-1)!) {
   await act(async () => { request.reject(new DOMException('test media failure', name)) })
 }
@@ -56,6 +63,89 @@ function track(id: string): MusicTrackSummary {
     visualFeatures: { source: 'audius', tempoBpm: 120 },
   }
 }
+
+test('a destination warms silently before arrival and its actual buffered element becomes the player', async () => {
+  const own = track('own'), destination = track('destination')
+  const view = renderHook(({ preloadTrack, visit }) => useMusicPlayer({ backgroundTrack: own, preloadTrack, visit }), {
+    initialProps: { preloadTrack: null as MusicTrackSummary | null, visit: null as null | { planetId: string; tracks: Array<MusicTrackSummary & { isPrimary?: boolean }> } },
+  })
+  await resolvePlay()
+  const homePlayer = player(); homePlayer.currentTime = 37
+  view.rerender({ preloadTrack: destination, visit: null })
+  const warmed = AudioStub.instances.find(audio => audio !== homePlayer && audio.src === destination.audioUrl)
+  expect(warmed).toBeDefined()
+  expect(warmed!.preload).toBe('auto'); expect(warmed!.play).not.toHaveBeenCalled()
+  expect(player()).toBe(homePlayer); expect(homePlayer.paused).toBe(false)
+  warmed!.readyState = 3
+  view.rerender({ preloadTrack: null, visit: { planetId: 'away', tracks: [{ ...destination, isPrimary: true }] } })
+  expect(player()).toBe(warmed)
+  await resolvePlay()
+  expect(homePlayer.src).toBe(own.audioUrl)
+  const homeLoads = homePlayer.load.mock.calls.length
+  view.rerender({ preloadTrack: null, visit: null })
+  expect(player()).toBe(homePlayer); expect(homePlayer.currentTime).toBe(37)
+  expect(homePlayer.load).toHaveBeenCalledTimes(homeLoads)
+  await resolvePlay()
+})
+
+test('preload cancellation and account reset release media, while late events cannot replace the active song', async () => {
+  const own = track('own'), destination = track('destination')
+  const view = renderHook(({ ready, preloadTrack, visit }) => useMusicPlayer({ ready, backgroundTrack: own, preloadTrack, visit }), {
+    initialProps: { ready: true, preloadTrack: null as MusicTrackSummary | null, visit: null as null | { planetId: string; tracks: Array<MusicTrackSummary & { isPrimary?: boolean }> } },
+  })
+  await resolvePlay()
+  const homePlayer = player()
+  view.rerender({ ready: true, preloadTrack: destination, visit: null })
+  const warming = AudioStub.instances.find(audio => audio !== homePlayer && audio.src === destination.audioUrl)
+  expect(warming).toBeDefined()
+  act(() => warming!.dispatchEvent(new Event('error')))
+  expect(view.result.current).toMatchObject({ currentTrackId: 'own', error: '', playing: true })
+  view.rerender({ ready: true, preloadTrack: null, visit: null })
+  expect(warming!.src).toBe('')
+  view.rerender({ ready: true, preloadTrack: destination, visit: null })
+  view.rerender({ ready: true, preloadTrack: null, visit: { planetId: 'away', tracks: [{ ...destination, isPrimary: true }] } })
+  await resolvePlay()
+  act(() => homePlayer.dispatchEvent(new Event('waiting')))
+  expect(view.result.current.loading).toBe(false)
+  view.rerender({ ready: false, preloadTrack: null, visit: null })
+  expect(AudioStub.instances.every(audio => !audio.src && audio.paused)).toBe(true)
+})
+
+test('the media pool stays bounded and keeps the pre-visit audio buffer during a chain of visits', async () => {
+  const own = track('own')
+  const view = renderHook(({ visit }) => useMusicPlayer({ backgroundTrack: own, visit }), {
+    initialProps: { visit: null as null | { planetId: string; tracks: Array<MusicTrackSummary & { isPrimary?: boolean }> } },
+  })
+  await resolvePlay(); const homePlayer = player()
+  for (let i = 0; i < 8; i++) {
+    view.rerender({ visit: { planetId: `planet-${i}`, tracks: [{ ...track(`song-${i}`), isPrimary: true }] } })
+    await resolvePlay()
+    expect(AudioStub.instances.filter(audio => audio.src).length).toBeLessThanOrEqual(3)
+    expect(homePlayer.src).toBe(own.audioUrl)
+  }
+  view.rerender({ visit: null })
+  expect(player()).toBe(homePlayer)
+  await resolvePlay()
+})
+
+test('save-data and hidden pages skip speculative audio downloads, and external sources are never warmed', async () => {
+  const own = track('own'), destination = track('destination')
+  const connection = { saveData: true }
+  Object.defineProperty(navigator, 'connection', { configurable: true, value: connection })
+  const view = renderHook(({ preloadTrack }) => useMusicPlayer({ backgroundTrack: own, preloadTrack }), {
+    initialProps: { preloadTrack: destination },
+  })
+  await resolvePlay()
+  expect(AudioStub.instances.filter(audio => audio.src)).toHaveLength(1)
+  connection.saveData = false
+  vi.mocked(Object.getOwnPropertyDescriptor(document, 'hidden')!.get!).mockReturnValue(true)
+  view.rerender({ preloadTrack: track('hidden') })
+  expect(AudioStub.instances.filter(audio => audio.src)).toHaveLength(1)
+  vi.mocked(Object.getOwnPropertyDescriptor(document, 'hidden')!.get!).mockReturnValue(false)
+  view.rerender({ preloadTrack: { ...destination, audioUrl: 'https://untrusted.example/song.mp3' } })
+  expect(AudioStub.instances.filter(audio => audio.src)).toHaveLength(1)
+  Reflect.deleteProperty(navigator, 'connection')
+})
 
 test('entry and a fresh mount attempt audible playback without a click', async () => {
   const first = renderHook(() => useMusicPlayer())
@@ -84,11 +174,11 @@ test('FM skips within saved selections, wraps, carries cover art and preserves a
   expect(player().src).toBe(first.audioUrl)
   await resolvePlay()
   act(() => result.current.toggle())
-  const attempts = player().requests.length
+  const attempts = AudioStub.instances.reduce((total, audio) => total + audio.requests.length, 0)
   act(() => result.current.previous())
   expect(player().src).toBe(second.audioUrl)
   expect(result.current.playing).toBe(false)
-  expect(player().requests).toHaveLength(attempts)
+  expect(AudioStub.instances.reduce((total, audio) => total + audio.requests.length, 0)).toBe(attempts)
   act(() => result.current.toggle(track('outside')))
   await resolvePlay()
   act(() => result.current.next())
