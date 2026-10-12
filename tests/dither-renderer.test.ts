@@ -4,6 +4,14 @@ import { sampleDitherPixel, renderDitherImage, advanceDitherPhase, ditherThresho
 import { sphereSurface } from '../src/music/dither/sphere'
 
 const spec = createDitherSpec({ planetId: 'render', tracks: [] })
+test('Galaxy stars use real image colors in the Canvas2D fallback, with the same spherical lighting as planets', () => {
+  const covered = {...spec, coverTexture:{trackId:'galaxy-cover',url:'https://example.com/cover.jpg'}}
+  const album = {width:1,height:1,data:new Uint8ClampedArray([240,30,10,255])}
+  const star = sampleDitherPixel(covered,0,0,0,8,8,'star',0,album)
+  expect(star).toEqual(sampleDitherPixel(covered,0,0,0,8,8,'planet',0,album))
+  expect(star[0]).toBeGreaterThan(star[2]*3)
+  expect(sampleDitherPixel(covered,1.8,1.8,0,8,8,'star',0,album)[3]).toBe(0)
+})
 test('close-up surface removes color quantization without losing its cover or spherical lighting', () => {
   const covered = {...spec, coverTexture:{trackId:'song',url:'https://example.com/cover.png'}}
   const album = {width:1,height:1,data:new Uint8ClampedArray([123,77,189,255])}

@@ -64,6 +64,30 @@ const tracks = [
   { id: 'song-e', title: '月面信号', artistId: 'artist-e', artistName: '月面', versionLabel: '', genres: ['electronic'], moodTags: ['curious'], officialUrl: 'https://music.example/e', coverUrl: null, durationSeconds: 190 },
 ]
 
+test('opening the site warms every Galaxy classification and offscreen star image before navigation', async () => {
+  const images: string[] = [], charts: string[] = []
+  vi.stubGlobal('Image', class { crossOrigin=''; referrerPolicy=''; onload=null; onerror=null; set src(url:string) { images.push(url) } })
+  vi.stubGlobal('fetch', async (input:RequestInfo|URL) => {
+    const url=new URL(String(input),'https://mosic.test')
+    if(url.pathname==='/api/music/catalog') return Response.json({tracks})
+    if(url.pathname==='/api/me/music-planet') return Response.json({planet:null})
+    if(url.pathname==='/api/music/galaxy') {
+      const by=url.searchParams.get('by')!;charts.push(by)
+      return Response.json({by,groups:Array.from({length:4},(_,i)=>({key:`${by}-${i}`,label:`${by} ${i}`,planetCount:0,planets:[],artwork:{url:`https://covers.example/${by}-${i}.jpg`,source:'song-cover',label:'Cover'}}))})
+    }
+    return Response.json({groups:[],incoming:[],outgoing:[],friends:[]})
+  })
+  render(<MusicApp />)
+  await screen.findByRole('button',{name:'打开个人终端'})
+  await waitFor(()=>expect(new Set(charts)).toEqual(new Set(['genre','song','artist'])))
+  for(const by of ['genre','song','artist']) expect(images).toContain(`https://covers.example/${by}-3.jpg`)
+  expect(new Set(images).size).toBeGreaterThanOrEqual(47+12)
+  await screen.findByRole('button',{name:'前往星系 genre 0',exact:true})
+  fireEvent.click(screen.getByRole('button',{name:'SONG',exact:true}))
+  await screen.findByRole('button',{name:'前往星系 song 0',exact:true})
+  expect(charts.filter(by=>by==='song')).toHaveLength(1)
+})
+
 test('the cockpit is usable while secondary Moments are still loading', async () => {
   let finish!: (r:Response)=>void
   const owner={id:'fast-home',displayName:'先显示星球',tagline:'',visibility:'public',tracks:tracks.slice(0,1),visual:createDitherSpec({planetId:'fast-home',tracks})}

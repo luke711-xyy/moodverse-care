@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'react'
+import type { GalaxyGroupBy } from '../../music-api'
 import { DitherPlanetMark } from '../dither/components'
 import './readouts.css'
 
@@ -33,6 +34,41 @@ export function PersonalTelemetry({ planetName, planetId, visual, songs, moments
     </span>
     <span className="telemetry-body"><ShipFrame /><dl className="telemetry-metrics">{metrics.map(([label, value]) => <div key={label} data-metric={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl></span>
     <span className="telemetry-audio" title={trackTitle}><span>AUDIO /</span> {trackTitle}</span>
+  </span>
+}
+
+/** Uses the same chart snapshot as the windshield, including during regrouping. */
+export function GalaxyTelemetry({ grouping, systemCount, sector, status }: {
+  grouping: GalaxyGroupBy; systemCount: number | null; status: 'loading' | 'ready' | 'error'
+  sector: { label: string; index: number; visiblePlanets: number; totalPlanets: number } | null
+}) {
+  const basis = { genre: '曲风', artist: '艺人', song: '歌曲' }[grouping]
+  const name = sector?.label ?? (status === 'loading' ? '正在载入星系' : status === 'error' ? '星图暂不可用' : '暂无星系')
+  const link = status === 'loading' ? 'SYNCING' : status === 'error' ? 'LINK FAULT' : sector ? 'SECTOR LINK' : 'NO SECTORS'
+  const metrics = [
+    ['MAP BY', basis, '当前星图分类依据'],
+    ['SECTOR', systemCount === null ? '—' : `${sector ? count(sector.index + 1) : '—'}/${count(systemCount)}`, '当前星系 / 星系总数'],
+    ['VISIBLE', count(sector?.visiblePlanets ?? null), '本区当前显示的星球数'],
+    ['IN GROUP', count(sector?.totalPlanets ?? null), '该分类下的星球总数'],
+  ]
+  return <span className="cockpit-personal-telemetry cockpit-galaxy-telemetry">
+    <span className="telemetry-header"><span>GALAXY / NAV</span><span>{link}</span></span>
+    <span className="telemetry-identity"><strong className="telemetry-callsign" title={name}>{name}</strong></span>
+    <span className="telemetry-body">
+      <svg className="telemetry-ship" viewBox="0 0 144 108" role="img" aria-label="星系轨道示意图">
+        <g className="ship-guides"><path d="M4 54H140M72 6V96" /><circle cx="72" cy="54" r="43" /></g>
+        <g className="ship-frame">
+          <circle cx="72" cy="54" r="8" /><path d="M72 42V46M72 62V66M60 54H64M80 54H84" />
+          <ellipse cx="72" cy="54" rx="56" ry="24" />
+          <ellipse cx="72" cy="54" rx="56" ry="24" transform="rotate(60 72 54)" />
+          <ellipse cx="72" cy="54" rx="56" ry="24" transform="rotate(-60 72 54)" />
+          <circle cx="128" cy="54" r="3" /><circle cx="44" cy="6" r="3" /><circle cx="44" cy="102" r="3" />
+        </g>
+        <g className="ship-registration"><text x="6" y="11">G / NAV</text><text x="83" y="104">ORBIT VIEW</text></g>
+      </svg>
+      <dl className="telemetry-metrics">{metrics.map(([label, value, description]) => <div key={label} data-metric={label} title={description}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
+    </span>
+    <span className="telemetry-audio" title={`按${basis}聚合星球；VISIBLE 为本区可见数量，IN GROUP 为分类总数`}><span>FILTER /</span> 按{basis}聚合</span>
   </span>
 }
 

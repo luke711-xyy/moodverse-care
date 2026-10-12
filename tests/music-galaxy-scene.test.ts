@@ -1,10 +1,25 @@
 import { expect, test } from 'vitest'
 import { buildMusicGalaxySceneSystems } from '../src/music/galaxy-scene'
-import { createDitherSpec } from '../src/music/dither/appearance'
+import { createDitherSpec, isDitherSpec } from '../src/music/dither/appearance'
 import { buildDitherStageFrame, sampleHomeTransition } from '../src/music/dither/stage-layout'
 
 const visual = createDitherSpec({ planetId: 'planet-a', tracks: [] })
 const groups = [{ key: 'ambient', label: 'Ambient', planetCount: 1, planets: [{ planetId: 'planet-a', displayName: '夜航者', tagline: '', reasonCode: 'same_genre' as const, visual }] }]
+test.each(['song','artist','genre'] as const)('%s star artwork reaches the rendered central star without changing orbiting planets', by => {
+  const artwork = {url:'https://covers.example/album.jpg',source:'song-cover' as const,label:'真实封面'}
+  const systems=buildMusicGalaxySceneSystems(by,[{...groups[0],artwork}])
+  const frame=buildDitherStageFrame({width:1000,height:700,phase:0,owner:visual,systems,home:0,journey:0,rotation:0,friends:[],music:[]})
+  const star=frame.assets.find(asset=>asset.id===`system:${by}:ambient`)!
+  expect(star.spec.coverTexture?.url).toBe(artwork.url)
+  expect(isDitherSpec(star.spec)).toBe(true)
+  expect(frame.assets.find(asset=>asset.id==='planet:planet-a')?.spec).toEqual(visual)
+})
+test('unsafe or absent artwork never becomes a star texture', () => {
+  for(const url of ['javascript:alert(1)','https://user:secret@covers.example/album.jpg','http://covers.example/album.jpg']) {
+    const systems=buildMusicGalaxySceneSystems('song',[{...groups[0],artwork:{url,source:'song-cover' as const,label:'封面'}}])
+    expect(systems[0].starSpec?.coverTexture).toBeUndefined()
+  }
+})
 test('Galaxy descriptors contain stable 2D specs, no old camera/terrain fields', () => {
   const systems = buildMusicGalaxySceneSystems('genre', groups)
   expect(systems[0].planets[0].spec).toEqual(visual)

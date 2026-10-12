@@ -81,6 +81,15 @@ test('Galaxy rejects unknown grouping modes instead of silently changing the dis
   expect(response.status).toBe(400)
   expect(await response.json()).toEqual({ error: 'INVALID_GROUPING' })
 })
+test('Galaxy includes exact song artwork and fixed genre images even for empty sectors', async () => {
+  fixture.sqlite.prepare('UPDATE music_track_catalog SET cover_url=? WHERE id=?').run('https://covers.example/night.jpg','song-a')
+  const songs=await (await getGalaxy('song')).json() as MusicGalaxyResponse
+  expect(songs.groups.find(group=>group.key==='song-a')?.artwork).toMatchObject({url:'https://covers.example/night.jpg',source:'song-cover'})
+  expect(songs.groups.find(group=>group.key==='song-b')?.artwork).toBeUndefined()
+  const genres=await (await getGalaxy('genre')).json() as MusicGalaxyResponse
+  expect(genres.groups.find(group=>group.key==='jazz')?.artwork?.label).toContain('Kind of Blue')
+  expect(genres.groups.find(group=>group.key==='jazz')?.planets).toEqual([])
+})
 test('crowded systems randomly sample at most 16 distinct public planets', async () => {
   for(let i=0;i<30;i++) {
     fixture.sqlite.prepare(`INSERT INTO users(id,token_hash,created_at,updated_at) VALUES(?,?,?,?)`).run('sample-u'+i,'sample-h'+i,'now','now')

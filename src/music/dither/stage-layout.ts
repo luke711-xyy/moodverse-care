@@ -35,7 +35,7 @@ export function buildDitherStageFrame(input: StageLayoutInput): StageFrame {
     const cx = x + offset * width * .65, cy = y + Math.sin(offset * .9) * height * .16
     const scale = focusedGalaxy ? 1 : .68 / (1 + Math.abs(offset) * .45)
     const r = radius * scale, opacity = 1 - home.homeOpacity
-    const star = createDitherSpec({ planetId: system.id, tracks: [], overrides: { form: 'pulse', motif: 'flow', size: 1, speed: .3, glow: .8 } })
+    const star = system.starSpec ?? createDitherSpec({ planetId: system.id, tracks: [], overrides: { form: 'pulse', motif: 'flow', size: 1, speed: .3, glow: .8 } })
     const center: DitherAsset = { id: 'system:' + system.id, spec: star, x: cx, y: cy, radius: r * .35, kind: 'star', opacity, depth: 0 }
     systemTargets.push({ id: system.id, x: cx, y: cy, radius: r * 1.8 })
     const orbit = { x: cx, y: cy, rx: r * 1.5, ry: r * .72, tilt: -.3 }

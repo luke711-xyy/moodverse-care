@@ -95,11 +95,19 @@ export type GalaxyPlanetCard = {
   visual?: MusicPlanetVisual | DitherPlanetSpec
 }
 
+export type GalaxyStarArtwork = {
+  url: string
+  source: 'song-cover' | 'artist-avatar' | 'artist-album' | 'artist-track' | 'genre-image'
+  label: string
+  sourceUrl?: string
+}
+
 export type GalaxyGroup = {
   key: string
   label: string
   planetCount: number
   planets: GalaxyPlanetCard[]
+  artwork?: GalaxyStarArtwork
 }
 
 export type MusicGalaxyResponse = {

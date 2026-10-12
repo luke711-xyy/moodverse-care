@@ -4,6 +4,7 @@ import { readPlanetDitherVisuals } from '../../_music-dither'
 import { galaxySelectionOptions, readGalaxyGenres, readGalaxySelectionIds } from '../../_music-galaxy-preferences'
 import { sampleGalaxyNodes } from '../../../src/music/galaxy-preferences'
 import { dailyRandom, musicDayKey } from '../../../src/music/daily-selection'
+import { resolveGalaxyArtwork } from '../../_music-galaxy-artwork'
 
 type PublicMusicRow = {
   planet_id: string
@@ -158,6 +159,10 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     }
   }
   groups = sampleGalaxyNodes(groups, dailyRandom(`${seed}:nodes`))
+  await Promise.all(groups.map(async group => {
+    const artwork=await resolveGalaxyArtwork(env,by,group.key)
+    if(artwork)group.artwork=artwork
+  }))
   const shown = new Set(groups.flatMap((g) => g.planets.map((p) => p.planetId)))
   const rows = [...new Map(results.filter((r) => shown.has(r.planet_id)).map((r) => [r.planet_id, { id: r.planet_id, visual_json: r.visual_json }])).values()]
   const visuals = await readPlanetDitherVisuals(env, rows)

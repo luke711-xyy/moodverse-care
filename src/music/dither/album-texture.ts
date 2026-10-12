@@ -13,7 +13,8 @@ export function loadAlbumTexture(url?: string): Entry | undefined {
   const cached = cache.get(url)
   if (cached) return cached
   const entry: Entry = { status: 'loading' }
-  if (cache.size >= 64) cache.delete(cache.keys().next().value!)
+  // 47 genres + up to 16 song/artist stars must fit alongside visible planet covers.
+  if (cache.size >= 128) cache.delete(cache.keys().next().value!)
   cache.set(url, entry)
   const image = new Image()
   image.crossOrigin = 'anonymous'

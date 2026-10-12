@@ -61,7 +61,7 @@ export function sampleDitherPixel(spec: DitherPlanetSpec, x: number, y: number, 
   if (alpha < .008) return [0, 0, 0, 0]
   const surface = spherical ? sphereSurface(x, y, radius, t, viewRotation, orientation) : null
   const textureX = surface?.x ?? x, textureY = surface?.y ?? y
-  if (album && spec.coverTexture && (kind === 'planet' || kind === 'music-satellite') && surface) {
+  if (album && spec.coverTexture && spherical && surface) {
     const u = Math.min(album.width - 1, Math.floor(clamp(textureX * .5 + .5) * album.width))
     const v = Math.min(album.height - 1, Math.floor(clamp(textureY * .5 + .5) * album.height))
     const offset = (v * album.width + u) * 4

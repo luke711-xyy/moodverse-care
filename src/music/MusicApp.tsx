@@ -20,7 +20,7 @@ import { SongWall } from './dither/SongWall'
 import { DitherButton, DitherTitle, DitherLoadingRing, DitherTrackMark } from './dither/components'
 import { resolveDitherSpec, type DitherPlanetSpec, type DitherOverrides } from './dither/appearance'
 import { CockpitShell } from './cockpit/CockpitShell'
-import { PersonalTelemetry, SignalMap } from './cockpit/MonitorReadouts'
+import { GalaxyTelemetry, PersonalTelemetry, SignalMap } from './cockpit/MonitorReadouts'
 import { cockpitReducer, initialCockpitState, type CockpitPage } from './cockpit/state'
 import { getFlightSpeed, useCockpitFlight } from './cockpit/flight'
 import { logicalSize } from './viewport'
@@ -30,6 +30,7 @@ import { canPreloadMusic } from './audio-preload'
 import { useSocialSync } from './useSocialSync'
 import { useDailyRollover } from './useDailyRollover'
 import { scheduleMusicPrefetch } from './prefetch'
+import { createGalaxyPreloader, preloadGalaxyGenres } from './galaxy-preload'
 import type { MusicPlayerControls } from './useMusicPlayer'
 import { MomentContent, MomentPhotoPicker } from './MomentPhoto'
 import { AudiusCdPicker } from './AudiusCdPicker'
@@ -479,6 +480,8 @@ function DriftBottlePanel({ api, tracks, moments, onVisitPlanet, player }: {
 
 function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
   const [api] = useState(() => apiOverride ?? createMusicApi())
+  const [galaxyPreloader] = useState(() => createGalaxyPreloader(api))
+  useEffect(() => { preloadGalaxyGenres() }, [])
   const [home, setHome] = useState<HomeState>({ status: 'loading' })
   const savedPrimaryTrack = home.status === 'ready'
     ? home.planet?.tracks.find(track => track.isPrimary && track.audioUrl) ?? home.planet?.tracks.find(track => track.audioUrl) ?? null
@@ -634,6 +637,7 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
   const seenAuthEvents = useRef(new Set<string>())
 
   const invalidateSocialDiscovery = useCallback(() => {
+    galaxyPreloader.clear()
     songRequestId.current++; galaxyRequestId.current++; discoveryRequestId.current++; orbitRequestId.current++
     setSongPortal({ status: 'idle' }); setGalaxy({ status: 'idle' })
     setDiscovery({ status: 'idle' }); setOrbit({ status: 'idle' })
@@ -642,6 +646,7 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
   }, [])
 
   const resetAccountScopedState = useCallback(() => {
+    galaxyPreloader.clear()
     accountEpoch.current += 1
     flightController.cancel()
     returnVisitors.current = []
@@ -852,6 +857,7 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
   const hudSystemIndex = hudTour.currentIndex
   const hudSystem = galaxySceneSystems[hudSystemIndex]
   const hudGroup = galaxySceneResponse?.groups.find(group => group.key === hudSystem?.key)
+  const hudSector = hudSystem && hudGroup ? { id: hudSystem.id, label: hudSystem.label, index: hudSystemIndex, visiblePlanets: hudSystem.planets.length, totalPlanets: hudGroup.planetCount } : null
 
   const openSongPortal = async (track: MusicTrackSummary, sourcePlanetId?: string) => {
     const epoch = accountEpoch.current
@@ -967,7 +973,7 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
     const previous = newDay ? undefined : galaxy.status === 'ready' ? galaxy.response : galaxy.status === 'loading' ? galaxy.previous : undefined
     setGalaxy({ status: 'loading', by, ...(previous ? { previous } : {}) })
     try {
-      const response = await api.loadGalaxy(by)
+      const response = await galaxyPreloader.load(by)
       if (!Array.isArray(response.groups)) throw new Error('Invalid Galaxy response')
       if (epoch !== accountEpoch.current || requestId !== galaxyRequestId.current) return false
       setGalaxy({ status: 'ready', by, response, selectedGroupKey: null })
@@ -991,7 +997,7 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
     setGalaxy({ status: 'loading', by, ...(previous ? { previous } : {}) })
     setVisitError('')
     try {
-      const response = await api.loadGalaxy(by)
+      const response = await galaxyPreloader.load(by)
       if (epoch !== accountEpoch.current || requestId !== galaxyRequestId.current) return
       setGalaxyRegrouping(true)
       await new Promise((resolve) => window.setTimeout(resolve, 140))
@@ -1015,7 +1021,10 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
   // Fetch once after identity is ready; failures remain retryable, and the
   // existing account/request guards prevent a stale universe crossing accounts.
   useEffect(() => {
-    if (home.status === 'ready' && galaxy.status === 'idle') void loadGalaxy('genre')
+    if (home.status === 'ready' && galaxy.status === 'idle') {
+      galaxyPreloader.warm()
+      void loadGalaxy('genre')
+    }
   }, [home.status, galaxy.status])
 
   const prefetchGalaxyResponse = galaxy.status === 'ready' ? galaxy.response : undefined
@@ -1073,6 +1082,8 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
   }, [view, home.status, discovery.status, orbit.status])
 
   useDailyRollover(home.status === 'ready', () => {
+    galaxyPreloader.clear()
+    galaxyPreloader.warm()
     discoveryRequestId.current++ // Late responses from yesterday cannot restore the old list.
     setDiscovery({ status: 'idle' })
     setGalaxyWindowOpen(false)
@@ -1239,6 +1250,7 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
       const result = await api.updateGalaxyPreferences(genreDraft)
       if (epoch !== accountEpoch.current) return
       setGalaxyGenres(result.genres); setGenreDraft(result.genres)
+      galaxyPreloader.clear('genre')
       await loadGalaxy('genre')
     } catch { if (epoch === accountEpoch.current) setSettingsError('曲风设置未保存，请重试。') }
     finally { if (epoch === accountEpoch.current) setSettingsSaving('') }
@@ -1255,6 +1267,7 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
       const selections = kind === 'artist' ? confirmed.artists : confirmed.songs
       if (JSON.stringify(selections.map(o => o.id)) !== JSON.stringify(ids)) throw new Error('Preference readback mismatch')
       setGalaxyArtists(confirmed.artists); setGalaxySongs(confirmed.songs)
+      galaxyPreloader.clear(kind)
       const refreshed = await loadGalaxy(kind)
       if (epoch === accountEpoch.current && !refreshed) setSettingsError('设置已保存，但星系刷新失败，请重新进入 Galaxy。')
       return true
@@ -1693,7 +1706,7 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
       flight={flightController.flight}
       telemetry={{ ownerId: planet?.id ?? null, systemCount: galaxySceneResponse ? galaxySceneSystems.length : null, sectorPosition: hudTour.systemIndex,
         grouping: galaxySceneResponse?.by ?? 'genre',
-        sector: hudSystem && hudGroup ? { id: hudSystem.id, label: hudSystem.label, index: hudSystemIndex, visiblePlanets: hudSystem.planets.length, totalPlanets: hudGroup.planetCount } : null,
+        sector: hudSector,
         orbitRotation: null,
         visitor: visitedPlanet ? { id: visitedPlanet.id, name: visitedPlanet.displayName } : null,
         targetName: flightController.flight?.targetVisitor?.displayName ?? (flightController.flight?.to === 'visitor' ? pendingVisit?.displayName ?? null : null) }}
@@ -1701,7 +1714,9 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
       classifying={galaxy.status === 'loading' || galaxyRegrouping}
       onOpen={changeView} onOverview={() => dispatchCockpit({ type: 'overview' })} onBack={() => dispatchCockpit({ type: 'back' })}
       onGalaxy={() => { void goGalaxy() }} onHome={jumpHome}
-      personalPreview={<PersonalTelemetry context={monitorVisitor ? 'visitor' : 'personal'} planetName={monitorPlanet?.displayName ?? '创建我的星球'} planetId={monitorPlanet?.id} visual={monitorPlanet?.visual}
+      personalPreview={cockpit.exterior === 'galaxy' ? <GalaxyTelemetry grouping={galaxySceneResponse?.by ?? (galaxy.status === 'idle' ? 'genre' : galaxy.by)}
+        systemCount={galaxySceneResponse ? galaxySceneSystems.length : null} sector={hudSector} status={galaxy.status === 'ready' ? 'ready' : galaxy.status === 'error' ? 'error' : 'loading'} />
+        : <PersonalTelemetry context={monitorVisitor ? 'visitor' : 'personal'} planetName={monitorPlanet?.displayName ?? '创建我的星球'} planetId={monitorPlanet?.id} visual={monitorPlanet?.visual}
         songs={monitorPlanet?.tracks.length ?? 0} moments={monitorVisitor ? monitorVisitor.moments.length : momentsLoading ? null : moments.length}
         bpm={musicPlayer.currentTrackId === DEFAULT_TRACK_ID && (!monitorVisitor || monitorTrack) ? COSMOS_BEAT.bpm : monitorTrack?.visualFeatures?.tempoBpm}
         durationSeconds={monitorTrack?.durationSeconds} trackTitle={monitorVisitor ? monitorTrack?.title ?? '暂无播放歌曲' : musicPlayer.currentTrack.title} requests={friendRequests?.incoming.length} />}

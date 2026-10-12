@@ -138,7 +138,7 @@ void main(){
  if(alpha<.008)discard;
  vec4 surface=spherical?sphereSurface(uv,radius,t):vec4(uv,1.,0.);
  vec2 textureUV=surface.xy;
- if(uHasAlbum>.5&&(uKind==0||uKind==4)){
+ if(uHasAlbum>.5&&spherical){
   vec3 color=texture(uAlbum,clamp(textureUV*.5+.5,0.,1.)).rgb*surface.z+vec3(surface.w);
   color=clamp((pow(clamp(color,0.,1.),vec3(uTone.z))-.5)*uTone.y+.5,0.,1.);
   color=clamp(color*uTone.x,0.,1.);

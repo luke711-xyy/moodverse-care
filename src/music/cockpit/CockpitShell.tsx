@@ -9,6 +9,7 @@ import './desk.css'
 import { WindowHud, type WindowTelemetry } from './WindowHud'
 import type { CockpitFlight } from './flight'
 import { gaugeNeedleAngle } from './instruments'
+import { useCockpitSounds } from './useCockpitSounds'
 import './galaxy-classifier.css'
 
 export type CockpitSignal = 'idle' | 'loading' | 'traveling' | 'error'
@@ -111,6 +112,7 @@ function ConsoleDeck() {
 
 /** A persistent world behind two physical monitors; opening a channel is not a flight. */
 export function CockpitShell(props: Props) {
+  const onHardwareClick = useCockpitSounds(props.flight?.token ?? null)
   const focused = props.state.console.focus !== 'overview'
   const terminal = pageTerminal(props.state.console.page)
   const personal = terminal === 'personal'
@@ -168,6 +170,7 @@ export function CockpitShell(props: Props) {
     else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
   }
   return <div className={`cockpit${focused ? ' is-focused' : ''}${traveling ? ' is-in-flight' : ''}`}
+    onClickCapture={onHardwareClick}
     data-focus={props.state.console.focus} data-page={props.state.console.page} data-exterior={props.state.exterior}
     data-crt={props.crtEnabled ? 'on' : 'off'} data-crt-motion={props.crtEnabled && !props.reducedMotion} data-typing={typing} data-reduced-motion={props.reducedMotion}>
     <DitherSurfaceDefinitions />

@@ -1,6 +1,7 @@
 /** Development-only, deterministic visual fixture. Never a production route or real-user data. */
 import { createMusicApi } from '../../music-api'
 import { createDitherSpec } from '../dither/appearance'
+import { genreArtwork } from '../genre-artwork'
 import MusicApp from '../MusicApp'
 const tracks = ['夜航', '潮汐之间', '月面信号', '远岸'].map((title, i) => ({ id: `preview-song-${i}`, title,
   artistId: `preview-artist-${i}`, artistName: ['星际旅人', '潮汐', '月面', '远岸'][i], versionLabel: '',
@@ -21,8 +22,16 @@ const api = createMusicApi(async (request, init) => {
     return Response.json({ planet: owner, friendSatellites: Array.from({ length: 3 }, (_, i) => ({ id: `preview-friend-${i}`, displayName: `演示好友 ${i + 1}`, isVirtual: true, canRemove: true, color: '#9d87ea' })) })
   }
   if (path === '/api/me/music-planet/moments') return Response.json({ moments: [] })
-  if (path === '/api/music/galaxy') return Response.json({ by: url.searchParams.get('by') ?? 'genre', groups: tracks.map((t, i) => ({ key: t.id, label: t.genres[0], planetCount: 3,
-    planets: planets.slice(i * 2, i * 2 + 3).map(p => ({ planetId: p.id, displayName: p.displayName, tagline: p.tagline, visualSchemaVersion: 3, visual: p.visual, tracks: p.tracks })) })) })
+  if (path === '/api/music/galaxy') {
+    const by = url.searchParams.get('by') ?? 'genre'
+    return Response.json({ by, groups: tracks.map((t, i) => {
+      const cover = genreArtwork(['Ambient', 'Rock', 'Electronic', 'Jazz'][i])!
+      return { key: by === 'genre' ? ['ambient', 'rock', 'electronic', 'jazz'][i] : by === 'artist' ? t.artistId : t.id,
+        label: by === 'genre' ? ['ambient', 'rock', 'electronic', 'jazz'][i] : by === 'artist' ? t.artistName : t.title, planetCount: 3,
+        artwork: { ...cover, source: by === 'genre' ? 'genre-image' : by === 'artist' ? 'artist-album' : 'song-cover' },
+        planets: planets.slice(i * 2, i * 2 + 3).map(p => ({ planetId: p.id, displayName: p.displayName, tagline: p.tagline, visualSchemaVersion: 3, visual: p.visual, tracks: p.tracks })) }
+    }) })
+  }
   if (path.endsWith('/visit')) return Response.json({ planet: planets.find(p => path.includes(p.id)) ?? planets[0] })
   if (path === '/api/me/social-settings') return Response.json({ allowFriendRequests: true, allowDriftBottles: true, updatedAt: '' })
   if (path === '/api/me/friend-requests') return Response.json({ incoming: [], outgoing: [], ...(url.searchParams.has('live') ? { friends: [] } : {}) })

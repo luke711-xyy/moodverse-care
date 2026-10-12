@@ -59,7 +59,7 @@ export function useMusicPlayer({ backgroundTrack = null, ready = true, playlist 
     const cleanups = new Map<HTMLAudioElement, () => void>()
     createPlayer.current = () => {
       const player = new Audio('')
-      player.loop = true; player.preload = 'auto'; player.volume = .5
+      player.loop = true; player.preload = 'auto'; player.volume = .4
       const active = () => audio.current === player
       const onPlay = () => {
         if (!active()) { player.pause(); return }
