@@ -17,7 +17,7 @@ import { DEFAULT_OBSERVATION, OBSERVATION_OVERSCAN, clampObservation, observatio
 import { useObservationView } from './useObservationView'
 
 type Props = { planet: MusicPlanet | null; friendSatellites: MusicFriendSatellite[]; visitedPlanet: PublicMusicPlanet | null; previewSeed: string; previewTracks?: MusicTrackSummary[]; appearancePreview?: DitherPlanetSpec | null; reducedMotion: boolean; productView: string; focusedGalaxy?: string; galaxySystems: MusicGalaxySceneSystem[]; galaxyRotation: number; routeJourney: number; regrouping: boolean; onSelectGalaxy: (id: string)=>void; onOpenPlanet: (planet: MusicScenePlanet, galaxyId: string)=>void; onRotate: (delta: number)=>void; onTourMove: (delta: number)=>void; onMusicSelect: (id: string)=>void; onFriendSelect: (id: string)=>void }
-export function Stage(props: Props & { exteriorView?: 'home' | 'galaxy'; interactive?: boolean; flight?: CockpitFlight | null; managedTravel?: boolean; onPlanetSelect?: (kind: 'home' | 'visitor') => void }) {
+export function Stage(props: Props & { exteriorView?: 'home' | 'galaxy'; interactive?: boolean; paused?: boolean; flight?: CockpitFlight | null; managedTravel?: boolean; onPlanetSelect?: (kind: 'home' | 'visitor') => void }) {
   const inGalaxy = props.exteriorView ? props.exteriorView === 'galaxy' : props.productView === 'galaxy'
   const desiredHome = inGalaxy ? 0 : 1
   const [home, setHome] = useState(desiredHome), [traveling, setTraveling] = useState(false)
@@ -59,6 +59,7 @@ export function Stage(props: Props & { exteriorView?: 'home' | 'galaxy'; interac
     return ()=>{ window.removeEventListener('resize',resize); observer?.disconnect() }
   }, [])
   const busy = traveling || Boolean(props.flight)
+  const paused = props.paused ?? (props.interactive === false)
   const planetCamera = useMemo(()=>clampObservation(observation.pose.camera,bounds.width,bounds.height),[observation.pose.camera,bounds.width,bounds.height])
   const viewCamera = inGalaxy ? DEFAULT_OBSERVATION : planetCamera
   const stageInput = useCallback((width:number,height:number,phase:number)=> ({ width, height, phase, owner, visitor, orientation, systems:props.galaxySystems, home:props.managedTravel ? desiredHome : home, journey:Math.min(1,props.routeJourney/TOUR_END), rotation:inGalaxy && props.focusedGalaxy && !visitor ? props.galaxyRotation : ownRotation, homeRotation:ownRotation, galaxyRotation:props.galaxyRotation, focusedGalaxy:props.focusedGalaxy, friends:props.friendSatellites, music:props.planet?.tracks ?? props.previewTracks ?? [] }), [owner,visitor,orientation,props.galaxySystems,props.managedTravel,desiredHome,home,props.routeJourney,inGalaxy,props.focusedGalaxy,props.galaxyRotation,ownRotation,props.friendSatellites,props.planet,props.previewTracks])
@@ -165,7 +166,7 @@ export function Stage(props: Props & { exteriorView?: 'home' | 'galaxy'; interac
     <svg className="dither-stage-lines" viewBox={`0 0 ${bounds.width} ${bounds.height}`} aria-hidden="true">
       {layerFrame.orbits.map((orbit,i)=><DitherOrbit key={i} orbit={orbit} />)}
     </svg>
-    <DitherCanvas getFrame={layer.getFrame} onFrame={rememberFrame} viewCamera={camera} overscan={layer.destination==='galaxy' ? 1 : OBSERVATION_OVERSCAN} reducedMotion={props.reducedMotion} paused={layer.opacity<=.001 || props.interactive === false && !busy} interactive={props.interactive !== false && !busy} onModeChange={setRenderMode} />
+    <DitherCanvas getFrame={layer.getFrame} onFrame={rememberFrame} viewCamera={camera} overscan={layer.destination==='galaxy' ? 1 : OBSERVATION_OVERSCAN} reducedMotion={props.reducedMotion} paused={layer.opacity<=.001 || paused && !busy} interactive={props.interactive !== false && !busy} onModeChange={setRenderMode} />
     </div>})}
     {props.flight && <div className="dither-stage-flight-cloud"><DitherCanvas getFrame={getNebulaFrame} sky={false} reducedMotion={props.reducedMotion} interactive={false} /></div>}
     {busy && <div className="dither-travel-caption" style={{opacity:cloud}} aria-live="polite">穿过星云 · {props.flight?.to === 'visitor' ? '下一颗星球' : desiredHome===0 ? 'Galaxy' : '我的星球'}</div>}

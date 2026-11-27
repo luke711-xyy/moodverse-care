@@ -78,14 +78,6 @@ export function CopilotSettingsPanel({
             <option value="normal">常规提示</option>
           </select>
         </label>
-        <label className="cp-check">
-          <input
-            type="checkbox"
-            checked={settings.voiceEnabled}
-            onChange={(event) => void patch({ settings: { voiceEnabled: event.target.checked } })}
-          />
-          也播报文字输入的回复
-        </label>
       </fieldset>
       <fieldset disabled={busy}>
         <legend>模型连接</legend>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useImperativeHandle, useRef, useState, type Ref } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { MusicTrackSummary } from '../../music-domain'
 import type { MusicPlayerControls } from '../useMusicPlayer'
 import {
@@ -11,13 +11,12 @@ import {
   CopilotTurn,
 } from './contracts'
 import { CopilotSettingsPanel, platformSession, type ModelSession } from './settings'
-import { useCopilotVoice, type CopilotIntercomHandle } from './voice'
+import { useCopilotVoice } from './voice'
 import { desktopProviders, type DesktopStatus } from './desktop-bridge'
 import { CopilotSocialPanel } from './SocialIntroductions'
 import './copilot.css'
 
-export type { CopilotIntercomHandle } from './voice'
-export type CopilotPhase = 'idle' | 'listening' | 'thinking' | 'speaking' | 'error'
+export type CopilotPhase = 'idle' | 'listening' | 'thinking' | 'error'
 const desktopEmpty: CopilotState = {
   settings: defaultCopilotSettings,
   memories: [],
@@ -35,7 +34,6 @@ export type CopilotPanelProps = {
   onPhaseChange?(phase: CopilotPhase): void
   onNameChange?(name: string): void
   onClose?(): void
-  intercomRef?: Ref<CopilotIntercomHandle>
   onDuckChange(ducked: boolean): void
   player: MusicPlayerControls
   onPlay?(track: MusicTrackSummary): void
@@ -175,10 +173,9 @@ function CompactReply({
 export function CopilotPanel(props: CopilotPanelProps) {
   const { active, compact = false, visible = true } = props
   const [tab, setTab] = useState<'chat' | 'social' | 'settings'>('chat')
-  const currentTab = useRef(tab)
-  currentTab.current = compact ? 'chat' : tab
-  const gesture = useRef<{ start: number; finishing: boolean } | null>(null)
-  const spaceDown = useRef(false)
+  const pointer = useRef<number | null>(null)
+  const holdKey = useRef<string | null>(null)
+  const draftPrefix = useRef('')
   const [cloudState, setState] = useState<CopilotState | null>(null)
   const bridge = window.mosicDesktop
   const state = cloudState ?? (bridge ? desktopEmpty : null)
@@ -211,7 +208,6 @@ export function CopilotPanel(props: CopilotPanelProps) {
   const [session, setSession] = useState<ModelSession>(platformSession)
   const currentMessages = session.provider === 'desktop' ? desktopMessages : (state?.messages ?? noMessages)
   const [error, setError] = useState('')
-  const [voiceText, setVoiceText] = useState('')
   const [history, setHistory] = useState(false)
   const logEnd = useRef<HTMLDivElement>(null)
   const busy = useRef(false)
@@ -224,49 +220,43 @@ export function CopilotPanel(props: CopilotPanelProps) {
   const voice = useCopilotVoice({
     onTranscript: (text) => {
       if (callbacks.current.visible === false || !callbacks.current.active) return
-      setTab('chat')
-      setVoiceText(text)
+      setDraft((draftPrefix.current + text).slice(0, 1600))
     },
     onDuckChange: props.onDuckChange,
     onError: setError,
     desktopVoice: session.provider === 'desktop' ? (bridge ?? null) : undefined,
-    serverSpeech: session.provider !== 'desktop' && Boolean(state?.capabilities.tts),
   })
   const begin = () => {
-    if (!visible) return
+    if (!visible || busy.current || voice.phase !== 'idle') return
     setError('')
-    setVoiceText('')
-    setTab('chat')
-    if (!busy.current) void voice.begin()
+    draftPrefix.current = draft + (/[a-z0-9]$/i.test(draft) ? ' ' : '')
+    voice.begin()
   }
-  useImperativeHandle(props.intercomRef, () => ({
-    begin,
-    end: voice.end,
-    cancel: voice.cancel,
-    toggle: () => {
-      if (!visible) return
-      setTab('chat')
-      if (!busy.current) voice.toggle()
-    },
-  }))
   useEffect(() => {
-    // Continue a held intercom key even if the pilot moves focus to the window controls.
-    const releaseSpace = (event: KeyboardEvent) => {
-      if (spaceDown.current && (event.code === 'Space' || event.key === ' ')) {
-        event.preventDefault()
-        spaceDown.current = false
-        voice.end()
-      }
+    const releaseKey = (event: KeyboardEvent) => {
+      if (holdKey.current !== event.key) return
+      event.preventDefault()
+      holdKey.current = null
+      voice.end()
+    }
+    const releasePointer = (event: PointerEvent) => {
+      if (pointer.current !== event.pointerId) return
+      pointer.current = null
+      voice.end()
     }
     const cancelHold = () => {
-      if (!spaceDown.current) return
-      spaceDown.current = false
+      if (holdKey.current === null && pointer.current === null) return
+      holdKey.current = pointer.current = null
       voice.cancel()
     }
-    window.addEventListener('keyup', releaseSpace)
+    window.addEventListener('keyup', releaseKey)
+    window.addEventListener('pointerup', releasePointer)
+    window.addEventListener('pointercancel', cancelHold)
     window.addEventListener('blur', cancelHold)
     return () => {
-      window.removeEventListener('keyup', releaseSpace)
+      window.removeEventListener('keyup', releaseKey)
+      window.removeEventListener('pointerup', releasePointer)
+      window.removeEventListener('pointercancel', cancelHold)
       window.removeEventListener('blur', cancelHold)
     }
   }, [voice.cancel, voice.end])
@@ -311,19 +301,17 @@ export function CopilotPanel(props: CopilotPanelProps) {
         setPending('')
         setLoading(false)
       }
-      gesture.current = null
-      spaceDown.current = false
+      pointer.current = null
+      holdKey.current = null
       setTab('chat')
-      setVoiceText('')
     }
     wasActive.current = active
   }, [active, voice.cancel])
   useEffect(() => {
     if (visible) return
     foregroundEpoch.current++
-    gesture.current = null
-    spaceDown.current = false
-    setVoiceText('')
+    pointer.current = null
+    holdKey.current = null
     voice.cancel()
   }, [visible, voice.cancel])
   const savedName = cloudState?.settings.name
@@ -347,7 +335,7 @@ export function CopilotPanel(props: CopilotPanelProps) {
     }
   }, [state, currentMessages])
 
-  const send = async (text: string, fromVoice = false) => {
+  const send = async (text: string) => {
     text = text.trim()
     if (!text || !visible || busy.current || !state) return
     const sentInForeground = foregroundEpoch.current
@@ -360,7 +348,6 @@ export function CopilotPanel(props: CopilotPanelProps) {
       setError('先填写本次连接的 API 密钥，或切换到平台副驾。')
       if (compact) props.onExpand?.()
       setTab('settings')
-      if (fromVoice) setDraft(text)
       return
     }
     voice.cancel()
@@ -368,7 +355,7 @@ export function CopilotPanel(props: CopilotPanelProps) {
     setError('')
     setPending(text)
     setHistory(false)
-    if (!fromVoice) setDraft('')
+    setDraft('')
     const context = {
       trackId: props.currentTrackId,
       planetId: props.currentPlanetId,
@@ -463,8 +450,6 @@ export function CopilotPanel(props: CopilotPanelProps) {
         else if (!current.player.playing || current.player.currentTrackId !== track.track.id)
           current.player.toggle(track.track)
       }
-      if (currentTab.current === 'chat' && (fromVoice || state.settings.voiceEnabled))
-        void voice.speak(assistant.text)
     } catch (caught) {
       if (!isMounted.current || controller.signal.aborted) return
       setDraft((current) => current || text)
@@ -477,15 +462,6 @@ export function CopilotPanel(props: CopilotPanelProps) {
       }
     }
   }
-  const sendLatest = useRef(send)
-  sendLatest.current = send
-  useEffect(() => {
-    if (voiceText && state && !loading && !inFlight.current && !busy.current && active && visible) {
-      setVoiceText('')
-      void sendLatest.current(voiceText, true)
-    }
-  }, [voiceText, state, active, visible, loading])
-
   const patch = async (change: CopilotPatch) => {
     if (busy.current) return false
     busy.current = true
@@ -499,7 +475,6 @@ export function CopilotPanel(props: CopilotPanelProps) {
       })
       if (!isMounted.current) return false
       setState(next)
-      if (change.settings?.voiceEnabled === false) voice.cancel()
       return true
     } catch (caught) {
       if (isMounted.current) setError(caught instanceof Error ? caught.message : '保存失败，请重试。')
@@ -518,13 +493,11 @@ export function CopilotPanel(props: CopilotPanelProps) {
   const phase: CopilotPhase =
     voice.phase === 'recording' || voice.phase === 'permission'
       ? 'listening'
-      : voice.phase === 'speaking' || voice.phase === 'synthesizing'
-        ? 'speaking'
-        : pending || voice.phase === 'transcribing'
-          ? 'thinking'
-          : error
-            ? 'error'
-            : 'idle'
+      : pending || voice.phase === 'transcribing'
+        ? 'thinking'
+        : error
+          ? 'error'
+          : 'idle'
   useEffect(() => {
     callbacks.current.onPhaseChange?.(active ? phase : 'idle')
   }, [active, phase])
@@ -594,9 +567,8 @@ export function CopilotPanel(props: CopilotPanelProps) {
               key={key}
               onClick={() => {
                 voice.cancel()
-                gesture.current = null
-                spaceDown.current = false
-                setVoiceText('')
+                pointer.current = null
+                holdKey.current = null
                 setTab(key)
               }}
             >
@@ -687,7 +659,14 @@ export function CopilotPanel(props: CopilotPanelProps) {
                   <p>想听什么，船长？</p>
                   <div className="cp-prompts">
                     {prompts.map((prompt) => (
-                      <button type="button" onClick={() => void send(prompt.text)} key={prompt.label}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          voice.cancel()
+                          setDraft(prompt.text)
+                        }}
+                        key={prompt.label}
+                      >
                         {prompt.label}
                       </button>
                     ))}
@@ -719,13 +698,6 @@ export function CopilotPanel(props: CopilotPanelProps) {
                   ))}
                   {message.role === 'assistant' && (
                     <div className="cp-entry-actions">
-                      <button
-                        type="button"
-                        disabled={Boolean(pending)}
-                        onClick={() => void voice.speak(message.text)}
-                      >
-                        播报
-                      </button>
                       {props.onDraftBottle && (
                         <button
                           type="button"
@@ -769,19 +741,11 @@ export function CopilotPanel(props: CopilotPanelProps) {
               <textarea
                 rows={1}
                 maxLength={1600}
-                placeholder={compact ? '发给副驾…' : '输入消息，或用对讲键说话…'}
+                placeholder={compact ? '发给副驾…' : '输入消息，或按住说话…'}
                 value={draft}
-                onChange={(event) => setDraft(event.target.value)}
-                onKeyDown={(event) => {
-                  if (
-                    event.key === 'Enter' &&
-                    !event.shiftKey &&
-                    !event.nativeEvent.isComposing &&
-                    event.keyCode !== 229
-                  ) {
-                    event.preventDefault()
-                    void send(draft)
-                  }
+                onChange={(event) => {
+                  if (voiceWorking) voice.cancel()
+                  setDraft(event.target.value)
                 }}
               />
             </label>
@@ -789,48 +753,43 @@ export function CopilotPanel(props: CopilotPanelProps) {
               <button
                 type="button"
                 className="cp-intercom"
-                aria-label="副驾对讲"
+                aria-label="按住说话"
+                title={
+                  session.provider === 'desktop'
+                    ? '按住使用 Mac 听写，松开后可编辑并发送'
+                    : '按住使用设备或 MOSIC 在线听写，松开后可编辑并发送'
+                }
                 aria-pressed={listening}
-                disabled={Boolean(pending) || saving}
+                disabled={Boolean(pending) || saving || voice.phase === 'transcribing'}
+                onContextMenu={(event) => event.preventDefault()}
                 onPointerDown={(event) => {
-                  if (event.button !== 0 || gesture.current) return
+                  if (
+                    event.button !== 0 ||
+                    event.isPrimary === false ||
+                    pointer.current !== null ||
+                    holdKey.current
+                  )
+                    return
                   event.currentTarget.setPointerCapture?.(event.pointerId)
-                  gesture.current = { start: Date.now(), finishing: listening }
-                  if (listening) voice.end()
-                  else begin()
+                  pointer.current = event.pointerId
+                  begin()
                 }}
-                onPointerUp={() => {
-                  const press = gesture.current
-                  gesture.current = null
-                  if (press && !press.finishing && Date.now() - press.start >= 300) voice.end()
-                }}
-                onPointerCancel={() => {
-                  gesture.current = null
-                  voice.cancel()
+                onLostPointerCapture={(event) => {
+                  if (pointer.current === event.pointerId) {
+                    pointer.current = null
+                    voice.end()
+                  }
                 }}
                 onKeyDown={(event) => {
-                  if (!compact && (event.code === 'Space' || event.key === ' ')) {
-                    event.preventDefault()
-                    if (!event.repeat && !spaceDown.current) {
-                      spaceDown.current = true
-                      begin()
-                    }
-                  }
-                }}
-                onClick={(event) => {
-                  if (event.detail === 0) {
-                    setError('')
-                    voice.toggle()
-                  }
+                  if (![' ', 'Enter'].includes(event.key)) return
+                  event.preventDefault()
+                  if (event.repeat || holdKey.current || pointer.current !== null) return
+                  holdKey.current = event.key
+                  begin()
                 }}
               >
-                {compact ? (listening ? '结束' : '对讲') : listening ? '结束并发送' : '● 按住说话'}
+                {voice.phase === 'transcribing' ? '转写中' : listening ? '松开完成' : '按住说话'}
               </button>
-              {voiceWorking && (!compact || !listening) && (
-                <button type="button" onClick={voice.cancel}>
-                  {['speaking', 'synthesizing'].includes(voice.phase) ? '停止播报' : '取消对讲'}
-                </button>
-              )}
               <button
                 className="cp-send"
                 disabled={!draft.trim() || Boolean(pending) || saving}
@@ -840,7 +799,7 @@ export function CopilotPanel(props: CopilotPanelProps) {
               </button>
             </div>
             {!compact && session.provider === 'desktop' && (
-              <small>语音在 Mac 上转写，文字指令交给你选择的桌面模型。</small>
+              <small>语音在 Mac 上转写，点发送后交给桌面模型。</small>
             )}
           </form>
         </>

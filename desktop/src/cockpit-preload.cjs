@@ -1,12 +1,32 @@
 const {contextBridge, ipcRenderer}=require('electron')
 if (process.isMainFrame) {
   const request = (action, data) => ipcRenderer.invoke('mosic:cockpit', action, data)
+  // Only the dedicated intercom key can arm a native capture, once per hold.
+  let armedHold = null
+  const intercomPressed = event => event.isTrusted && event.composedPath().some(
+    node => node instanceof HTMLButtonElement && node.matches('button.cp-intercom:enabled')
+  )
+  window.addEventListener('pointerdown', event => {
+    armedHold = intercomPressed(event) && event.isPrimary && event.button === 0 ? event.pointerId : null
+  }, true)
+  window.addEventListener('keydown', event => {
+    if (!event.repeat && intercomPressed(event) && (event.code === 'Space' || event.key === 'Enter')) armedHold = event.code
+  }, true)
+  const releasePointer = event => { if (armedHold === event.pointerId) armedHold = null }
+  window.addEventListener('pointerup', releasePointer, true)
+  window.addEventListener('pointercancel', releasePointer, true)
+  window.addEventListener('keyup', event => { if (armedHold === event.code) armedHold = null }, true)
+  window.addEventListener('blur', () => { armedHold = null })
   contextBridge.exposeInMainWorld('mosicDesktop', {
     status:()=>request('status'),
     openSettings:()=>request('settings'),
     chat:input=>request('chat',input),
     cancel:()=>request('cancel'),
-    voiceStart:()=>navigator.userActivation?.isActive ? request('voiceStart') : Promise.reject(new Error('请按键开始对讲。')),
+    voiceStart:()=>{
+      if (armedHold === null) return Promise.reject(new Error('请按住说话键开始听写。'))
+      armedHold = null
+      return request('voiceStart')
+    },
     voiceFinish:()=>request('voiceFinish'),
     voiceCancel:()=>request('voiceCancel'),
     onVoice:callback=>{

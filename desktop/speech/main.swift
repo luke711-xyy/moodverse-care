@@ -74,7 +74,7 @@ final class Intercom {
         }
         let audioRequest = SFSpeechAudioBufferRecognitionRequest()
         audioRequest.requiresOnDeviceRecognition = true
-        audioRequest.shouldReportPartialResults = false
+        audioRequest.shouldReportPartialResults = true
         audioRequest.taskHint = .dictation
         request = audioRequest
         let node = engine.inputNode
@@ -91,11 +91,19 @@ final class Intercom {
             // The callback can arrive after cancel or after endAudio().
             DispatchQueue.main.async {
                 if self.phase == .closed || self.phase == .waitingForRelease { return }
-                if let result, result.isFinal {
-                    self.finalText = result.bestTranscription.formattedString.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if self.phase == .finishing { self.deliver() }
-                    else { self.stopInput(); self.phase = .waitingForRelease }
-                } else if error != nil {
+                if let result {
+                    let text = result.bestTranscription.formattedString.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if text != self.finalText {
+                        self.finalText = text
+                        emit(["type": "partial", "text": text])
+                    }
+                    if result.isFinal {
+                        if self.phase == .finishing { self.deliver() }
+                        else { self.stopInput(); self.phase = .waitingForRelease }
+                        return
+                    }
+                }
+                if error != nil {
                     self.fail("RECOGNITION_FAILED", "本机没有得到有效转写，请再试一次。")
                 }
             }

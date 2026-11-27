@@ -16,7 +16,7 @@ export type DesktopBridge = {
   voiceCancel?(): Promise<void>
   onVoice?(
     handler: (e: {
-      type: 'ready' | 'text' | 'error' | 'cancelled'
+      type: 'ready' | 'partial' | 'text' | 'error' | 'cancelled'
       text?: string
       message?: string
       code?: string

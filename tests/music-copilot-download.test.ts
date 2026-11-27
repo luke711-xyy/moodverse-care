@@ -32,7 +32,7 @@ test.each([
 ])('streams only the fixed %s artifact with a filename and public validators', async (artifact, filename) => {
   const { response, head, get } = setup(artifact)
   const result = await response
-  expect(head).toHaveBeenCalledWith('copilot-releases/v0.1.0/' + filename)
+  expect(head).toHaveBeenCalledWith('copilot-releases/v0.1.1/' + filename)
   expect(get).toHaveBeenCalledTimes(1)
   expect(result.status).toBe(200)
   expect(result.headers.get('content-disposition')).toContain(filename)

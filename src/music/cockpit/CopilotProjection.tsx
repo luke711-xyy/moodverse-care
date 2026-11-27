@@ -1,6 +1,5 @@
 import { useEffect, useRef, type ReactNode } from 'react'
 import type { CopilotPhase } from '../copilot/CopilotPanel'
-import { IntercomKey } from './IntercomKey'
 import { ProjectionCore } from './ProjectionCore'
 import './copilot-projection.css'
 
@@ -8,7 +7,6 @@ const phaseReadout = {
   idle: ['STANDBY', '待命'],
   listening: ['LISTEN', '聆听中'],
   thinking: ['PROCESS', '思考中'],
-  speaking: ['TRANSMIT', '播报中'],
   error: ['CHECK LINK', '检查连接'],
 } as const
 
@@ -21,10 +19,6 @@ type Props = {
   reducedMotion: boolean
   open(): void
   close(): void
-  begin(): void
-  end(): void
-  cancel(): void
-  toggle(): void
   notice: string
   onDismiss(): void
   onNotice(): void
@@ -42,6 +36,14 @@ export function CopilotProjection(props: Props) {
     wasOpen.current = active
     wasCompact.current = compact
   }, [active, visible, compact])
+  const signature = <>
+    <ProjectionCore phase={phase} active={active && visible && (!compact || phase !== 'idle')} animate={!props.reducedMotion} />
+    <span className="projection-ident">
+      <span className="projection-callsign">MOSIC <b>/</b> COPILOT</span>
+      <strong title={props.name}>{props.name}</strong>
+      <span className="projection-phase"><i aria-hidden="true" />{phaseReadout[phase][0]}<span>{phaseReadout[phase][1]}</span></span>
+    </span>
+  </>
   return <section className="copilot-projection" data-open={active && !compact} data-mode={compact ? 'compact' : active ? 'expanded' : 'idle'} data-phase={phase} hidden={!visible}
     aria-label="观察窗副驾投影" tabIndex={-1} ref={station}
     onKeyDown={event => {
@@ -50,16 +52,17 @@ export function CopilotProjection(props: Props) {
       }
     }}>
     <div className="projection-visual">
-      <IntercomKey open={active && !compact ? props.toggle : props.open} begin={props.begin} end={props.end} cancel={props.cancel}
-        reveal={active ? undefined : props.open} expanded={active && !compact} compact={compact} enabled={visible}
-        notice={compact ? '' : props.notice} onDismiss={props.onDismiss} onNotice={props.onNotice}>
-        <ProjectionCore phase={phase} active={active && visible && (!compact || phase !== 'idle')} animate={!props.reducedMotion} />
-        <span className="projection-ident">
-          <span className="projection-callsign">MOSIC <b>/</b> COPILOT</span>
-          <strong title={props.name}>{props.name}</strong>
-          <span className="projection-phase"><i aria-hidden="true" />{phaseReadout[phase][0]}<span>{phaseReadout[phase][1]}</span></span>
-        </span>
-      </IntercomKey>
+      <div className="copilot-intercom">
+        {!compact && props.notice && <div className="intercom-notice" role="status">
+          <button onClick={props.onNotice}>{props.notice} ↗</button>
+          <button onClick={props.onDismiss} aria-label="忽略这条副驾提示">×</button>
+        </div>}
+        {active && !compact ? <div className="projection-signature">{signature}</div> :
+          <button type="button" className="intercom-key projection-signature" aria-expanded={false}
+            aria-label={compact ? '展开舰载副驾' : '舰载副驾，点按打开'} onClick={props.open}>
+            {signature}<span className="intercom-instruction">{compact ? '展开 ↗' : '唤醒 ↗'}</span>
+          </button>}
+      </div>
       {compact && props.notice && <button type="button" className="projection-notice-light" aria-label={props.notice} title={props.notice}
         onClick={props.onNotice}>✦</button>}
       {compact && <button type="button" className="projection-off" aria-label="关闭副驾观察窗" title="关闭副驾" onClick={props.close}>×</button>}

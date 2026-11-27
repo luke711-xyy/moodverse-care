@@ -51,8 +51,8 @@ function renderLens() {
 }
 
 function draw(ctx: CanvasRenderingContext2D, disc: HTMLCanvasElement, phase: CopilotPhase, t: number) {
-  const fast = phase === 'thinking' ? 2.3 : phase === 'speaking' ? 1.65 : 1
-  const pulse = (1 + Math.sin(t * (phase === 'speaking' ? 5 : 1.6))) / 2
+  const fast = phase === 'thinking' ? 2.3 : 1
+  const pulse = (1 + Math.sin(t * (phase === 'listening' ? 3 : 1.6))) / 2
   const amber = phase === 'error' ? '#f89d71' : '#e3bd7c'
   ctx.clearRect(0, 0, size, size)
   ctx.save()
@@ -81,7 +81,7 @@ function draw(ctx: CanvasRenderingContext2D, disc: HTMLCanvasElement, phase: Cop
   orbit(false)
   ctx.save()
   ctx.rotate(Math.sin(t*.28)*.13)
-  const diameter = 116 + (phase === 'listening' || phase === 'speaking' ? 3*pulse : 0)
+  const diameter = 116 + (phase === 'listening' ? 3*pulse : 0)
   ctx.imageSmoothingEnabled = false
   ctx.drawImage(disc, -diameter/2, -diameter/2, diameter, diameter)
   ctx.restore()
@@ -106,7 +106,7 @@ function draw(ctx: CanvasRenderingContext2D, disc: HTMLCanvasElement, phase: Cop
   for (let i = 0; i < 64; i++) {
     const a = i * tau / 64
     const envelope = Math.abs(Math.sin(3*a + t*fast)*Math.cos(2*a - t*.7))
-    const excursion = phase === 'speaking' || phase === 'listening' ? 7 : phase === 'thinking' ? 4 : 2
+    const excursion = phase === 'listening' ? 7 : phase === 'thinking' ? 4 : 2
     ctx.save()
     ctx.rotate(a)
     ctx.fillStyle = i % 4 === 0 ? '#a0be90' : '#709085'

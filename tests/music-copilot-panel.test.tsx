@@ -1,12 +1,8 @@
 // @vitest-environment jsdom
-import React, { createRef } from 'react'
+import React from 'react'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
-import {
-  CopilotPanel,
-  type CopilotIntercomHandle,
-  type CopilotPanelProps,
-} from '../src/music/copilot/CopilotPanel'
+import { CopilotPanel, type CopilotPanelProps } from '../src/music/copilot/CopilotPanel'
 import { defaultCopilotSettings, type CopilotReply, type CopilotState } from '../src/music/copilot/contracts'
 
 const state: CopilotState = {
@@ -98,7 +94,7 @@ afterEach(() => {
 
 test('a requested song can play, a suggested planet can be visited and a temporary model key stays out of storage and JSON', async () => {
   const { calls, props } = fixture()
-  await screen.findByPlaceholderText('输入消息，或用对讲键说话…')
+  await screen.findByPlaceholderText('输入消息，或按住说话…')
   fireEvent.click(screen.getByRole('button', { name: '设置与记忆' }))
   fireEvent.change(screen.getByLabelText('本次连接'), { target: { value: 'openai' } })
   fireEvent.change(screen.getByLabelText('API 密钥'), { target: { value: 'test-session-key' } })
@@ -117,8 +113,7 @@ test('a requested song can play, a suggested planet can be visited and a tempora
 })
 
 test('the intercom releases a late permission grant after cancellation without transcribing', async () => {
-  const intercomRef = createRef<CopilotIntercomHandle>(),
-    stop = vi.fn()
+  const stop = vi.fn()
   let allow!: (stream: MediaStream) => void
   const grant = new Promise<MediaStream>((resolve) => {
     allow = resolve
@@ -128,11 +123,11 @@ test('the intercom releases a late permission grant after cancellation without t
     'navigator',
     Object.assign(Object.create(navigator), { mediaDevices: { getUserMedia: () => grant } }),
   )
-  const { calls } = fixture({ intercomRef })
+  const { calls } = fixture()
   await screen.findByLabelText('发给副驾')
-  act(() => intercomRef.current!.begin())
+  fireEvent.keyDown(screen.getByLabelText('按住说话'), { key: ' ' })
   await screen.findByText('正在等待麦克风')
-  act(() => intercomRef.current!.cancel())
+  fireEvent.keyUp(window, { key: ' ' })
   await act(async () => {
     allow({ getTracks: () => [{ stop }] } as unknown as MediaStream)
     await grant
@@ -141,77 +136,104 @@ test('the intercom releases a late permission grant after cancellation without t
   expect(calls).toHaveLength(0)
 })
 
-test('Space release transcribes once and sends one turn, and ducking returns to normal', async () => {
-  const stop = vi.fn()
-  vi.stubGlobal(
-    'navigator',
-    Object.assign(Object.create(navigator), {
-      mediaDevices: { getUserMedia: async () => ({ getTracks: () => [{ stop }] }) },
-    }),
-  )
-  vi.stubGlobal(
-    'MediaRecorder',
-    class {
-      mimeType = 'audio/webm'
-      state = 'inactive'
-      ondataavailable?: (event: { data: Blob }) => void
-      onstop?: () => void
-      start() {
-        this.state = 'recording'
-      }
-      stop() {
-        this.state = 'inactive'
-        this.ondataavailable?.({ data: new Blob(['speech']) })
-        queueMicrotask(() => this.onstop?.())
-      }
-    },
-  )
-  const speak = vi.fn((utterance: SpeechSynthesisUtterance) =>
-    utterance.onstart?.(new Event('start') as SpeechSynthesisEvent),
-  )
-  const cancel = vi.fn()
-  vi.stubGlobal('speechSynthesis', {
-    getVoices: () => [{ lang: 'zh-CN', localService: true }],
-    speak,
-    cancel,
-  })
-  vi.stubGlobal('SpeechSynthesisUtterance', class {})
-  const { props, calls } = fixture()
-  const button = await screen.findByRole('button', { name: '副驾对讲' })
-  fireEvent.keyDown(button, { key: ' ', code: 'Space' })
-  await waitFor(() => expect(button.getAttribute('aria-pressed')).toBe('true'))
+test('browser interim text revises the dictation suffix and release leaves an editable silent draft', async () => {
+  let recognizer!: LocalRecognizer
+  class LocalRecognizer {
+    static available = vi.fn(async () => 'available')
+    onstart?: () => void
+    onend?: () => void
+    onresult?: (event: { results: { transcript: string }[][] }) => void
+    start() {
+      recognizer = this
+      this.onstart?.()
+    }
+    stop() {
+      this.onresult?.({ results: [[{ transcript: '夜航音乐' }]] })
+      this.onend?.()
+    }
+    abort() {}
+  }
+  vi.stubGlobal('SpeechRecognition', LocalRecognizer)
+  const speak = vi.fn()
+  vi.stubGlobal('speechSynthesis', { speak })
+  const { props, calls } = fixture({}, { ...state, settings: { ...state.settings, voiceEnabled: true } })
+  const button = await screen.findByRole('button', { name: '按住说话' })
+  fireEvent.click(button)
+  expect(LocalRecognizer.available).not.toHaveBeenCalled()
+  const draft = screen.getByLabelText<HTMLTextAreaElement>('发给副驾')
+  fireEvent.change(draft, { target: { value: '我想听' } })
+  fireEvent.keyDown(button, { key: ' ' })
   await waitFor(() => expect(props.onDuckChange).toHaveBeenCalledWith(true))
-  fireEvent.keyUp(button, { key: ' ', code: 'Space' })
-  await screen.findByText('收到，夜航准备就绪。')
-  expect(calls).toHaveLength(1)
-  expect(JSON.parse(String(calls[0].body)).text).toBe('播放夜航')
-  expect(stop).toHaveBeenCalledTimes(1)
-  expect(speak).toHaveBeenCalledTimes(1)
-  fireEvent.click(await screen.findByRole('button', { name: '停止播报' }))
-  expect(cancel).toHaveBeenCalledTimes(1)
-  expect(props.onDuckChange).toHaveBeenCalledWith(true)
+  act(() => recognizer.onresult?.({ results: [[{ transcript: '夜行' }]] }))
+  expect(draft.value).toBe('我想听夜行')
+  act(() => recognizer.onresult?.({ results: [[{ transcript: '夜航' }]] }))
+  expect(draft.value).toBe('我想听夜航')
+  fireEvent.keyUp(window, { key: ' ' })
+  expect(draft.value).toBe('我想听夜航音乐')
   expect(props.onDuckChange).toHaveBeenLastCalledWith(false)
+  fireEvent.change(draft, { target: { value: '我想听爵士' } })
+  fireEvent.keyDown(draft, { key: 'Enter' })
+  expect(calls).toHaveLength(0)
+  fireEvent.click(screen.getByText('发送 ↗'))
+  await screen.findByText('收到，夜航准备就绪。')
+  expect(JSON.parse(String(calls[0].body)).text).toBe('我想听爵士')
+  expect(calls).toHaveLength(1)
+  expect(speak).not.toHaveBeenCalled()
+  expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).endsWith('/speech'))).toBe(false)
 })
 
-test('settings can add memory and missing Chinese speech is explained without attempting another language', async () => {
-  const speak = vi.fn()
-  vi.stubGlobal('speechSynthesis', {
-    getVoices: () => [
-      { lang: 'en-US', localService: true },
-      { lang: 'zh-CN', localService: false },
-    ],
-    speak,
-    cancel: vi.fn(),
+test.each([
+  [429, '今日在线听写额度已用完，草稿仍可编辑。'],
+  [503, '在线转写中断，草稿仍可编辑。'],
+])('failed final online transcription (%i) keeps the prefix and last audible preview', async (status, message) => {
+  const stop = vi.fn()
+  const port = { onmessage: null as ((event: { data: Int16Array | string }) => void) | null, postMessage: () => {} }
+  vi.stubGlobal('navigator', Object.assign(Object.create(navigator), {
+    mediaDevices: { getUserMedia: async () => ({ getTracks: () => [{ stop }] }) },
+  }))
+  vi.stubGlobal('AudioContext', class {
+    audioWorklet = { addModule: async () => {} }
+    resume = async () => {}
+    close = async () => {}
+    createMediaStreamSource = () => ({ connect() {} })
   })
-  vi.stubGlobal('SpeechSynthesisUtterance', class {})
+  vi.stubGlobal('AudioWorkletNode', class {
+    port = port
+    connect() {}
+    disconnect() {}
+  })
+  const { calls } = fixture()
+  const draft = await screen.findByLabelText<HTMLTextAreaElement>('发给副驾')
+  fireEvent.change(draft, { target: { value: '我想听' } })
+  fireEvent.keyDown(screen.getByLabelText('按住说话'), { key: ' ' })
+  await screen.findByText('松开完成')
+  const http = vi.mocked(fetch)
+  const count = http.mock.calls.length
+  await act(async () => port.onmessage?.({ data: new Int16Array(24000) }))
+  expect(http.mock.calls).toHaveLength(count + 1)
+  const recording = http.mock.calls.at(-1)?.[1]?.body as Blob
+  expect(recording.type).toBe('audio/wav')
+  expect(recording.size).toBe(44 + 24000 * 2)
+  expect(draft.value).toBe('我想听播放夜航')
+  http.mockResolvedValueOnce(new Response(null, { status }))
+  fireEvent.keyUp(window, { key: ' ' })
+  expect(stop).toHaveBeenCalledOnce()
+  await act(async () => port.onmessage?.({ data: 'finished' }))
+  await screen.findByText(message)
+  expect(draft.value).toBe('我想听播放夜航')
+  expect(calls).toHaveLength(0)
+  expect(screen.getByLabelText('按住说话').getAttribute('aria-pressed')).toBe('false')
+})
+
+test('settings can add memory while retired speech controls stay absent for saved profiles', async () => {
   const { patches } = fixture(
     {},
     { ...state, messages: [{ id: 'a', role: 'assistant', text: '收到。', createdAt: '2026-01-01' }] },
   )
-  fireEvent.click(await screen.findByRole('button', { name: '播报' }))
-  await screen.findByText(/没有可用的中文声音/)
-  expect(speak).not.toHaveBeenCalled()
+  await screen.findByText('收到。')
+  expect(screen.queryByRole('button', { name: '播报' })).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: '设置与记忆' }))
+  expect(screen.queryByText(/也播报/)).toBeNull()
   fireEvent.change(screen.getByLabelText('添加记忆'), { target: { value: '喜欢钢琴' } })
   fireEvent.click(screen.getByRole('button', { name: '保存记忆' }))
   await waitFor(() => expect(screen.getByText('喜欢钢琴')).toBeTruthy())
@@ -367,10 +389,13 @@ test('desktop native voice bypasses network transcription and uses the same desk
   fireEvent.change(screen.getByLabelText('本次连接'), { target: { value: 'desktop' } })
   fireEvent.click(screen.getByText('通讯'))
   expect(bridge.voiceStart).not.toHaveBeenCalled()
-  const button = screen.getByLabelText('副驾对讲')
+  const button = screen.getByLabelText('按住说话')
   fireEvent.keyDown(button, { key: ' ', code: 'Space' })
   await waitFor(() => expect(props.onDuckChange).toHaveBeenCalledWith(true))
   fireEvent.keyUp(button, { key: ' ', code: 'Space' })
+  expect(screen.getByLabelText<HTMLTextAreaElement>('发给副驾').value).toBe('从本机出发')
+  expect(chat).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByText('发送 ↗'))
   await screen.findByText('本机收到从本机出发')
   expect(bridge.voiceStart).toHaveBeenCalledOnce()
   expect(bridge.voiceFinish).toHaveBeenCalledOnce()
@@ -382,7 +407,6 @@ test('desktop native voice bypasses network transcription and uses the same desk
 test.each([{ active: false }, { visible: false }])(
   'leaving the projection (%j) releases a pending browser mic grant before resuming',
   async (change) => {
-    const intercomRef = createRef<CopilotIntercomHandle>()
     const stop = vi.fn()
     let grant!: (stream: MediaStream) => void
     vi.stubGlobal('MediaRecorder', class {})
@@ -397,9 +421,9 @@ test.each([{ active: false }, { visible: false }])(
         },
       }),
     )
-    const { calls, result, props } = fixture({ intercomRef })
+    const { calls, result, props } = fixture()
     await screen.findByLabelText('发给副驾')
-    act(() => intercomRef.current!.begin())
+    fireEvent.keyDown(screen.getByLabelText('按住说话'), { key: ' ' })
     await screen.findByText('正在等待麦克风')
     result.rerender(<CopilotPanel {...props} {...change} />)
     await act(async () => grant({ getTracks: () => [{ stop }] } as unknown as MediaStream))
@@ -444,10 +468,11 @@ test('desktop voice permission errors stay local and leaving the channel discard
   fireEvent.click(await screen.findByText('设置与记忆'))
   fireEvent.change(screen.getByLabelText('本次连接'), { target: { value: 'desktop' } })
   fireEvent.click(screen.getByText('通讯'))
-  fireEvent.click(screen.getByLabelText('副驾对讲'))
+  fireEvent.keyDown(screen.getByLabelText('按住说话'), { key: ' ' })
   await screen.findByText('Mac 未能开始听写，可以输入文字。')
-  fireEvent.click(screen.getByLabelText('副驾对讲'))
-  await waitFor(() => expect(screen.getByLabelText('副驾对讲').getAttribute('aria-pressed')).toBe('true'))
+  fireEvent.keyUp(window, { key: ' ' })
+  fireEvent.keyDown(screen.getByLabelText('按住说话'), { key: ' ' })
+  await waitFor(() => expect(screen.getByLabelText('按住说话').getAttribute('aria-pressed')).toBe('true'))
   fireEvent.click(screen.getByText('设置与记忆'))
   expect(stop).toHaveBeenCalledTimes(2)
   act(() => deliver({ type: 'text', text: '过期听写' }))
@@ -544,8 +569,8 @@ test('a turn sent from the full panel finishes in compact chat and its inline tr
   expect(screen.getByRole('button', { name: '访问星球 雨海' })).toBeTruthy()
 })
 
-test('the same desktop recording survives minimization and a tap finishes transcription in compact chat', async () => {
-  type VoiceEvent = { type: 'ready' | 'text'; text?: string }
+test('the same desktop recording survives minimization and keyboard release leaves a corrected editable draft in compact chat', async () => {
+  type VoiceEvent = { type: 'ready' | 'partial' | 'text'; text?: string }
   let deliver!: (event: VoiceEvent) => void
   let enabled = false
   const voiceCancel = vi.fn(async () => {})
@@ -579,13 +604,18 @@ test('the same desktop recording survives minimization and a tap finishes transc
   await screen.findByText('请在本机模型设置中选择模型，并允许驾驶舱连接。')
   enabled = true
   fireEvent.click(screen.getByText('通讯'))
-  fireEvent.click(screen.getByLabelText('副驾对讲'))
+  fireEvent.keyDown(screen.getByLabelText('按住说话'), { key: ' ' })
   await waitFor(() => expect(props.onDuckChange).toHaveBeenCalledWith(true))
   result.rerender(<CopilotPanel {...props} compact />)
   await screen.findByText('正在收音…')
   expect(voiceCancel).not.toHaveBeenCalled()
-  fireEvent.click(screen.getByLabelText('副驾对讲'))
-  await screen.findByText('从小窗发送')
+  act(() => deliver({ type: 'partial', text: '从小窗' }))
+  expect(screen.getByLabelText<HTMLTextAreaElement>('发给副驾').value).toBe('从小窗')
+  fireEvent.keyUp(window, { key: ' ' })
+  expect(screen.getByLabelText<HTMLTextAreaElement>('发给副驾').value).toBe('从小窗发送')
+  expect(chat).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByText('发送 ↗'))
+  await waitFor(() => expect(chat).toHaveBeenCalledOnce())
   expect(chat).toHaveBeenCalledOnce()
   expect(status.mock.calls.length).toBeGreaterThan(1)
   expect(calls).toHaveLength(0)

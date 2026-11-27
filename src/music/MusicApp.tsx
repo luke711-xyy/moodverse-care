@@ -40,7 +40,7 @@ import { GalaxyWindow } from './GalaxyWindow'
 import { PlanetCard } from './PlanetCard'
 import { AUDIUS_GENRES, DEFAULT_GALAXY_GENRES } from './genres'
 import { momentPhotoError } from './moment-photo'
-import { CopilotPanel, type CopilotIntercomHandle, type CopilotPhase } from './copilot/CopilotPanel'
+import { CopilotPanel, type CopilotPhase } from './copilot/CopilotPanel'
 import { PairedDevices } from './copilot/PairedDevices'
 import { CopilotProjection } from './cockpit/CopilotProjection'
 import { FirstRun } from './onboarding/FirstRun'
@@ -323,7 +323,6 @@ function MusicApp({ apiOverride, firstRunStorageKey = 'mosic-first-run-v1', repl
   }
   const [copilotName, setCopilotName] = useState('副驾')
   const [copilotPhase, setCopilotPhase] = useState<CopilotPhase>('idle')
-  const copilotIntercom = useRef<CopilotIntercomHandle>(null)
   const [copilotPlanets, setCopilotPlanets] = useState<{ planetId: string; displayName: string }[]>([])
   const [initiative, setInitiative] = useState<'quiet' | 'balanced' | 'chatty'>('quiet')
   const [copilotNotice, setCopilotNotice] = useState<{ text: string; page: 'bottles' | 'copilot' } | null>(null)
@@ -343,7 +342,7 @@ function MusicApp({ apiOverride, firstRunStorageKey = 'mosic-first-run-v1', repl
     if (galaxy.status !== 'ready' || cockpit.exterior !== 'galaxy' || cockpit.console.focus !== 'overview') setGalaxyWindowOpen(false)
   }, [galaxy.status, cockpit.exterior, cockpit.console.focus])
   const { journey: galaxyJourney, journeyRef: galaxyJourneyRef, setJourney: setGalaxyJourney, animateTo: animateGalaxyJourney } = useGalaxyJourney(
-    reducedMotion, !projectionOpen && cockpit.exterior === 'galaxy' && cockpit.console.focus === 'overview' && cockpit.travel.status === 'idle' && galaxy.status === 'ready',
+    reducedMotion, cockpit.exterior === 'galaxy' && cockpit.console.focus === 'overview' && cockpit.travel.status === 'idle' && galaxy.status === 'ready',
   )
   const [galaxyRotation, setGalaxyRotation] = useState(0)
   const [galaxyRegrouping, setGalaxyRegrouping] = useState(false)
@@ -1618,12 +1617,11 @@ function MusicApp({ apiOverride, firstRunStorageKey = 'mosic-first-run-v1', repl
       projection={homeReady && <CopilotProjection name={copilotName === '副驾' ? '舰载副驾' : copilotName} active={copilotActive} compact={projectionCompact} phase={copilotPhase} reducedMotion={reducedMotion}
         visible={windowAvailable}
         open={() => changeView('copilot')} close={closeCopilot}
-        toggle={() => copilotIntercom.current?.toggle()} begin={() => copilotIntercom.current?.begin()} end={() => copilotIntercom.current?.end()} cancel={() => copilotIntercom.current?.cancel()}
         notice={copilotNotice?.text ?? ''} onDismiss={() => setCopilotNotice(null)}
         onNotice={() => { changeView(copilotNotice?.page ?? 'copilot'); setCopilotNotice(null) }}>
         <CopilotPanel key={accountEpoch.current}
         active={copilotActive} visible={windowAvailable} compact={projectionCompact} onPhaseChange={setCopilotPhase} onNameChange={setCopilotName} onClose={closeCopilot}
-        onMinimize={minimizeCopilot} onExpand={() => changeView('copilot')} intercomRef={copilotIntercom}
+        onMinimize={minimizeCopilot} onExpand={() => changeView('copilot')}
         player={musicPlayer} currentTrackId={musicPlayer.currentTrackId} currentPlanetId={monitorPlanet?.id}
         currentView={cockpit.exterior} onPlay={musicPlayer.play} onDuckChange={musicPlayer.setDucked}
         onVisit={(id, name) => requestPublicPlanetVisit(id, name, 'direct')}
@@ -1641,7 +1639,9 @@ function MusicApp({ apiOverride, firstRunStorageKey = 'mosic-first-run-v1', repl
       explorationPreview={<SignalMap signals={scanSignals} title={scanTitle} scanning={songPortal.status === 'loading' || songPortal.status === 'ready'} mode={songPortal.status === 'ready' || songPortal.status === 'loading' ? 'SONG LINK' : discovery.status === 'ready' ? 'ROAM LINK' : 'EXPLORATION / NAV'} />}
       scene={<Stage
       planet={planet} friendSatellites={home.status === 'ready' ? home.friendSatellites : []} visitedPlanet={cockpit.exterior === 'visitor' ? visitedPlanet : null} previewSeed={previewSeed} reducedMotion={reducedMotion}
-      exteriorView={cockpit.exterior === 'galaxy' ? 'galaxy' : 'home'} interactive={homeReady && !firstRunOpen && !projectionOpen && cockpit.console.focus === 'overview' && cockpit.travel.status === 'idle'} managedTravel flight={flightController.flight}
+      exteriorView={cockpit.exterior === 'galaxy' ? 'galaxy' : 'home'}
+      paused={!homeReady || !windowAvailable} interactive={homeReady && windowAvailable && !projectionOpen}
+      managedTravel flight={flightController.flight}
       productView={view} galaxySystems={galaxySceneSystems}
       galaxyRotation={galaxyRotation} routeJourney={galaxyJourney} regrouping={galaxyRegrouping}
       onSelectGalaxy={focusGalaxyById}

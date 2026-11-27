@@ -25,7 +25,7 @@
   border-radius: 0;
   cursor: pointer;
   text-align: left;
-  touch-action: none;
+  touch-action: manipulation;
   user-select: none;
   -webkit-user-select: none;
 }
@@ -62,7 +62,7 @@
 .projection-visual { min-height:0; min-width:0; position:relative; }
 [data-open=true] > .projection-visual { container-type:size; display:grid; place-items:center; }
 [data-open=true] .copilot-intercom { width:100%; height:100%; display:grid; place-items:center; }
-.cockpit .copilot-projection[data-open=true] .intercom-key {
+.cockpit .copilot-projection[data-open=true] .projection-signature {
   width:100%; height:100%; min-height:0; background:none; border:0;
   display:flex; flex-direction:column; align-items:center; justify-content:center;
   padding:0; gap:4px;
@@ -79,11 +79,9 @@
 .projection-phase i { width:5px; height:5px; background:currentColor; box-shadow:0 0 6px currentColor; }
 [data-open=true] .intercom-instruction { margin-top:3px; color:#bbbca3; }
 [data-phase=error] .projection-phase { color:#e2a183; }
-[data-phase=speaking] .projection-phase { color:#f6cc81; }
 .projection-channel { min-height:0; min-width:0; display:flex; flex-direction:column; overflow:auto; overscroll-behavior:contain; scrollbar-width:thin; scrollbar-color:#67836b #17221b; }
 .projection-channel > .cp-panel { flex:1; min-height:0; }
 @container music-viewport (max-height:610px) {
-  .cockpit[data-page=copilot][data-focus=overview]:not(.is-in-flight) { --console-height:clamp(94px,29cqh,175px); --desk-depth:28px; }
   .copilot-projection[data-open=true] { inset-block-start:38px; padding:4px 4cqw 32px; grid-template-columns:minmax(0,.64fr) minmax(0,1.36fr); }
   .copilot-projection[data-mode=idle] { top:45px; }
   [data-open=true] .projection-ident strong { font-size:16px; }
@@ -95,7 +93,7 @@
 }
 @container music-viewport (max-width:520px) and (min-height:611px) {
   .copilot-projection[data-open=true] { grid-template-columns:1fr; grid-template-rows:102px minmax(0,1fr); gap:0; padding:0 14px 32px; }
-  .cockpit .copilot-projection[data-open=true] .intercom-key { flex-direction:row; gap:12px; }
+  .cockpit .copilot-projection[data-open=true] .projection-signature { flex-direction:row; gap:12px; }
   [data-open=true] .projection-core { height:82px; width:82px; }
 }
 
@@ -125,53 +123,69 @@
   [data-mode=expanded] .projection-channel .cp-compose > small { grid-column:1 / -1; }
 }
 
-/* The shortwave receiver borrows the bridge log's space. Its hit area ends at
-   the brass rule, leaving the centre of the glass and the sector axis live. */
-.cockpit-viewport:has(.copilot-projection[data-mode=compact]:not([hidden])) {
-  --hud-terminal-width:min(26%,294px);
-}
-.cockpit-viewport:has(.copilot-projection[data-mode=compact]:not([hidden])) .window-hud-terminal {
-  visibility:hidden;
-}
+/* Readouts are projected beside NAV. Only the glyph, transcript and controls
+   catch pointer input; gaps pass through to the planets behind the glass. */
 .copilot-projection[data-mode=compact] {
-  --receiver-top:64px;
-  top:var(--receiver-top); right:var(--hud-side-inset);
-  width:var(--hud-terminal-width);
-  height:min(148px, calc(100% - var(--receiver-top) - 54px));
-  box-sizing:border-box;
-  display:grid; grid-template-rows:auto minmax(0,1fr); gap:2px;
-  padding:3px 6px 5px 8px;
-  border:0; border-bottom:1px solid #b89b6099;
-  background:linear-gradient(110deg,#24201866,#161410b8 68%,#13120ec9);
-  text-shadow:0 1px 2px #08090b;
+  --glass-gap: clamp(10px, 1.4cqw, 20px);
+  --glass-left: calc(var(--hud-side-inset) + var(--hud-navigation-width) + var(--glass-gap));
+  --glass-top: 65px;
+  position: absolute;
+  left: var(--glass-left);
+  top: var(--glass-top);
+  width: min(310px, calc(50% - var(--glass-left) - 8px));
+  max-height: calc(100% - var(--glass-top) - 46px);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 1px;
+  color: #ffe7b6;
+  pointer-events: none;
+  text-shadow: 0 1px 2px #0a0908, -1px 0 2px #17130e, 1px 0 2px #17130e, 0 0 5px #110c07;
 }
 [data-mode=compact] .projection-visual {
-  display:grid; grid-template-columns:minmax(0,1fr) auto; gap:2px; align-items:center;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
-[data-mode=compact] .copilot-intercom { min-width:0; }
+.cockpit [data-mode=compact] :is(button, textarea, a) { pointer-events: auto; }
+[data-mode=compact] .copilot-intercom { min-width: 0; }
 .cockpit [data-mode=compact] .intercom-key {
-  display:grid; grid-template-columns:44px minmax(0,1fr) auto; gap:6px;
-  border:0; background:none; width:100%; min-width:0; padding:2px 0;
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 0; padding: 0 2px 0 0; min-width: 0; min-height: 32px;
+  background: none; box-shadow: none; text-shadow: inherit;
 }
-[data-mode=compact] .intercom-key:hover .intercom-instruction { color:#ffe5a6; }
-[data-mode=compact] .projection-core { grid-area:auto; width:44px; }
-[data-mode=compact] .projection-ident { display:grid; gap:1px; }
-[data-mode=compact] .projection-ident strong { font-size:13px; line-height:1.05; }
-[data-mode=compact] .projection-callsign { display:none; }
-[data-mode=compact] .projection-phase { display:flex; align-items:center; gap:4px; color:#ceb989; font:600 9px/1 'MOSIC Console',sans-serif; letter-spacing:.12em; }
-[data-mode=compact] .projection-phase i { width:3px; height:3px; }
+[data-mode=compact] .projection-core { width: 35px; flex: none; }
+[data-mode=compact] .projection-ident { min-width: 0; }
+[data-mode=compact] .projection-ident strong {
+  max-width: 9em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: #ffe2a5; font: 400 14px/1.15 var(--cockpit-key-font);
+}
+[data-mode=compact] .projection-callsign, [data-mode=compact] .projection-phase { display: none; }
+[data-mode=compact]:is([data-phase=listening],[data-phase=thinking],[data-phase=error]) .projection-phase {
+  display: flex; gap: 4px; align-items: center;
+  font: 600 9px/1 'MOSIC Console',sans-serif; letter-spacing: .1em; color: #dbcca8;
+}
 [data-mode=compact] .projection-phase span { display:none; }
-[data-mode=compact] .intercom-instruction { grid-column:auto; color:#d5c199; font:400 12px/1 var(--cockpit-key-font); white-space:nowrap; }
-.cockpit .projection-off { border:0; background:transparent; color:#bdaa84; padding:0; min-height:28px; min-width:22px; font-size:16px; }
-[data-mode=compact] .projection-channel { overflow:hidden; border-top:1px dotted #c5a97460; }
-[data-mode=compact] .intercom-notice { top:100%; right:0; min-width:100%; }
-@container music-viewport (max-height:650px) {
-  .copilot-projection[data-mode=compact] { --receiver-top:44px; height:min(132px, calc(100% - var(--receiver-top) - 43px)); }
-  .cockpit-viewport:has(.copilot-projection[data-mode=compact]:not([hidden])) { --hud-terminal-width:min(29%,260px); }
-  .cockpit [data-mode=compact] .intercom-key { grid-template-columns:28px minmax(0,1fr) auto; min-height:26px; }
-  [data-mode=compact] .projection-core { width:28px; }
+[data-mode=compact] .intercom-instruction {
+  font: 400 11px/1 var(--cockpit-key-font); color: #efd49e; white-space: nowrap;
 }
-[data-mode=compact] .projection-ident strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-[data-mode=compact] .projection-visual:has(.projection-notice-light) { grid-template-columns:minmax(0,1fr) auto auto; }
-.cockpit .projection-notice-light { padding:2px; border:0; background:transparent; color:#ffd384; font-size:15px; }
-[data-mode=compact]::before { content:""; position:absolute; top:0; left:0; right:0; height:1px; pointer-events:none; background:linear-gradient(90deg,#ceb484 0 12%,#b99a6040 12% 80%,transparent); }
+.cockpit :is(.projection-off,.projection-notice-light) {
+  padding: 0 3px; min-height: 26px; min-width: 23px; border: 0;
+  color: #e5cca0; background: transparent; text-shadow: inherit; font-size: 15px;
+}
+[data-mode=compact] .projection-channel { overflow: visible; min-height: 0; }
+@container music-viewport (max-height:650px) {
+  .copilot-projection[data-mode=compact] { --glass-top: 46px; }
+  .cockpit [data-mode=compact] .intercom-key { min-height: 26px; gap: 4px; }
+  [data-mode=compact] .projection-core { width: 26px; }
+}
+
+/* Only the projected controls sit in front of the axis's generous scroll target. */
+.cockpit-viewport:has(.copilot-projection[data-mode=compact]) .cockpit-window-nav { z-index: 1; }
+@container music-viewport (max-height:450px) {
+  .copilot-projection[data-mode=compact] {
+    --glass-top: 39px;
+    max-height: calc(100% - var(--glass-top) - 75px);
+  }
+}

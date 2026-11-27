@@ -1,8 +1,8 @@
 'use strict'
 const $=id=>document.getElementById(id)
 const call=window.mosic.call
-let state, busy=false, listening=false, current, voiceActive=false
-let utterance, ducked, playbackTicket=0, turnTicket=0
+let state, busy=false, current, dictation=null
+let ducked, playbackTicket=0, turnTicket=0
 const audio=$('radio')
 const settings=$('settings')
 function notice(message) {$(settings.open?'settings-status':'notice').textContent=message||''}
@@ -20,18 +20,12 @@ function duck(on) {
     ducked = null
   }
 }
-function stopVisibility() { $('stop').hidden = !busy && !voiceActive && !listening }
-function stopVoice() {
-  if (utterance) { utterance.onend = utterance.onerror = null; utterance = null }
-  speechSynthesis.cancel(); voiceActive=false; duck(listening); stopVisibility()
-}
-function speak(text){
-  stopVoice()
-  const v=speechSynthesis.getVoices().find(v=>v.localService&&/^zh/i.test(v.lang))
-  if(!v){notice('本机未找到中文语音，答复已显示。');return}
-  const u=new SpeechSynthesisUtterance(text);utterance=u;u.voice=v;u.lang=v.lang;voiceActive=true;duck(true);stopVisibility()
-  u.onend=u.onerror=()=>{if (utterance!==u) return;utterance=null;voiceActive=false;duck(listening);stopVisibility()}
-  speechSynthesis.speak(u)
+function updateComposer() {
+  $('stop').hidden = !busy && !dictation
+  $('send').disabled = busy || Boolean(dictation)
+  $('message').readOnly = Boolean(dictation)
+  $('mic').disabled = busy
+  $('mic').textContent = !dictation ? '按住说话' : dictation.released ? '正在完成转写' : '松开结束'
 }
 async function play(track){
   const ticket=++playbackTicket
@@ -74,11 +68,11 @@ function fillSettings(){
 }
 async function save(removeKey=false){render(await call('settings',{provider:$('provider').value,endpoint:$('endpoint').value,model:$('model').value,
   key:$('key').value,removeKey,allowCockpit:$('allow-cockpit').checked,personality:$('personality').value}));fillSettings()}
-async function submit(text, fromVoice=false) {
-  if(busy || !text.trim()) return
+async function submit(text) {
+  if(busy || dictation || !text.trim()) return
   const ticket=++turnTicket
   const whenSent={player:playbackTicket,paused:audio.paused}
-  busy=true;$('send').disabled=true;stopVisibility();notice('副驾正在回应…')
+  busy=true;updateComposer();notice('副驾正在回应…')
   try {
     const reply=await call('chat',{text})
     if (ticket!==turnTicket) return
@@ -90,18 +84,16 @@ async function submit(text, fromVoice=false) {
       const track=reply.history.at(-1)?.cards?.find(t=>t.id===reply.playId)
       if(track) void play(track).catch(e=>notice(errorText(e)))
     }
-    if(fromVoice && reply.reply)speak(reply.reply)
   } catch (e) {
     if(ticket===turnTicket)notice(errorText(e))
-  } finally {busy=false;$('send').disabled=false;stopVisibility()}
+  } finally {if(ticket===turnTicket){busy=false;updateComposer()}}
 }
-on('composer','submit',e=>{e.preventDefault();return submit($('message').value)})
-on('message','keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();return submit($('message').value)}})
+on('composer','submit',e=>{e.preventDefault();if(e.submitter===$('send'))return submit($('message').value)})
 on('searchform','submit',async e=>{e.preventDefault();notice('正在调取曲库…');render(await call('catalog',{query:$('query').value}));notice('')})
 on('match','click',async()=>{if(!current)return;const planets=await call('planets',{trackId:current.id});$('planets').replaceChildren()
   for(const p of planets)$('planets').append(action(p.displayName+' ↗',()=>call('visit',{id:p.planetId,name:p.displayName})))
   if(!planets.length)$('planets').textContent='目前没有查到公开的同歌星球。'})
-on('configure','click',()=>{fillSettings();settings.showModal();notice('')});on('close','click',()=>settings.close())
+on('configure','click',async()=>{await cancelDictation();fillSettings();settings.showModal();notice('')});on('close','click',()=>settings.close())
 settings.addEventListener('close',()=>{if(document.body.dataset.deskMode==='settings')void call('closeSettings')})
 on('provider','change',()=>{providerFields();$('model').value='';$('models').replaceChildren();$('key').value=''})
 on('save','click',async()=>{await save();notice('连接设置已保存。')});on('remove-key','click',async()=>{await save(true);notice('密钥已移除。')})
@@ -118,24 +110,120 @@ on('pair','click',async()=>{render(await call('pair',{code:$('code').value}));$(
 on('unpair','click',async()=>{render(await call('unpair'));notice('设备已断开。')})
 on('clear','click',async()=>{if(confirm('清除本机这七天的副驾对话？'))render(await call('clear'))})
 on('open-site','click',()=>call('site'));on('usage','click',()=>call('site',{page:'usage'}))
-let holdTimer,held=false
-async function record(){if(listening||busy)return;stopVoice();listening=true;duck(true);stopVisibility();$('mic').textContent='结束对讲';notice('正在连接本机麦克风…')
-  try{await call('speechStart')}catch(e){endUI();throw e}}
-function endUI(){listening=false;duck(voiceActive);stopVisibility();$('mic').textContent='按键对讲'}
-async function finish(){if(listening)await call('speechStop')}
-on('mic','pointerdown',e=>{if(e.button!==0)return;e.currentTarget.setPointerCapture?.(e.pointerId);held=false;holdTimer=setTimeout(async()=>{held=true;try{await record()}catch(e){notice(errorText(e))}},300)})
-on('mic','pointerup',async()=>{clearTimeout(holdTimer);if(held)await finish()})
-on('mic','pointercancel',async()=>{clearTimeout(holdTimer);await call('speechCancel');endUI()})
-on('mic','click',async()=>{if(held){held=false;return}if(listening)await finish();else await record()})
-window.mosic.onSpeech(async e=>{if(e.type==='ready')notice('正在收音，结束后发送。');if(e.type==='cancelled'){endUI();notice('录音已取消。')}if(e.type==='error'){endUI();notice(e.message||'本机语音识别不可用。')}
-  if(e.type==='text'){endUI();$('message').value=e.text||'';await submit(e.text||'',true)}})
-async function stopAll(){++turnTicket;clearTimeout(holdTimer);held=false;await Promise.all([call('cancel'),call('speechCancel')]);stopVoice();endUI();notice('已停止。')}
-on('stop','click',stopAll)
-let spaceHeld=false
-on('mic','keydown',async e=>{if(e.code==='Space'){e.preventDefault();if(!e.repeat&&!spaceHeld){spaceHeld=true;await record()}}})
-on('mic','keyup',async e=>{if(e.code==='Space'){e.preventDefault();if(spaceHeld){spaceHeld=false;await finish()}}})
-document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!settings.open&&(listening||busy||voiceActive)){e.preventDefault();void stopAll().catch(cause=>notice(errorText(cause)))}})
-window.addEventListener('blur',()=>{spaceHeld=false;clearTimeout(holdTimer);if(listening){void call('speechCancel');endUI()}})
+async function startDictation(hold) {
+  if (dictation || busy || settings.open) return
+  const field = $('message')
+  const session = {
+    hold, released: false,
+    prefix: field.value.slice(0, field.selectionStart),
+    suffix: field.value.slice(field.selectionEnd),
+  }
+  dictation = session
+  updateComposer()
+  notice('正在连接本机麦克风…')
+  try {
+    await call('speechStart')
+  } catch (error) {
+    if (session !== dictation) return
+    resetDictation()
+    notice(errorText(error))
+  }
+}
+function resetDictation() {
+  dictation = null
+  duck(false)
+  updateComposer()
+}
+async function finishDictation(hold) {
+  if (!dictation || dictation.hold !== hold || dictation.released) return
+  dictation.released = true
+  duck(false)
+  updateComposer()
+  notice('正在完成本机转写…')
+  try {
+    await call('speechStop')
+  } catch (error) {
+    await cancelDictation()
+    notice(errorText(error))
+  }
+}
+async function cancelDictation() {
+  if (!dictation) return
+  resetDictation()
+  await call('speechCancel')
+}
+on('mic', 'pointerdown', async event => {
+  if (dictation || event.button !== 0 || !event.isPrimary) return
+  event.currentTarget.setPointerCapture(event.pointerId)
+  await startDictation(event.pointerId)
+})
+on('mic', 'pointerup', event => finishDictation(event.pointerId))
+on('mic', 'pointercancel', event => {
+  if (dictation?.hold === event.pointerId) return cancelDictation()
+})
+on('mic', 'lostpointercapture', event => {
+  if (dictation?.hold === event.pointerId && !dictation.released) return cancelDictation()
+})
+on('mic', 'keydown', event => {
+  if (event.code !== 'Space' && event.key !== 'Enter') return
+  event.preventDefault()
+  if (!event.repeat) return startDictation(event.code)
+})
+window.addEventListener('keyup', event => {
+  if (dictation?.hold === event.code) {
+    event.preventDefault()
+    void finishDictation(event.code)
+  }
+})
+window.mosic.onSpeech(event => {
+  if (!dictation) return
+  switch (event.type) {
+    case 'ready':
+      if (!dictation.released) {
+        duck(true)
+        notice('正在听写，松开后可以修改。')
+      }
+      break
+    case 'partial':
+    case 'text': {
+      const {prefix, suffix} = dictation
+      const field = $('message')
+      const text = String(event.text ?? '').slice(0, Math.max(0, field.maxLength - prefix.length - suffix.length))
+      field.value = prefix + text + suffix
+      field.selectionStart = field.selectionEnd = prefix.length + text.length
+      if (event.type === 'text') {
+        resetDictation()
+        notice('听写完成，可修改后点击发送。')
+      }
+      break
+    }
+    case 'error':
+      resetDictation()
+      notice(event.message || '本机语音识别不可用。')
+      break
+    case 'cancelled':
+      resetDictation()
+      notice('听写已结束。')
+      break
+  }
+})
+async function stopAll() {
+  ++turnTicket
+  busy = false
+  await Promise.all([call('cancel'), cancelDictation()])
+  updateComposer()
+  notice('已停止。')
+}
+on('stop', 'click', stopAll)
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && !settings.open && (dictation || busy)) {
+    event.preventDefault()
+    void stopAll().catch(error => notice(errorText(error)))
+  }
+})
+const stopOnLeave = () => { void cancelDictation().catch(error => notice(errorText(error))) }
+window.addEventListener('blur', stopOnLeave)
+document.addEventListener('visibilitychange', () => { if (document.hidden) stopOnLeave() })
 audio.volume=.65;audio.onerror=()=>notice('这首歌暂时无法播放。')
 
 
@@ -143,7 +231,7 @@ async function switchDeskMode(view) {
   const next=view.settings?'settings':'radio'
   document.body.dataset.deskMode=next
   if(!state)render(await call('state'))
-  if(view.settings){fillSettings();if(!settings.open)settings.showModal()}
+  if(view.settings){await cancelDictation();fillSettings();if(!settings.open)settings.showModal()}
   else {
     if(settings.open)settings.close()
     if(view.offline)notice('音乐宇宙暂时离线。恢复网络后可点击「进入宇宙」。')

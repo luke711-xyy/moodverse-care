@@ -5,3 +5,5 @@
 body[data-desk-mode=settings]>header,body[data-desk-mode=settings]>main{display:none}
 body[data-desk-mode=settings] dialog{width:100vw;max-width:none;height:100dvh;max-height:none;margin:0;border:none;border-radius:0;box-shadow:none;padding:24px}
 body[data-desk-mode=settings] dialog::backdrop{background:#181c18}
+
+#mic { touch-action: none; user-select: none; -webkit-user-select: none; }
