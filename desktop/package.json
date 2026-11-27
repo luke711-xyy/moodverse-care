@@ -1,0 +1,16 @@
+{
+  "name": "mosic-copilot",
+  "productName": "MOSIC Copilot",
+  "version": "0.1.0",
+  "description": "Private listening desk for the MOSIC music universe",
+  "type": "module",
+  "main": "src/main.mjs",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.mjs",
+    "package:mac": "node build.mjs",
+    "mcp": "node src/mcp.mjs"
+  },
+  "devDependencies": { "@electron/packager": "20.3.0", "electron": "45.5.0" }
+}
