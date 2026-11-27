@@ -145,7 +145,7 @@ test('dynamic registration uses a real loopback, ignores wrong state, and binds 
   const [p] = h.registrations
   assert.equal(p.get('client_id'), 'dynamic_agent_client')
   assert.equal(p.get('ext_agent_host_id'), hostId)
-  assert.equal(p.get('agent_name_hint'), 'MOSIC Copilot')
+  assert.equal(p.get('agent_name_hint'), 'MOSIC')
   assert.equal(p.get('code_challenge_method'), 'S256')
   assert.equal(p.get('resource'), resource)
   assert.match(p.get('scope'), /chatgpt\.tokens\.use\.direct/)

@@ -1,4 +1,4 @@
-# MOSIC Copilot
+# MOSIC
 
 macOS 客户端启动后进入 MOSIC 官网。驾驶舱、播放、星球、Moment、好友与漂流瓶都与浏览器使用同一个站点。默认的平台副驾把对话发给 MOSIC 服务处理并保存。切换到桌面连接后，由所选模型处理消息和近期上下文。Ollama、LM Studio 等本机服务在电脑上推理，OpenAI、Anthropic 和已授权的 ChatGPT 套餐会收到发给它们的内容。
 
@@ -6,7 +6,7 @@ macOS 客户端启动后进入 MOSIC 官网。驾驶舱、播放、星球、Mome
 
 ## 安装和连接
 
-Apple Silicon 用户可从 [MOSIC 桌面下载页](https://moodverse-care.pages.dev/desktop/) 获取应用。源码使用 Node 24 及 npm。在本目录运行：
+Apple Silicon 用户可从 [MOSIC 桌面下载页](https://moodverse-care.pages.dev/desktop/) 获取 MOSIC.app，将其移入「应用程序」后打开即可进入驾驶舱。升级会继续使用已有的本机资料、登录分区和钥匙串。源码使用 Node 24 及 npm。在本目录运行：
 
 ```sh
 npm ci
@@ -23,14 +23,14 @@ ChatGPT 套餐登录在系统浏览器完成。可按账号切换、重新授权
 在可运行 Node 24 的终端里，将下面的绝对路径换成下载并解压的本目录。
 
 ```sh
-claude mcp add --transport stdio mosic -- node "/绝对路径/desktop/src/mcp.mjs"
+claude mcp add --transport stdio mosic -- node "/绝对路径/mosic/src/mcp.mjs"
 ```
 
 支持查询音乐、搜索同歌星球和准备介绍草稿。要查询同歌星球，请先在网页版「设置 → 连接桌面副驾」生成一次性配对码。通过以下命令输入该码，令牌只写入你指定的新文件。任何时候都可从网页断开设备。
 
 ```sh
 node src/mcp.mjs --pair "/绝对路径/mosic-device.token"
-claude mcp add --transport stdio mosic -e MOSIC_DEVICE_TOKEN_FILE="/绝对路径/mosic-device.token" -- node "/绝对路径/desktop/src/mcp.mjs"
+claude mcp add --transport stdio mosic -e MOSIC_DEVICE_TOKEN_FILE="/绝对路径/mosic-device.token" -- node "/绝对路径/mosic/src/mcp.mjs"
 ```
 
 ## 验证和打包
@@ -40,7 +40,7 @@ npm test
 npm run package:mac
 ```
 
-构建需要 macOS、Xcode 命令行工具和可取得 Electron 发行版的网络。生成的源码包与 Apple Silicon 应用 ZIP 位于 dist/。本地构建使用 ad-hoc 签名。桌面端新增代码采用 MIT 许可。第三方运行时保留各自许可证。
+构建需要 macOS、Xcode 命令行工具和可取得 Electron 发行版的网络。构建产物为 `dist/mosic-source.zip` 和 `dist/mosic-macos-arm64.zip`，分别解压为 `mosic/` 和 `MOSIC.app`。本地构建使用 ad-hoc 签名。桌面端新增代码采用 MIT 许可。第三方运行时保留各自许可证。
 
 ## 桌面驾驶舱
 

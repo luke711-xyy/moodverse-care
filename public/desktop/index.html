@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#101613">
-  <title>MOSIC 驾驶舱 · 桌面下载</title>
+  <title>MOSIC · Mac 下载</title>
   <link rel="icon" type="image/png" href="/desktop/mosic-icon.png">
   <style>
     @font-face{font-family:Rajdhani;src:url('/fonts/rajdhani-latin-600.woff2') format('woff2');font-display:swap;font-weight:600}
@@ -22,15 +22,15 @@
   <nav aria-label="主导航"><b>MOSIC</b><a href="/">返回驾驶舱 ↗</a></nav>
   <section class="hero">
     <img class="app-icon" src="/desktop/mosic-icon.png" width="88" height="88" alt="">
-    <h1>MOSIC 桌面驾驶舱</h1>
+    <h1>MOSIC</h1>
     <p>在 Mac 上进入与网页版相同的驾驶舱。点亮观察窗里的副驾，可以用自己的模型点歌、对讲，再去拜访选过同一首歌的星球。</p>
     <div class="downloads">
-      <a class="primary" href="/api/music/copilot-download/app">下载 Mac 应用 ↓</a>
-      <a href="/api/music/copilot-download/source">下载开源源码 ↓</a>
+      <a class="primary" href="/api/music/copilot-download/app" download="mosic-macos-arm64.zip">下载 Mac 应用 ↓</a>
+      <a href="/api/music/copilot-download/source" download="mosic-source.zip">下载开源源码 ↓</a>
     </div>
-    <span class="version">v0.1.3 · Apple Silicon · ZIP · MIT</span>
+    <span class="version"><a href="https://github.com/luke711-xyy/moodverse-care/releases/tag/v0.1.4">v0.1.4</a> · Apple Silicon · ZIP · MIT</span>
   </section>
-  <section class="guide"><h2>首次打开</h2><p>解压 ZIP，将 MOSIC Copilot 移到“应用程序”。此版本尚未通过 Apple 公证。如果 macOS 拦截首次打开，可核对下载来源后按 Apple 的步骤在“隐私与安全性”中确认。<a href="https://support.apple.com/zh-cn/102445">查看 Apple 说明</a></p></section>
+  <section class="guide"><h2>首次打开</h2><p>解压 <code>mosic-macos-arm64.zip</code>，将 <strong>MOSIC.app</strong> 移入「应用程序」。此版本尚未通过 Apple 公证。如果 macOS 拦截首次打开，可核对下载来源后按 Apple 的步骤在“隐私与安全性”中确认。<a href="https://support.apple.com/zh-cn/102445">查看 Apple 说明</a></p></section>
   <section class="guide"><h2>选择模型</h2><p>打开应用的本机连接设置，选择 Ollama、LM Studio、自己的 API Key 或 ChatGPT 授权。回到观察窗，在副驾设置里选择桌面连接。</p></section>
   <section class="guide"><h2>本机对讲</h2><p>按住「按住说话」时，支持本机普通话识别的 Mac 会边听边把文字写进输入框。松开后可以改字，点「发送」才会把消息交给所选模型。也可以直接打字。</p></section>
   <section class="guide"><h2>源码与 Claude Code</h2><p>桌面程序与源码可免费下载。源码包内的 <code>src/mcp.mjs</code> 可以注册为 Claude Code 的 stdio MCP 工具，用来查歌和起草介绍。主动配对设备后，还能查找真实的同歌星球。安装和配对步骤见源码包内的 README。</p></section>

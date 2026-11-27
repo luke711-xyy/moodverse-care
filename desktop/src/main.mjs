@@ -2,14 +2,24 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, safeStorage, session, shell 
 import { spawn } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
-import { join } from 'node:path'
-import { existsSync } from 'node:fs'
+import { join, resolve } from 'node:path'
+import { existsSync, mkdirSync } from 'node:fs'
 import { openStore } from './store.mjs'
 import { radioScope } from './history.mjs'
 import { signIn, refresh, revoke } from './login.mjs'
 import { availableModels, candidateTracks, chat, localEndpoint, parseAnswer } from './providers.mjs'
 import { catalogue, device, matchingPlanets, site } from './universe.mjs'
 import { classifyCockpitLink, cockpitOrigin, cockpitReply, safeCockpitPage } from './cockpit.mjs'
+
+// Electron 45 uses the pre-ready app name to select the macOS Keychain service
+// for safeStorage and Chromium cookies. Keep the original private store.
+const legacyName = 'MOSIC Copilot'
+app.setName(legacyName)
+const profileOverride = app.commandLine.getSwitchValue('user-data-dir')
+const profileDirectory = profileOverride ? resolve(profileOverride) : join(app.getPath('appData'), legacyName)
+mkdirSync(profileDirectory, {recursive:true, mode:0o700})
+app.setPath('userData', profileDirectory)
+app.setPath('sessionData', profileDirectory)
 
 const localPage = new URL('../ui/index.html',import.meta.url).href
 const providers = new Set(['local','openai','anthropic','subscription'])
@@ -209,7 +219,7 @@ async function openDesk(settings=false,offline=false) {
   currentDeskMode=settings?'settings':'radio'
   if (!win || win.isDestroyed()) {
     win=new BrowserWindow({show:false,width:settings?620:920,height:750,minWidth:540,minHeight:430,backgroundColor:'#161b19',
-      title:'MOSIC · 本机副驾',webPreferences:{preload:fileURLToPath(new URL('./preload.cjs',import.meta.url)),sandbox:true,contextIsolation:true,nodeIntegration:false}})
+      title:'MOSIC',webPreferences:{preload:fileURLToPath(new URL('./preload.cjs',import.meta.url)),sandbox:true,contextIsolation:true,nodeIntegration:false}})
     const local=win
     local.webContents.setWindowOpenHandler(()=>({action:'deny'}))
     local.webContents.on('will-navigate',(event,url)=>{if(url!==localPage)event.preventDefault()})
@@ -229,6 +239,7 @@ async function openUniverse(url=officialOrigin) {
       title:'MOSIC',webPreferences:{preload:fileURLToPath(new URL('./cockpit-preload.cjs',import.meta.url)),session:onlineSession,
         sandbox:true,nodeIntegration:false,contextIsolation:true,webviewTag:false}})
     const remote=cockpit
+    remote.on('page-title-updated',event=>event.preventDefault())
     remote.webContents.setWindowOpenHandler(()=>({action:'deny'}))
     const navigationGuard=(event,href)=>{if(!safeCockpitPage(href,officialOrigin)) event.preventDefault()}
     remote.webContents.on('will-navigate',navigationGuard)
@@ -340,6 +351,7 @@ async function fromCockpit(event,action,input={}) {
 
 if(!app.requestSingleInstanceLock())app.quit()
 else app.whenReady().then(()=>{
+  app.setName('MOSIC')
   vault=openStore(app.getPath('userData'),safeStorage)
   session.defaultSession.setPermissionRequestHandler((_wc,_permission,reply)=>reply(false))
   onlineSession=session.fromPartition('persist:mosic-universe')
@@ -384,7 +396,7 @@ else app.whenReady().then(()=>{
     return perform(action,data,event.sender)
   })
   Menu.setApplicationMenu(Menu.buildFromTemplate([
-    {role:'appMenu'},{label:'航行',submenu:[
+    {role:'appMenu',label:'MOSIC'},{label:'航行',submenu:[
       {label:'打开音乐宇宙',accelerator:'CmdOrCtrl+1',click:()=>void openUniverse()},
       {label:'本机副驾与连接设置',accelerator:'CmdOrCtrl+,',click:()=>void openDesk(true)},
       {label:'离线电台',accelerator:'CmdOrCtrl+2',click:()=>void openDesk()},

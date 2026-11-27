@@ -59,7 +59,7 @@ export function authorizeURL({ saved, host, callback, state, nonce, verifier }) 
   url.search = new URLSearchParams({
     client_id: saved?.clientId ?? registration,
     ext_agent_host_id: host,
-    ...(saved ? (saved.idToken ? { id_token_hint: saved.idToken } : {}) : { agent_name_hint: 'MOSIC Copilot' }),
+    ...(saved ? (saved.idToken ? { id_token_hint: saved.idToken } : {}) : { agent_name_hint: 'MOSIC' }),
     response_type: 'code',
     redirect_uri: callback,
     resource,
@@ -146,7 +146,7 @@ export async function signIn(host, saved, openBrowser, net = fetch, { timeoutMs 
       return
     }
     res.setHeader('Content-Type', 'text/plain; charset=utf-8')
-    res.end('可以返回 MOSIC 副驾查看连接结果。')
+    res.end('可以返回 MOSIC 查看连接结果。')
     const issued = url.searchParams.get('client_id') ?? saved?.clientId
     const code = url.searchParams.get('code')
     if (

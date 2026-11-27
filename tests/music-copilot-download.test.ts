@@ -27,15 +27,15 @@ function setup(artifact = 'app', method = 'GET', headers: Record<string, string>
   return { head, get, response: onRequest(context as never) as Promise<Response> }
 }
 test.each([
-  ['app', 'mosic-copilot-macos-arm64.zip'],
-  ['source', 'mosic-copilot-source.zip'],
+  ['app', 'mosic-macos-arm64.zip'],
+  ['source', 'mosic-source.zip'],
 ])('streams only the fixed %s artifact with a filename and public validators', async (artifact, filename) => {
   const { response, head, get } = setup(artifact)
   const result = await response
-  expect(head).toHaveBeenCalledWith('copilot-releases/v0.1.3/' + filename)
+  expect(head).toHaveBeenCalledWith('copilot-releases/v0.1.4/' + filename)
   expect(get).toHaveBeenCalledTimes(1)
   expect(result.status).toBe(200)
-  expect(result.headers.get('content-disposition')).toContain(filename)
+  expect(result.headers.get('content-disposition')).toBe(`attachment; filename="${filename}"`)
   expect(result.headers.get('etag')).toBe('"release-sha"')
   expect(result.headers.get('content-length')).toBe('6')
   expect([...new Uint8Array(await result.arrayBuffer())]).toEqual([80, 75, 3, 4, 1, 2])

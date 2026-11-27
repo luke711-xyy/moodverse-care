@@ -1,10 +1,10 @@
 import type { Env } from '../../../_shared'
 
 const releases = new Map([
-  ['app', 'mosic-copilot-macos-arm64.zip'],
-  ['source', 'mosic-copilot-source.zip'],
+  ['app', 'mosic-macos-arm64.zip'],
+  ['source', 'mosic-source.zip'],
 ])
-const releasePrefix = 'copilot-releases/v0.1.3/'
+const releasePrefix = 'copilot-releases/v0.1.4/'
 
 function rangeFor(header: string, size: number) {
   const value = /^bytes=(\d*)-(\d*)$/.exec(header)
