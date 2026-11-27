@@ -43,9 +43,10 @@ function setupDock(reducedMotion = true) {
         const { requestId, text } = JSON.parse(String(init.body))
         turns.push(text)
         if (turns.length === 1) await firstReply.promise
+        const createdAt = new Date().toISOString()
         return Response.json({ requestId, memories: [], messages: [
-          { id: requestId + '-user', role: 'user', text, createdAt: '2026-11-28' },
-          { id: requestId + '-assistant', role: 'assistant', text: '答复：' + text, source: 'platform', createdAt: '2026-11-28' },
+          { id: requestId + '-user', role: 'user', text, createdAt },
+          { id: requestId + '-assistant', role: 'assistant', text: '答复：' + text, source: 'platform', createdAt },
         ] })
       }
       default: return Response.json({ moments: [], incoming: [], outgoing: [], friends: [], groups: [] })

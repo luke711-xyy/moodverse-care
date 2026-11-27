@@ -7,3 +7,8 @@ body[data-desk-mode=settings] dialog{width:100vw;max-width:none;height:100dvh;ma
 body[data-desk-mode=settings] dialog::backdrop{background:#181c18}
 
 #mic { touch-action: none; user-select: none; -webkit-user-select: none; }
+
+.history-period { display:grid; grid-template-columns:6rem 1fr; gap:12px; margin-bottom:12px; }
+.history-period :is(input,select) { display:block; }
+#archive-entries { max-height:46vh; overflow:auto; margin:12px 0; }
+#archive-entries h3 { font-size:.9rem; margin:.8rem 0 .3rem; color:var(--muted); }

@@ -99,8 +99,7 @@
   background-size: 3px 3px;
   border-color: #efda9e #887045 #887045 #e2ca89;
 }
-.cp-log-tools { display: flex; flex: none; justify-content: flex-end; }
-.cp-instrument .cp-log-tools button, .cp-instrument .cp-entry-actions button {
+.cp-instrument .cp-entry-actions button {
   color: var(--cp-muted);
   background: transparent;
   border-color: transparent;
@@ -121,6 +120,18 @@
   gap: 7px;
   padding: 4px 3px;
 }
+.cp-history { padding: 4px 3px; }
+.cp-history-tools, .cp-periods, .cp-history-range { display: flex; align-items: center; gap: 4px; }
+.cp-history-tools { flex-wrap: wrap; justify-content: space-between; }
+.cp-periods button { min-width: 28px; padding-inline: 5px; }
+.cp-periods button[aria-pressed='true'] { background: var(--cp-accent); color: var(--cp-ink); }
+.cp-jump-date input { width: 9.4em; max-width: 100%; color-scheme: dark; }
+.cp-history-range { justify-content: space-between; margin-block: 4px; color: var(--cp-paper); font-variant-numeric: tabular-nums; }
+.cp-history-range button { padding-inline: 8px; }
+.cp-history-date { margin: 10px 0 5px; border-bottom: 1px solid var(--cp-line); color: var(--cp-muted); font: 500 .8rem/1.5 var(--cp-display); }
+.cp-history-note { margin: 10px 0; color: var(--cp-muted); }
+.cp-history-more { align-self: center; }
+.cp-history .cp-entry { margin-block: 7px; }
 .cp-ready { margin-block: auto; padding: 2px 0 4px clamp(2px, 2.2cqi, 14px); }
 .cp-ready p {
   margin: 0 0 8px;

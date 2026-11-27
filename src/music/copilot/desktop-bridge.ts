@@ -10,6 +10,9 @@ export type DesktopBridge = {
   status(): Promise<DesktopStatus>
   openSettings(): Promise<void>
   chat(turn: { requestId: string; text: string; context?: CopilotContext }): Promise<DesktopChatReply>
+  history?(range: { start: string; end: string; cursor?: string }): Promise<{ messages: CopilotMessage[]; nextCursor: string | null }>
+  clearHistory?(): Promise<void>
+  onHistoryChanged?(handler: () => void): () => void
   cancel(): Promise<void>
   voiceStart?(): Promise<void>
   voiceFinish?(): Promise<void>

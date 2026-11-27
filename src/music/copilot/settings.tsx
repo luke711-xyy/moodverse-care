@@ -9,6 +9,7 @@ export function CopilotSettingsPanel({
   state,
   busy,
   patch,
+  clearHistory,
   session,
   setSession,
   desktop,
@@ -17,6 +18,7 @@ export function CopilotSettingsPanel({
   state: CopilotState
   busy: boolean
   patch: (change: CopilotPatch) => Promise<boolean>
+  clearHistory: () => Promise<boolean>
   session: ModelSession
   setSession: (session: ModelSession) => void
   desktop?: DesktopStatus | null
@@ -27,6 +29,8 @@ export function CopilotSettingsPanel({
   const [memoryText, setMemoryText] = useState('')
   const [editing, setEditing] = useState<string | null>(null)
   const [confirm, setConfirm] = useState<'history' | 'memory' | null>(null)
+  const [cleared, setCleared] = useState(false)
+  const local = session.provider === 'desktop'
   const saveMemory = async () => {
     const text = memoryText.trim()
     if (!text || busy) return
@@ -86,7 +90,11 @@ export function CopilotSettingsPanel({
           <select
             value={session.provider}
             onChange={(event) =>
-              setSession({ provider: event.target.value as ModelSession['provider'], key: '', model: '' })
+              {
+                setConfirm(null)
+                setCleared(false)
+                setSession({ provider: event.target.value as ModelSession['provider'], key: '', model: '' })
+              }
             }
           >
             <option value="platform">平台副驾</option>
@@ -102,7 +110,7 @@ export function CopilotSettingsPanel({
                 ? `${desktopProviders[desktop.provider]} · ${desktop.model}`
                 : '请在本机模型设置中选择模型，并允许驾驶舱连接。'}
             </small>
-            <p>本次输入和当前歌曲、星球交给所选桌面模型。桌面回复只在当前驾驶舱会话显示。</p>
+            <p>本次输入和当前歌曲、星球交给所选桌面模型。桌面通讯记录保存在这台 Mac 上。</p>
             <button type="button" onClick={onDesktopSettings}>
               打开本机模型设置
             </button>
@@ -223,18 +231,21 @@ export function CopilotSettingsPanel({
           </button>
         )}
       </fieldset>
-      {state.messages.length > 0 && (
-        <button type="button" disabled={busy} onClick={() => setConfirm('history')}>
-          清空对话记录
-        </button>
-      )}
+      <fieldset disabled={busy}>
+        <legend>聊天历史</legend>
+        <small>{local ? '本机通讯记录' : '平台通讯记录'}按本地日期归档。当前通讯显示今天的消息。</small>
+        <button type="button" onClick={() => { setCleared(false); setConfirm('history') }}>清空对话记录</button>
+        {cleared && <small role="status">对话记录已清空。</small>}
+      </fieldset>
       {confirm && (
         <div className="cp-confirm" role="group" aria-label="确认清理">
-          <p>{confirm === 'history' ? '清空全部对话记录？个人记忆会保留。' : '清空已保存的全部记忆？'}</p>
+          <p>{confirm === 'history' ? `清空${local ? '这台 Mac 上的驾驶舱' : '当前账号的云端'}全部对话记录？此操作无法撤销。` : '清空已保存的全部记忆？'}</p>
           <button
             disabled={busy}
             onClick={async () => {
-              if (await patch(confirm === 'history' ? { clearHistory: true } : { memory: { action: 'clear' } })) {
+              if (confirm === 'history') {
+                if (await clearHistory()) { setConfirm(null); setCleared(true) }
+              } else if (await patch({ memory: { action: 'clear' } })) {
                 setConfirm(null)
                 setEditing(null)
                 setMemoryText('')

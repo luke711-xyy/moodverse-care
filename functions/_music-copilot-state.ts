@@ -117,15 +117,45 @@ export type TurnRow = {
   created_at: string
   context_version: number
 }
-export async function recent(env: Env, userId: string, version?: number) {
-  return (
-    await env.DB.prepare(
-      `SELECT * FROM music_copilot_turns WHERE user_id=?1 AND created_at>?2 AND (?3 IS NULL OR context_version=?3)
-    ORDER BY created_at DESC,rowid DESC LIMIT 20`,
-    )
-      .bind(userId, new Date(Date.now() - week).toISOString(), version ?? null)
-      .all<TurnRow>()
-  ).results.reverse()
+export function currentDayRange(request: Request, now = Date.now()) {
+  const timeZone = request.headers.get('X-Mosic-Time-Zone') || 'UTC'
+  let calendar: Intl.DateTimeFormat
+  try {
+    calendar = new Intl.DateTimeFormat('en-CA', { timeZone, dateStyle: 'short' })
+  } catch {
+    return fail(400, 'INVALID_TIME_ZONE')
+  }
+  const today = calendar.format(now)
+  // Locate the first second of this local date, including dates with a midnight offset change.
+  let low = Math.floor(now / 1000) - 48 * 3600
+  let high = Math.floor(now / 1000)
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2)
+    if (calendar.format(middle * 1000) === today) high = middle
+    else low = middle + 1
+  }
+  return { start: new Date(low * 1000).toISOString(), end: new Date(now + 1).toISOString() }
+}
+export async function historyPage(
+  env: Env, userId: string, range: { start: string; end: string }, cursor: string | null = null, version?: number,
+) {
+  const limit = 20
+  const bounds: (string | number)[] = [userId, range.start, range.end]
+  let criteria = 'user_id=? AND created_at>=? AND created_at<?'
+  if (cursor !== null) {
+    if (!/^[a-zA-Z0-9_-]{1,96}$/.test(cursor)) fail(400, 'INVALID_HISTORY_CURSOR')
+    criteria += ` AND (created_at,rowid)<(SELECT created_at,rowid FROM music_copilot_turns WHERE user_id=? AND request_id=?)`
+    bounds.push(userId, cursor)
+  }
+  if (version !== undefined) {
+    criteria += ' AND context_version=?'
+    bounds.push(version)
+  }
+  const { results } = await env.DB.prepare(
+    `SELECT * FROM music_copilot_turns WHERE ${criteria} ORDER BY created_at DESC,rowid DESC LIMIT ?`,
+  ).bind(...bounds, limit + 1).all<TurnRow>()
+  const rows = results.slice(0, limit).reverse()
+  return { rows, nextCursor: results.length > limit ? rows[0].request_id : null }
 }
 export function messagesFor(row: TurnRow): CopilotMessage[] {
   return [
@@ -159,15 +189,11 @@ export async function reserve(env: Env, userId: string, kind: 'platform' | 'byok
 
 // A bounded batch on the existing scheduler handles even accounts that never return.
 export async function pruneCopilot(env: Pick<Env, 'DB'>, now = Date.now()) {
-  const iso = new Date(now).toISOString(),
-    cutoff = new Date(now - week).toISOString()
+  const iso = new Date(now).toISOString()
   await env.DB.batch([
     env.DB.prepare(
       'DELETE FROM music_copilot_memories WHERE rowid IN (SELECT rowid FROM music_copilot_memories WHERE expires_at IS NOT NULL AND expires_at<=? LIMIT 5000)',
     ).bind(iso),
-    env.DB.prepare(
-      'DELETE FROM music_copilot_turns WHERE rowid IN (SELECT rowid FROM music_copilot_turns WHERE created_at<=? LIMIT 5000)',
-    ).bind(cutoff),
     env.DB.prepare(
       'DELETE FROM music_copilot_usage WHERE id IN (SELECT id FROM music_copilot_usage WHERE at<? LIMIT 5000)',
     ).bind(now - 2 * 86400000),

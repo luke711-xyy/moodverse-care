@@ -28,6 +28,7 @@ function fixture(
   custom: Partial<CopilotPanelProps> = {},
   recent: CopilotState = state,
   replyGate?: Promise<void>,
+  archive = [...recent.messages],
 ) {
   const calls: RequestInit[] = [],
     patches: RequestInit[] = []
@@ -44,7 +45,18 @@ function fixture(
     'fetch',
     vi.fn(async (path, init: RequestInit) => {
       if (String(path).endsWith('/transcribe')) return Response.json({ text: '播放夜航' })
+      if (String(path).includes('/history?')) {
+        const url = new URL(String(path), 'https://mosic.test')
+        const start = Date.parse(url.searchParams.get('start')!)
+        const end = Date.parse(url.searchParams.get('end')!)
+        return Response.json({ messages: archive.filter((m) => Date.parse(m.createdAt) >= start && Date.parse(m.createdAt) < end), nextCursor: null })
+      }
       if (init.method === 'PATCH') {
+        if (JSON.parse(String(init.body)).clearHistory) {
+          patches.push(init)
+          archive.length = 0
+          return Response.json({ ...recent, messages: [], nextCursor: null })
+        }
         patches.push(init)
         return Response.json({
           ...recent,
@@ -59,13 +71,13 @@ function fixture(
         requestId,
         memories: [],
         messages: [
-          { id: 'u', role: 'user', text, createdAt: '2026-01-01' },
+          { id: 'u', role: 'user', text, createdAt: new Date().toISOString() },
           {
             id: 'a',
             role: 'assistant',
             source: 'platform',
             text: '收到，夜航准备就绪。',
-            createdAt: '2026-01-01',
+            createdAt: new Date().toISOString(),
             playTrackId: track.id,
             cards: [
               { type: 'track', track, source: 'catalog', reason: '节奏舒缓' },
@@ -88,6 +100,7 @@ function fixture(
 }
 afterEach(() => {
   cleanup()
+  vi.useRealTimers()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
@@ -228,7 +241,7 @@ test.each([
 test('settings can add memory while retired speech controls stay absent for saved profiles', async () => {
   const { patches } = fixture(
     {},
-    { ...state, messages: [{ id: 'a', role: 'assistant', text: '收到。', createdAt: '2026-01-01' }] },
+    { ...state, messages: [{ id: 'a', role: 'assistant', text: '收到。', createdAt: new Date().toISOString() }] },
   )
   await screen.findByText('收到。')
   expect(screen.queryByRole('button', { name: '播报' })).toBeNull()
@@ -262,32 +275,67 @@ test('a delayed play request leaves a newer manual selection in place', async ()
   expect(props.onPlay).not.toHaveBeenCalled()
 })
 
-test('instrument shows the model and current reply, with controls for opening history and closing the sight glass', async () => {
-  const onPhaseChange = vi.fn(),
-    onClose = vi.fn()
-  fixture(
-    { onPhaseChange, onClose },
-    {
-      ...state,
-      messages: [
-        { id: 'old', role: 'assistant', text: '旧航线', createdAt: '2026-01-01' },
-        { id: 'u', role: 'user', text: '新的指令', createdAt: '2026-01-02' },
-        { id: 'a', role: 'assistant', text: '当前航线', createdAt: '2026-01-02' },
-      ],
-    },
-  )
+test('current communications show all of today while the archive can find past days, weeks, months and years', async () => {
+  vi.useFakeTimers({toFake: ['Date']})
+  vi.setSystemTime(new Date(2026, 10, 26, 12))
+  const stamp = (m: number, d: number) => new Date(2026, m - 1, d, 10).toISOString()
+  const onClose = vi.fn()
+  const { patches } = fixture({ onClose }, {
+    ...state, messages: [
+      { id: 'old', role: 'assistant', text: '三月航线', createdAt: stamp(3, 2) },
+      { id: 'month', role: 'assistant', text: '月初航线', createdAt: stamp(11, 2) },
+      { id: 'week', role: 'assistant', text: '昨天的航线', createdAt: stamp(11, 25) },
+      { id: 'u', role: 'user', text: '新的指令', createdAt: stamp(11, 26) },
+      { id: 'a', role: 'assistant', text: '当前航线', createdAt: stamp(11, 26) },
+    ],
+  })
   await screen.findByText('当前航线')
-  expect(screen.queryByText('旧航线')).toBeNull()
-  expect(screen.queryByText('待命')).toBeNull()
-  expect(screen.getByText('平台模型')).toBeTruthy()
-  expect(screen.getByLabelText('舰载副驾').classList.contains('cp-instrument')).toBe(true)
-  fireEvent.click(screen.getByText('查看通讯记录'))
-  expect(screen.getByText('旧航线')).toBeTruthy()
-  fireEvent.click(screen.getByText('返回当前通讯'))
-  expect(screen.queryByText('旧航线')).toBeNull()
+  expect(screen.getByText('新的指令')).toBeTruthy()
+  expect(screen.queryByText('昨天的航线')).toBeNull()
+  fireEvent.click(screen.getByRole('button', {name: '历史'}))
+  await screen.findByText('当前航线')
+  fireEvent.click(screen.getByRole('button', {name: '上一日'}))
+  await screen.findByText('昨天的航线')
+  expect(screen.queryByText('当前航线')).toBeNull()
+  fireEvent.click(screen.getByRole('button', {name: '周', exact: true}))
+  await screen.findByText('当前航线')
+  expect(screen.getByText('昨天的航线')).toBeTruthy()
+  expect(screen.queryByText('月初航线')).toBeNull()
+  fireEvent.click(screen.getByRole('button', {name: '月', exact: true}))
+  await screen.findByText('月初航线')
+  expect(screen.queryByText('三月航线')).toBeNull()
+  fireEvent.click(screen.getByRole('button', {name: '年', exact: true}))
+  await screen.findByText('三月航线')
+  fireEvent.click(screen.getByRole('button', {name: '设置与记忆'}))
+  fireEvent.click(screen.getByRole('button', {name: '清空对话记录'}))
+  fireEvent.click(screen.getByRole('button', {name: '确认清空'}))
+  await screen.findByText('对话记录已清空。')
+  expect(JSON.parse(String(patches[0].body))).toEqual({clearHistory: true})
+  fireEvent.click(screen.getByText('历史'))
+  await screen.findByText('这段时间没有通讯记录。')
+  fireEvent.click(screen.getByText('通讯'))
+  expect(screen.queryByText('当前航线')).toBeNull()
   fireEvent.click(screen.getByLabelText('关闭副驾观察窗'))
   expect(onClose).toHaveBeenCalledOnce()
-  expect(onPhaseChange).toHaveBeenCalledWith('idle')
+})
+
+test('midnight and resuming wake up the daily conversation, including a minimized reply and an unsent draft', async () => {
+  vi.useFakeTimers({toFake: ['Date', 'setTimeout', 'clearTimeout']})
+  vi.setSystemTime(new Date(2026, 10, 26, 23, 59, 58))
+  const stamp = new Date().toISOString()
+  const {result, props} = fixture({compact: true}, { ...state, messages: [{ id:'evening', role:'assistant', text:'昨夜回复', createdAt:stamp }] })
+  await act(async () => {})
+  expect(screen.getByText('昨夜回复')).toBeTruthy()
+  fireEvent.change(screen.getByLabelText('发给副驾'), {target: {value: '未发草稿'}})
+  await act(async () => { await vi.advanceTimersByTimeAsync(2001) })
+  expect(screen.queryByText('昨夜回复')).toBeNull()
+  expect(screen.getByLabelText<HTMLTextAreaElement>('发给副驾').value).toBe('未发草稿')
+  result.rerender(<CopilotPanel {...props} compact={false} />)
+  expect(screen.getByText('想听什么，船长？')).toBeTruthy()
+  fireEvent.click(screen.getByText('历史'))
+  fireEvent.click(screen.getByLabelText('上一日'))
+  await act(async () => {})
+  expect(screen.getByText('昨夜回复')).toBeTruthy()
 })
 
 test('desktop requires an explicit selection and sends only the current turn to its bridge, with no web fallback', async () => {
@@ -301,13 +349,13 @@ test('desktop requires an explicit selection and sends only the current turn to 
     return {
       requestId,
       messages: [
-        { id: 'lu', role: 'user', text, createdAt: '2026-11-28' },
+        { id: 'lu', role: 'user', text, createdAt: new Date().toISOString() },
         {
           id: 'la',
           role: 'assistant',
           source: 'desktop',
           text: '本机私有回复',
-          createdAt: '2026-11-28',
+          createdAt: new Date().toISOString(),
           cards: [],
         },
       ],
@@ -363,7 +411,7 @@ test('desktop native voice bypasses network transcription and uses the same desk
   const chat = vi.fn(async ({ text, requestId }: { text: string; requestId: string }) => ({
     requestId,
     messages: [
-      { id: 'x', role: 'assistant', source: 'desktop', text: '本机收到' + text, createdAt: '2026-11-27' },
+      { id: 'x', role: 'assistant', source: 'desktop', text: '本机收到' + text, createdAt: new Date().toISOString() },
     ],
   }))
   const bridge = {
@@ -577,7 +625,7 @@ test('the same desktop recording survives minimization and keyboard release leav
   const status = vi.fn(async () => ({ enabled, provider: 'local', model: 'demo' }))
   const chat = vi.fn(async ({ requestId, text }: { requestId: string; text: string }) => ({
     requestId,
-    messages: [{ id: 'one', role: 'assistant', source: 'desktop', text, createdAt: '2026-11-27' }],
+    messages: [{ id: 'one', role: 'assistant', source: 'desktop', text, createdAt: new Date().toISOString() }],
   }))
   vi.stubGlobal('mosicDesktop', {
     status,
@@ -648,4 +696,51 @@ test('hidden navigation keeps an ongoing written reply and suppresses playback w
   expect(props.onPlay).not.toHaveBeenCalled()
   expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes('/speech'))).toBe(false)
   expect(screen.queryByRole('alert')).toBeNull()
+})
+
+test('desktop clearing works on an empty day and a late history read cannot restore deleted local messages', async () => {
+  const stale = { id: 'stale', role: 'assistant', text: '已经删除的本机回复', createdAt: new Date().toISOString() }
+  let resolveSnapshot!: (page: unknown) => void
+  const history = vi.fn().mockReturnValueOnce(new Promise((resolve) => { resolveSnapshot = resolve }))
+    .mockResolvedValue({messages: [], nextCursor: null})
+  const clearHistory = vi.fn(async () => {})
+  vi.stubGlobal('mosicDesktop', {
+    history, clearHistory, status: async () => ({ enabled: true, provider: 'local', model: 'demo' }), openSettings: vi.fn(),
+  })
+  const {patches} = fixture()
+  fireEvent.click(await screen.findByText('设置与记忆'))
+  fireEvent.change(screen.getByLabelText('本次连接'), { target: { value: 'desktop' } })
+  await waitFor(() => expect(history).toHaveBeenCalledOnce())
+  fireEvent.click(screen.getByText('清空对话记录'))
+  fireEvent.click(screen.getByText('确认清空'))
+  await screen.findByText('对话记录已清空。')
+  expect(clearHistory).toHaveBeenCalledOnce()
+  expect(patches).toHaveLength(0)
+  await act(async () => resolveSnapshot({ messages:[stale], nextCursor:null }))
+  fireEvent.click(screen.getByText('通讯'))
+  await screen.findByText('想听什么，船长？')
+  expect(screen.queryByText(stale.text)).toBeNull()
+})
+
+test('a late archive page is discarded on period changes and earlier pages prepend chronologically', async () => {
+  fixture()
+  await screen.findByText('想听什么，船长？')
+  const http = vi.mocked(fetch)
+  const now = new Date().toISOString()
+  const page = (id: string, cursor: string | null = null) => Response.json({
+    messages: [{id,role:'user',text:id,createdAt:now}], nextCursor:cursor,
+  })
+  let finishOld!: (response: Response) => void
+  http.mockReturnValueOnce(new Promise((resolve) => {finishOld=resolve}))
+  fireEvent.click(screen.getByText('历史'))
+  http.mockResolvedValueOnce(page('最近的记录', 'earlier'))
+  fireEvent.click(screen.getByRole('button', {name:'月', exact: true}))
+  await screen.findByText('最近的记录')
+  await act(async () => finishOld(page('已过期的旧视图')))
+  expect(screen.queryByText('已过期的旧视图')).toBeNull()
+  http.mockResolvedValueOnce(page('最早的记录'))
+  fireEvent.click(screen.getByText('查看更早记录'))
+  await screen.findByText('最早的记录')
+  expect([...document.querySelectorAll('.cp-entry p')].map(el=>el.textContent)).toEqual(['最早的记录','最近的记录'])
+  expect(String(http.mock.calls.at(-1)?.[0])).toContain('cursor=earlier')
 })

@@ -34,6 +34,7 @@ export type CopilotState = {
   settings: CopilotSettings
   memories: CopilotMemory[]
   messages: CopilotMessage[]
+  nextCursor?: string | null
   capabilities: { platform: boolean; stt: boolean; tts: boolean }
 }
 export type CopilotTurn = {

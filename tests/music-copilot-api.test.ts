@@ -4,7 +4,8 @@ import { onRequestGet, onRequestPatch, onRequestPost } from '../functions/api/me
 import { onRequestPost as candidates } from '../functions/api/me/copilot/candidates'
 import { onRequestPost as transcribe } from '../functions/api/me/copilot/transcribe'
 import { onRequestPost as speech } from '../functions/api/me/copilot/speech'
-import { pruneCopilot, week } from '../functions/_music-copilot-state'
+import { onRequestGet as getHistory } from '../functions/api/me/copilot/history'
+import { currentDayRange, pruneCopilot, week } from '../functions/_music-copilot-state'
 import { createMusicApiFixture, insertCatalogTrack } from './helpers/music-api-fixture'
 import type { Env } from '../functions/_shared'
 
@@ -46,6 +47,93 @@ function seedTrack(id: string, title: string, bpm: number, genre = 'Rock') {
     .prepare("UPDATE music_track_catalog SET provider='audius',genres_json=?,visual_features_json=? WHERE id=?")
     .run(JSON.stringify([genre]), JSON.stringify({ source: 'audius', tempoBpm: bpm }), id)
 }
+function archive(query: Record<string, string>, who = cookie) {
+  const request = new Request('https://mosic.test/api/me/copilot/history?' + new URLSearchParams(query), {
+    headers: { Cookie: who },
+  })
+  return getHistory({ env, request } as never)
+}
+function seedTurn(uid: string, id: string, createdAt: string, text = id) {
+  db.sqlite.prepare('INSERT INTO music_copilot_turns VALUES (?,?,0,?,?,?)').run(uid, id, text,
+    JSON.stringify({ id: id + '-a', role: 'assistant', text: '收到', createdAt }), createdAt)
+}
+
+test('the active conversation and its model context begin at local midnight', async () => {
+  const timeZone = { 'X-Mosic-Time-Zone': 'America/New_York' }
+  const midnight = currentDayRange(new Request('https://mosic.test', { headers: timeZone })).start
+  const { ownerId } = await (await archive({ owner: '1' })).json()
+  seedTurn(ownerId, 'yesterday', new Date(Date.parse(midnight) - 1).toISOString(), 'yesterday private song')
+  seedTurn(ownerId, 'today', midnight, 'today favorite song')
+  const state = await (await call(onRequestGet, undefined, 'GET', cookie, timeZone)).json()
+  expect(state.messages.map((m: any) => m.id)).toEqual(['today-u', 'today-a'])
+  const run = vi.fn(async () => ({ response: '好的' }))
+  env.AI = { run }
+  const chat = await call(onRequestPost, { text: '继续聊', requestId: 'after-midnight' }, 'POST', cookie, timeZone)
+  expect(chat.status).toBe(200)
+  expect(JSON.stringify(run.mock.calls)).toContain('today favorite song')
+  expect(JSON.stringify(run.mock.calls)).not.toContain('yesterday private song')
+  expect((await call(onRequestPatch, { clearHistory: true }, 'PATCH', cookie, { 'X-Mosic-Time-Zone': 'Bad/Zone' })).status).toBe(400)
+  expect(db.sqlite.prepare('SELECT count(*) AS n FROM music_copilot_turns').get()).toEqual({ n: 3 })
+})
+
+test('local day boundaries handle daylight saving and sub-hour time zones', () => {
+  function midnight(zone: string, instant: string) {
+    return currentDayRange(new Request('https://mosic.test', { headers: { 'X-Mosic-Time-Zone': zone } }), Date.parse(instant)).start
+  }
+  expect(midnight('America/New_York', '2024-11-04T04:59:59Z')).toBe('2024-11-03T04:00:00.000Z')
+  expect(midnight('America/New_York', '2024-03-11T03:59:59Z')).toBe('2024-03-10T05:00:00.000Z')
+  expect(midnight('Asia/Kathmandu', '2024-12-31T18:15:00Z')).toBe('2024-12-31T18:15:00.000Z')
+})
+
+test('a reply completed after local midnight is archived with the preceding day’s question', async () => {
+  const timeZone = { 'X-Mosic-Time-Zone': 'Asia/Singapore' }
+  const sentAt = '2026-11-28T15:59:59.000Z', midnight = '2026-11-28T16:00:00.000Z'
+  vi.useFakeTimers({ toFake: ['Date'] })
+  try {
+    vi.setSystemTime(Date.parse(sentAt))
+    env.AI = { run: async () => {
+      vi.setSystemTime(Date.parse(midnight) + 1000)
+      return { response: '晚安' }
+    } }
+    const reply = await call(onRequestPost, { text: '晚安', requestId: 'night' }, 'POST', cookie, timeZone)
+    expect(reply.status).toBe(200)
+    expect((await reply.json()).messages.map((m: any) => m.createdAt)).toEqual([sentAt, sentAt])
+    const current = await call(onRequestGet, undefined, 'GET', cookie, timeZone)
+    expect((await current.json()).messages).toEqual([])
+    const prior = await archive({ start: '2026-11-27T16:00:00.000Z', end: midnight })
+    expect((await prior.json()).messages.map((m: any) => m.id)).toEqual(['night-u', 'night-a'])
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test('archive survives maintenance and pages complete turns across timestamp ties within the selected range', async () => {
+  const { ownerId } = await (await archive({ owner: '1' })).json()
+  const [start, end] = ['2024-01-01T00:00:00.000Z', '2025-01-01T00:00:00.000Z']
+  for (let row = 0; row < 24; row++) seedTurn(ownerId, 'r' + row, start)
+  seedTurn(ownerId, 'next-year', end)
+  const other = await call(onRequestGet, undefined, 'GET', '')
+  const otherCookie = other.headers.get('Set-Cookie')!.split(';')[0]
+  const otherId = (await (await archive({ owner: '1' }, otherCookie)).json()).ownerId
+  seedTurn(otherId, 'peer', start)
+  await pruneCopilot(env, Date.parse(end) + week)
+  const latest = await (await archive({ start, end })).json()
+  expect(latest.messages).toHaveLength(40)
+  expect(latest.messages[0].id).toBe('r4-u')
+  const older = await (await archive({ start, end, cursor: latest.nextCursor })).json()
+  expect(older.messages.map((m: any) => m.id)).toEqual(['r0-u', 'r0-a', 'r1-u', 'r1-a', 'r2-u', 'r2-a', 'r3-u', 'r3-a'])
+  expect(older.nextCursor).toBeNull()
+  expect((await (await archive({ start, end, cursor: latest.nextCursor }, otherCookie)).json()).messages).toEqual([])
+  expect((await archive({ start, end: start })).status).toBe(400)
+  expect((await archive({ start, end: '2026-01-01T00:00:00Z' })).status).toBe(400)
+  expect((await archive({ start: '2024-02-30T00:00:00Z', end })).status).toBe(400)
+  await call(onRequestPatch, { settings: { name: '船载导航' } }, 'PATCH')
+  await call(onRequestPatch, { memory: { action: 'add', text: '爱听民谣' } }, 'PATCH')
+  const cleared = await (await call(onRequestPatch, { clearHistory: true }, 'PATCH')).json()
+  expect(cleared).toMatchObject({ settings: { name: '船载导航' }, memories: [{ text: '爱听民谣' }], messages: [], nextCursor: null })
+  expect((await (await archive({ start, end })).json()).messages).toEqual([])
+  expect((await (await archive({ start, end }, otherCookie)).json()).messages.map((m: any) => m.id)).toEqual(['peer-u', 'peer-a'])
+})
 test('anonymous sessions isolate private turns, require same-origin writes and repeat valid idempotent replies', async () => {
   const text = '我喜欢听爵士'
   const first = await chat(text, 'same-id')
@@ -132,7 +220,8 @@ test('session BYOK stays in provider headers, quotas atomically gate model calls
   })
   expect(env.AI.run).toHaveBeenCalledTimes(1)
 })
-test('forgetting during an in-flight reply prevents stale messages and memories from being committed', async () => {
+test.each([{ memory: { action: 'clear' } }, { clearHistory: true }])(
+  'clearing data during an in-flight reply prevents stale messages and memories from being committed: %j', async (change) => {
   let started!: () => void, finish!: (v: unknown) => void
   const running = new Promise<void>((r) => {
     started = r
@@ -148,7 +237,7 @@ test('forgetting during an in-flight reply prevents stale messages and memories 
   const first = call(onRequestPost, { text: '我喜欢听爵士', requestId: 'one' })
   await running
   expect((await call(onRequestPost, { text: '我喜欢摇滚', requestId: 'two' })).status).toBe(409)
-  expect((await call(onRequestPatch, { memory: { action: 'clear' } }, 'PATCH')).status).toBe(200)
+  expect((await call(onRequestPatch, change, 'PATCH')).status).toBe(200)
   finish({ response: '好的' })
   expect((await first).status).toBe(409)
   const s = await (await call(onRequestGet, undefined, 'GET')).json()

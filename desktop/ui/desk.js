@@ -38,15 +38,19 @@ async function play(track){
   }
 }
 function songButton(t){const b=action('',()=>play(t),'song');b.append(el('strong',t.title),el('small',t.artist));return b}
+function entry(m, timeLabel = '') {
+  const section=el('article',null,'entry')
+  section.append(el('strong', (m.role==='user' ? '船长' : '副驾') + (timeLabel ? ' · '+timeLabel : '')),el('p',m.text))
+  for(const t of m.cards||[])section.append(action('▶ '+t.title,()=>play(t)))
+  return section
+}
 function render(s){
   state=s
   const names={local:'本机模型',openai:'OpenAI API',anthropic:'Anthropic API',subscription:'ChatGPT 套餐'}
   $('connection').textContent=names[s.provider]+' / '+(s.model||'待选择模型')
   const log=$('messages');log.replaceChildren()
   if(!s.history.length)log.append(el('p',s.model?'通讯已接通。今天想听什么？':'连接一个模型开始对话，或在电台查询并试听歌曲。','empty'))
-  for(const m of s.history){const section=el('article',null,'entry');section.append(el('strong',m.role==='user'?'船长':'副驾'),el('p',m.text))
-    for(const t of m.cards||[])section.append(action('▶ '+t.title,()=>play(t)))
-    log.append(section)}
+  for(const message of s.history) log.append(entry(message))
   log.scrollTop=log.scrollHeight
   $('tracks').replaceChildren(...s.tracks.map(songButton))
   const sources={live:'实时曲库',cached:'缓存曲库',offline:'离线缓存',local:'站内曲库'}
@@ -108,7 +112,15 @@ on('account','change',async()=>{render(await call('switchAccount',{clientId:$('a
 on('signout','click',async()=>{const s=await call('disconnectAccount');render(s);fillSettings();notice(s.warning||'已撤销此连接。')})
 on('pair','click',async()=>{render(await call('pair',{code:$('code').value}));$('code').value='';notice('配对成功。')})
 on('unpair','click',async()=>{render(await call('unpair'));notice('设备已断开。')})
-on('clear','click',async()=>{if(confirm('清除本机这七天的副驾对话？'))render(await call('clear'))})
+on('clear','click',async()=>{
+  if(!confirm('清除这台设备上全部离线电台聊天记录？此操作无法撤销。'))return
+  ++turnTicket
+  busy=false
+  render(await call('clear'))
+  updateComposer()
+  if ($('archive').open) await loadArchive()
+  notice('离线电台聊天记录已清除。')
+})
 on('open-site','click',()=>call('site'));on('usage','click',()=>call('site',{page:'usage'}))
 async function startDictation(hold) {
   if (dictation || busy || settings.open) return
@@ -226,6 +238,85 @@ window.addEventListener('blur', stopOnLeave)
 document.addEventListener('visibilitychange', () => { if (document.hidden) stopOnLeave() })
 audio.volume=.65;audio.onerror=()=>notice('这首歌暂时无法播放。')
 
+
+const archive=$('archive')
+const dateKey = date => [date.getFullYear(),String(date.getMonth()+1).padStart(2,'0'),String(date.getDate()).padStart(2,'0')].join('-')
+function chosenPeriod() {
+  const start=new Date(($('anchor-date').value || dateKey(new Date()))+'T00:00:00')
+  const mode=$('period').value
+  if (mode==='week') start.setDate(start.getDate()-(start.getDay()+6)%7)
+  if (mode==='month') start.setDate(1)
+  if (mode==='year') start.setMonth(0,1)
+  const end=new Date(start)
+  if(mode==='year') end.setFullYear(end.getFullYear()+1)
+  else if(mode==='month') end.setMonth(end.getMonth()+1)
+  else end.setDate(end.getDate()+(mode==='week'?7:1))
+  return {start,end}
+}
+let archiveRequest=0, archiveCursor=null, archiveMessages=[]
+async function loadArchive(earlier=false) {
+  const ticket=++archiveRequest, {start,end}=chosenPeriod()
+  const cursor=earlier ? archiveCursor : undefined
+  if (!earlier) {archiveMessages=[];archiveCursor=null;$('archive-entries').replaceChildren()}
+  $('earlier').hidden=true
+  $('archive-status').textContent='正在读取…'
+  const finalDay=new Date(end.getTime()-1)
+  $('period-label').textContent=dateKey(start)+(dateKey(start)===dateKey(finalDay)?'':' 至 '+dateKey(finalDay))
+  $('next-period').disabled=end.getTime()>Date.now()
+  try {
+    const page=await call('history',{start:start.toISOString(),end:end.toISOString(),cursor})
+    if (!archive.open || ticket!==archiveRequest) return
+    archiveCursor=page.nextCursor
+    archiveMessages=page.messages.concat(archiveMessages)
+    let lastDay=''
+    const nodes=[]
+    for (const message of archiveMessages) {
+      const date=new Date(message.at), day=dateKey(date)
+      if(day!==lastDay){nodes.push(el('h3',day));lastDay=day}
+      nodes.push(entry(message,date.toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})))
+    }
+    $('archive-entries').replaceChildren(...nodes)
+    $('archive-status').textContent=nodes.length ? '' : '这段时间没有聊天记录。'
+  } catch (error) {
+    if (ticket===archiveRequest) $('archive-status').textContent=errorText(error)
+  } finally {
+    if (ticket===archiveRequest) $('earlier').hidden=!archiveCursor
+  }
+}
+function shiftPeriod(back) {
+  const {start,end}=chosenPeriod()
+  $('anchor-date').value=dateKey(back ? new Date(start.getTime()-1) : end)
+  return loadArchive()
+}
+on('browse-history','click',async()=>{
+  $('anchor-date').value=dateKey(new Date())
+  $('anchor-date').max=$('anchor-date').value
+  archive.showModal()
+  await loadArchive()
+})
+on('close-archive','click',()=>archive.close())
+archive.addEventListener('close',()=>{archiveRequest++;archiveMessages=[];archiveCursor=null;$('archive-entries').replaceChildren()})
+on('period','change',()=>loadArchive());on('anchor-date','change',()=>loadArchive())
+on('previous-period','click',()=>shiftPeriod(true));on('next-period','click',()=>shiftPeriod(false))
+on('earlier','click',()=>loadArchive(true))
+
+let renderedDay = dateKey(new Date()), midnightTimer
+function checkDay() {
+  clearTimeout(midnightTimer)
+  const now=new Date(), today=dateKey(now)
+  if (today!==renderedDay) {
+    renderedDay=today
+    if (state) render({...state,history:state.history.filter(message=>dateKey(new Date(message.at))===today)})
+    $('anchor-date').max=today
+    if (archive.open) void loadArchive()
+  }
+  const midnight=new Date(now)
+  midnight.setHours(24,0,0,0)
+  midnightTimer=setTimeout(checkDay,midnight.getTime()-now.getTime()+20)
+}
+document.addEventListener('visibilitychange',()=>{if (!document.hidden) checkDay()})
+window.addEventListener('focus',checkDay)
+checkDay()
 
 async function switchDeskMode(view) {
   const next=view.settings?'settings':'radio'

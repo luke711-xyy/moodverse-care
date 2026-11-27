@@ -1,7 +1,7 @@
 {
   "name": "mosic-copilot",
   "productName": "MOSIC Copilot",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Private listening desk for the MOSIC music universe",
   "type": "module",
   "main": "src/main.mjs",

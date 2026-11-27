@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { MusicTrackSummary } from '../../music-domain'
 import type { MusicPlayerControls } from '../useMusicPlayer'
 import {
@@ -14,6 +14,7 @@ import { CopilotSettingsPanel, platformSession, type ModelSession } from './sett
 import { useCopilotVoice } from './voice'
 import { desktopProviders, type DesktopStatus } from './desktop-bridge'
 import { CopilotSocialPanel } from './SocialIntroductions'
+import { ArchiveEntries, HistoryPanel, localDay, rangeFor, useLocalDay, type HistoryPage, type ReadHistory } from './HistoryPanel'
 import './copilot.css'
 
 export type CopilotPhase = 'idle' | 'listening' | 'thinking' | 'error'
@@ -60,7 +61,9 @@ const sourceLabel = {
 }
 const initiative = { off: 'quiet', low: 'balanced', normal: 'chatty' } as const
 async function requestJson<T>(init: RequestInit = {}): Promise<T> {
-  const response = await fetch(endpoint, { credentials: 'same-origin', cache: 'no-store', ...init })
+  const response = await fetch(endpoint, { credentials: 'same-origin', cache: 'no-store', ...init,
+    headers: { 'X-Mosic-Time-Zone': Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC', ...init.headers },
+  })
   if (!response.ok) {
     if (response.status === 429) throw new Error('今天的配额或本轮频率已达上限，请稍后再试。')
     if (response.status === 401 || response.status === 403)
@@ -172,7 +175,8 @@ function CompactReply({
 
 export function CopilotPanel(props: CopilotPanelProps) {
   const { active, compact = false, visible = true } = props
-  const [tab, setTab] = useState<'chat' | 'social' | 'settings'>('chat')
+  const [tab, setTab] = useState<'chat' | 'history' | 'social' | 'settings'>('chat')
+  const today = useLocalDay(active)
   const pointer = useRef<number | null>(null)
   const holdKey = useRef<string | null>(null)
   const draftPrefix = useRef('')
@@ -181,6 +185,9 @@ export function CopilotPanel(props: CopilotPanelProps) {
   const state = cloudState ?? (bridge ? desktopEmpty : null)
   const [desktop, setDesktop] = useState<DesktopStatus | null>(null)
   const [desktopMessages, setDesktopMessages] = useState<CopilotMessage[]>([])
+  const desktopGeneration = useRef(0)
+  const [desktopCursor, setDesktopCursor] = useState<string | null>(null)
+  const [historyRevision, setHistoryRevision] = useState(0)
   useEffect(() => {
     if (!active || !bridge) return
     let live = true
@@ -206,9 +213,26 @@ export function CopilotPanel(props: CopilotPanelProps) {
   const [saving, setSaving] = useState(false)
   const [draft, setDraft] = useState('')
   const [session, setSession] = useState<ModelSession>(platformSession)
-  const currentMessages = session.provider === 'desktop' ? desktopMessages : (state?.messages ?? noMessages)
+  const local = session.provider === 'desktop'
+  const storedMessages = local ? desktopMessages : (state?.messages ?? noMessages)
+  const currentMessages = useMemo(() => storedMessages.filter((message) =>
+    localDay(new Date(message.createdAt)) === today), [storedMessages, today])
+  const readHistory: ReadHistory = useCallback(async (range, cursor, signal) => {
+    if (local) {
+      if (!bridge?.history) throw new Error('请更新 Mac 客户端以查看本机通讯记录。')
+      return bridge.history({ ...range, cursor })
+    }
+    const query = new URLSearchParams(range)
+    if (cursor) query.set('cursor', cursor)
+    const response = await fetch(endpoint + '/history?' + query, { credentials: 'same-origin', cache: 'no-store', signal })
+    if (!response.ok) throw new Error('无法读取通讯记录，请重试。')
+    return response.json() as Promise<HistoryPage>
+  }, [local, bridge])
   const [error, setError] = useState('')
-  const [history, setHistory] = useState(false)
+  const pendingDay = useRef('')
+  const pendingToday = pendingDay.current === today ? pending : ''
+  const cloudPageDay = useRef('')
+  const desktopPageDay = useRef('')
   const logEnd = useRef<HTMLDivElement>(null)
   const busy = useRef(false)
   const retry = useRef<{ signature: string; id: string } | null>(null)
@@ -268,8 +292,12 @@ export function CopilotPanel(props: CopilotPanelProps) {
     setError('')
     setState(null)
     try {
+      const day = localDay()
       const next = await requestJson<CopilotState>({ signal: controller.signal })
-      if (!controller.signal.aborted) setState(next)
+      if (!controller.signal.aborted) {
+        cloudPageDay.current = day
+        setState(next)
+      }
     } catch {
       if (!controller.signal.aborted) setError('无法读取副驾记录，请重新连接。')
     } finally {
@@ -281,7 +309,39 @@ export function CopilotPanel(props: CopilotPanelProps) {
   }, [])
   useEffect(() => {
     if (active) void load()
-  }, [active, load])
+  }, [active, today, load])
+  useEffect(() => {
+    if (!active || !local || !bridge?.history) return
+    let alive = true
+    let readCount = 0
+    const refresh = async () => {
+      const token = ++readCount
+      const generation = desktopGeneration.current
+      try {
+        const page = await bridge.history!(rangeFor(today))
+        if (alive && token === readCount) {
+          if (generation !== desktopGeneration.current) { void refresh(); return }
+          desktopPageDay.current = today
+          setDesktopMessages(page.messages)
+          setDesktopCursor(page.nextCursor)
+        }
+      } catch {
+        if (alive && token === readCount) {
+          setDesktopMessages([])
+          setDesktopCursor(null)
+          setError('无法读取本机通讯记录，请检查桌面连接。')
+        }
+      }
+    }
+    void refresh()
+    const unsubscribe = bridge.onHistoryChanged?.(() => {
+      setDesktopMessages([])
+      setDesktopCursor(null)
+      setHistoryRevision((value) => value + 1)
+      void refresh()
+    })
+    return () => { alive = false; unsubscribe?.() }
+  }, [active, local, bridge, today])
   useEffect(() => {
     isMounted.current = true
     return () => {
@@ -353,8 +413,8 @@ export function CopilotPanel(props: CopilotPanelProps) {
     voice.cancel()
     busy.current = true
     setError('')
+    pendingDay.current = localDay()
     setPending(text)
-    setHistory(false)
     setDraft('')
     const context = {
       trackId: props.currentTrackId,
@@ -394,8 +454,9 @@ export function CopilotPanel(props: CopilotPanelProps) {
         )
           throw new Error('桌面模型返回了无效的回合。')
         messages = reply.messages
+        desktopGeneration.current++
         setDesktopMessages((previous) =>
-          [...previous.filter((m) => !messages.some((next) => next.id === m.id)), ...messages].slice(-40),
+          [...previous.filter((m) => !messages.some((next) => next.id === m.id)), ...messages],
         )
       } else {
         const body: CopilotTurn = {
@@ -430,11 +491,13 @@ export function CopilotPanel(props: CopilotPanelProps) {
         )
       }
       retry.current = null
+      setHistoryRevision((v) => v + 1)
       const assistant = [...messages].reverse().find((message) => message.role === 'assistant')
       if (
         !callbacks.current.active ||
         callbacks.current.visible === false ||
         sentInForeground !== foregroundEpoch.current ||
+        pendingDay.current !== localDay() ||
         !assistant
       )
         return
@@ -468,12 +531,14 @@ export function CopilotPanel(props: CopilotPanelProps) {
     setSaving(true)
     setError('')
     try {
+      const day = localDay()
       const next = await requestJson<CopilotState>({
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(change),
       })
       if (!isMounted.current) return false
+      cloudPageDay.current = day
       setState(next)
       return true
     } catch (caught) {
@@ -484,11 +549,34 @@ export function CopilotPanel(props: CopilotPanelProps) {
       if (isMounted.current) setSaving(false)
     }
   }
+  const clearHistory = async () => {
+    if (!local) return patch({ clearHistory: true })
+    if (busy.current) return false
+    busy.current = true
+    setSaving(true)
+    setError('')
+    try {
+      if (!bridge?.clearHistory) throw new Error('请更新 Mac 客户端以清空本机通讯记录。')
+      await bridge.clearHistory()
+      if (!isMounted.current) return false
+      desktopGeneration.current++
+      setDesktopMessages([])
+      setDesktopCursor(null)
+      return true
+    } catch (caught) {
+      if (isMounted.current) setError(caught instanceof Error ? caught.message : '本机通讯记录清空失败。')
+      return false
+    } finally {
+      busy.current = false
+      if (isMounted.current) setSaving(false)
+    }
+  }
   const [showMoreActions, setShowMoreActions] = useState<string | null>(null)
+  const lastMessageId = currentMessages.at(-1)?.id
   useEffect(() => {
     const log = logEnd.current?.parentElement
-    if (log && active && tab === 'chat' && history) log.scrollTop = log.scrollHeight
-  }, [active, tab, history, state?.messages.length, pending])
+    if (log && active && tab === 'chat') log.scrollTop = log.scrollHeight
+  }, [active, compact, tab, lastMessageId, pendingToday])
 
   const phase: CopilotPhase =
     voice.phase === 'recording' || voice.phase === 'permission'
@@ -503,9 +591,56 @@ export function CopilotPanel(props: CopilotPanelProps) {
   }, [active, phase])
   if (!active || !visible) return null
   const latest = [...currentMessages].reverse().find((message) => message.role === 'assistant')
-  const messages = history ? currentMessages : latest && !pending ? [latest] : []
+  const todayCursor = local
+    ? desktopPageDay.current === today && desktopCursor
+    : cloudPageDay.current === today && state?.nextCursor
   const listening = voice.phase === 'recording' || voice.phase === 'permission'
   const voiceWorking = voice.phase !== 'idle'
+  const renderMessage = (message: CopilotMessage) => (
+    <article key={message.id} className="cp-entry" data-role={message.role}>
+      <header>
+        <strong>{message.role === 'user' ? '你' : state?.settings.name}</strong>
+        <time dateTime={message.createdAt}>
+          {new Date(message.createdAt).toLocaleTimeString('zh-CN', {
+            hour: '2-digit',
+            minute: '2-digit',
+          })}
+        </time>
+        {message.source && <small>{sourceLabel[message.source]}</small>}
+      </header>
+      <p>{message.text}</p>
+      {message.source === 'fallback' && message.fallbackReason && (
+        <small className="cp-source-note">{message.fallbackReason}</small>
+      )}
+      {message.cards?.map((card) => (
+        <ExchangeCard
+          key={card.type === 'planet' ? card.planetId : card.track.id}
+          card={card}
+          props={props}
+        />
+      ))}
+      {message.role === 'assistant' && (
+        <div className="cp-entry-actions">
+          {props.onDraftBottle && (
+            <button
+              type="button"
+              aria-expanded={showMoreActions === message.id}
+              onClick={() =>
+                setShowMoreActions(showMoreActions === message.id ? null : message.id)
+              }
+            >
+              更多
+            </button>
+          )}
+          {props.onDraftBottle && showMoreActions === message.id && (
+            <button type="button" onClick={() => props.onDraftBottle?.(message.text)}>
+              用这段话起草漂流瓶
+            </button>
+          )}
+        </div>
+      )}
+    </article>
+  )
   return (
     <section
       className="cp-panel cp-instrument"
@@ -557,6 +692,7 @@ export function CopilotPanel(props: CopilotPanelProps) {
           {(
             [
               ['chat', '通讯'],
+              ['history', '历史'],
               ['social', '引荐'],
               ['settings', '设置与记忆'],
             ] as const
@@ -617,31 +753,31 @@ export function CopilotPanel(props: CopilotPanelProps) {
             state={state}
             busy={saving || Boolean(pending)}
             patch={patch}
+            clearHistory={clearHistory}
             session={session}
             setSession={(next) => {
+              if (!local && next.provider === 'desktop' && bridge?.history) {
+                setDesktopMessages([])
+                setDesktopCursor(null)
+              }
               setSession(next)
               setError('')
-              setHistory(false)
             }}
           />
         </div>
       )}
+      {!compact && tab === 'history' && state && (
+        <HistoryPanel key={local ? 'desktop' : 'cloud'} today={today} read={readHistory} renderMessage={renderMessage} revision={historyRevision} />
+      )}
       {(compact || tab === 'chat') && state && (
         <>
-          {!compact && currentMessages.length > 0 && (
-            <div className="cp-log-tools">
-              <button onClick={() => setHistory(!history)} type="button">
-                {history ? '返回当前通讯' : '查看通讯记录'}
-              </button>
-            </div>
-          )}
           {compact ? (
             <CompactReply
               message={latest}
               player={props.player}
               error={error}
               progress={
-                pending
+                pendingToday
                   ? '副驾正在回复…'
                   : voice.phase === 'permission'
                     ? '正在等待麦克风'
@@ -653,8 +789,10 @@ export function CopilotPanel(props: CopilotPanelProps) {
               }
             />
           ) : (
-            <div className="cp-log" aria-label={history ? '通讯记录' : '当前通讯'} aria-live="polite">
-              {!messages.length && !pending && !history && (
+            <div className="cp-log" aria-label="当前通讯" aria-live="polite">
+              {todayCursor && <ArchiveEntries key={[local, today, todayCursor].join('/')} range={rangeFor(today)}
+                read={readHistory} initialCursor={todayCursor} renderMessage={renderMessage} />}
+              {!currentMessages.length && !pendingToday && (
                 <div className="cp-ready">
                   <p>想听什么，船长？</p>
                   <div className="cp-prompts">
@@ -673,57 +811,13 @@ export function CopilotPanel(props: CopilotPanelProps) {
                   </div>
                 </div>
               )}
-              {messages?.map((message) => (
-                <article key={message.id} className="cp-entry" data-role={message.role}>
-                  <header>
-                    <strong>{message.role === 'user' ? '你' : state.settings.name}</strong>
-                    <time dateTime={message.createdAt}>
-                      {new Date(message.createdAt).toLocaleTimeString('zh-CN', {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </time>
-                    {message.source && <small>{sourceLabel[message.source]}</small>}
-                  </header>
-                  <p>{message.text}</p>
-                  {message.source === 'fallback' && message.fallbackReason && (
-                    <small className="cp-source-note">{message.fallbackReason}</small>
-                  )}
-                  {message.cards?.map((card) => (
-                    <ExchangeCard
-                      key={card.type === 'planet' ? card.planetId : card.track.id}
-                      card={card}
-                      props={props}
-                    />
-                  ))}
-                  {message.role === 'assistant' && (
-                    <div className="cp-entry-actions">
-                      {props.onDraftBottle && (
-                        <button
-                          type="button"
-                          aria-expanded={showMoreActions === message.id}
-                          onClick={() =>
-                            setShowMoreActions(showMoreActions === message.id ? null : message.id)
-                          }
-                        >
-                          更多
-                        </button>
-                      )}
-                      {props.onDraftBottle && showMoreActions === message.id && (
-                        <button type="button" onClick={() => props.onDraftBottle?.(message.text)}>
-                          用这段话起草漂流瓶
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </article>
-              ))}
-              {pending && (
+              {currentMessages.map(renderMessage)}
+              {pendingToday && (
                 <article className="cp-entry" data-role="user">
                   <header>
                     <strong>你</strong>
                   </header>
-                  <p>{pending}</p>
+                  <p>{pendingToday}</p>
                 </article>
               )}
               <div ref={logEnd} />

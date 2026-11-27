@@ -3,14 +3,15 @@ import { type Env } from '../../_shared'
 import {
   bodyJson,
   capabilities,
+  currentDayRange,
   endpoint,
   ensureProfile,
   fail,
+  historyPage,
   memories,
   messagesFor,
   object,
   profile,
-  recent,
   string,
   week,
   type TurnRow,
@@ -18,18 +19,20 @@ import {
 import { copilotFacts, refreshMessages } from '../../_music-copilot-facts'
 import { speak } from '../../_music-copilot-model'
 
-async function state(env: Env, uid: string) {
-  const [p, m, rows] = await Promise.all([profile(env, uid), memories(env, uid), recent(env, uid)])
+async function state(env: Env, uid: string, day: ReturnType<typeof currentDayRange>) {
+  const [p, m, page] = await Promise.all([profile(env, uid), memories(env, uid), historyPage(env, uid, day)])
   return {
     settings: p.settings,
     memories: m,
-    messages: await refreshMessages(env, uid, rows.flatMap(messagesFor)),
+    messages: await refreshMessages(env, uid, page.rows.flatMap(messagesFor)),
+    nextCursor: page.nextCursor,
     capabilities: capabilities(env),
   }
 }
-export const onRequestGet = endpoint(state)
+export const onRequestGet = endpoint((env, uid, request) => state(env, uid, currentDayRange(request)))
 
 export const onRequestPatch = endpoint(async (env, uid, request) => {
+  const day = currentDayRange(request)
   const input = await bodyJson(request),
     change = input.settings,
     mem = input.memory
@@ -110,7 +113,7 @@ export const onRequestPatch = endpoint(async (env, uid, request) => {
   if (object(mem) && (mem.action === 'edit' || mem.action === 'forget') && results[2].meta.changes === 0)
     return fail(404, 'MEMORY_NOT_FOUND')
   if (object(mem) && mem.action === 'add' && results[2].meta.changes === 0) return fail(409, 'MEMORY_EXISTS_OR_LIMIT')
-  return state(env, uid)
+  return state(env, uid, day)
 })
 
 export function readCopilotContext(raw: unknown): CopilotContext {
@@ -141,7 +144,6 @@ function extractMemory(text: string) {
   return { kind: 'preference', text: likes[0].replace(/^请?记住[，,:： ]*/, ''), expires: null }
 }
 async function previousReply(env: Env, uid: string, row: TurnRow, text: string) {
-  if (Date.parse(row.created_at) <= Date.now() - week) return fail(410, 'TURN_EXPIRED')
   if (row.user_text !== text) return fail(409, 'REQUEST_ID_REUSED')
   return {
     requestId: row.request_id,
@@ -151,6 +153,8 @@ async function previousReply(env: Env, uid: string, row: TurnRow, text: string) 
 }
 
 export const onRequestPost = endpoint(async (env, uid, request) => {
+  const now = Date.now()
+  const day = currentDayRange(request, now)
   const input = await bodyJson(request),
     text = string(input.text, 1600),
     requestId = string(input.requestId, 96)
@@ -168,8 +172,7 @@ export const onRequestPost = endpoint(async (env, uid, request) => {
       .first<TurnRow>()
   const old = await find()
   if (old) return previousReply(env, uid, old, text)
-  const lock = crypto.randomUUID(),
-    now = Date.now()
+  const lock = crypto.randomUUID()
   // Also limit fallback-only writes when the deployment has no model binding.
   const count = await env.DB.prepare('SELECT count(*) AS n FROM music_copilot_turns WHERE user_id=? AND created_at>?')
     .bind(uid, new Date(now - 60000).toISOString())
@@ -190,7 +193,7 @@ export const onRequestPost = endpoint(async (env, uid, request) => {
   try {
     const p = await profile(env, uid),
       m = p.settings.memoryEnabled ? await memories(env, uid) : []
-    const raw = (await recent(env, uid, p.version)).flatMap(messagesFor)
+    const raw = (await historyPage(env, uid, day, null, p.version)).rows.flatMap(messagesFor)
     const history = await refreshMessages(env, uid, raw),
       context = readCopilotContext(input.context)
     const facts = await copilotFacts(env, uid, text, context, history, m)
@@ -252,7 +255,7 @@ export const onRequestPost = endpoint(async (env, uid, request) => {
       memoryEnabled: p.settings.memoryEnabled,
     }
     const reply = await speak(env, uid, provider, key, model, text, p.settings, history, modelFacts, fallback)
-    const date = new Date().toISOString(),
+    const date = new Date(now).toISOString(),
       draft: CopilotMessage = {
         id: requestId + '-a',
         role: 'assistant',

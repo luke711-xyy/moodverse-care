@@ -1,6 +1,6 @@
 <!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; media-src https:; img-src 'self'; object-src 'none'; connect-src 'none'; base-uri 'none'; form-action 'none'"><title>MOSIC · 舰载副驾</title><link rel="stylesheet" href="desk.css"></head>
 <body><header><div class="brand"><i></i>MOSIC <span>/</span> 私人电台</div><button id="open-site">进入宇宙 ↗</button></header>
-<main><section class="console"><div class="panelhead"><div><p class="signal">CREW INTERCOM</p><h1>舰载副驾</h1></div><button id="configure">连接设置</button></div>
+<main><section class="console"><div class="panelhead"><div><p class="signal">CREW INTERCOM</p><h1>舰载副驾</h1></div><div class="controls"><button id="browse-history">历史记录</button><button id="configure">连接设置</button></div></div>
 <div class="tuning" aria-hidden="true"><b></b></div>
 <p class="connection" id="connection"></p><div class="messages" id="messages" role="log" aria-label="本机对话"></div>
 <form id="composer"><label for="message">与副驾对话</label><textarea rows="2" id="message" maxlength="1800" placeholder="给我找一首适合夜航的歌……"></textarea>
@@ -8,6 +8,11 @@
 <p id="notice" role="status" aria-live="polite"></p></section>
 <aside class="library"><p class="signal">FM RECEIVER</p><h2>电台曲目</h2><form id="searchform"><label for="query">曲名或艺人</label><div class="row"><input id="query" placeholder="留空获取本周热门"><button>查询</button></div></form><small id="catalog-status"></small><div id="tracks"></div>
 <div id="station" hidden><strong id="playing"></strong><audio id="radio" controls preload="none"></audio><button id="match">寻找同歌星球</button><div id="planets"></div></div></aside></main>
+<dialog id="archive" aria-labelledby="archive-title"><div class="panelhead"><h2 id="archive-title">电台聊天记录</h2><button id="close-archive" aria-label="关闭历史记录">×</button></div>
+<div class="history-period"><label>视图<select id="period"><option value="day">日</option><option value="week">周</option><option value="month">月</option><option value="year">年</option></select></label>
+<label>选择日期<input type="date" id="anchor-date"></label></div>
+<div class="row"><button id="previous-period" aria-label="上一时段">←</button><strong id="period-label"></strong><button id="next-period" aria-label="下一时段">→</button></div>
+<div id="archive-entries"></div><button id="earlier" hidden>查看更早记录</button><p id="archive-status" role="status"></p></dialog>
 <dialog id="settings"><div class="panelhead"><h2>副驾设置</h2><button id="close" aria-label="关闭设置">×</button></div>
 <label for="provider">对话来源</label><select id="provider"><option value="local">本机模型</option><option value="subscription">ChatGPT 套餐</option><option value="openai">OpenAI API Key</option><option value="anthropic">Anthropic API Key</option></select>
 <section id="local-settings"><label for="endpoint">本地服务地址</label><input id="endpoint" placeholder="http://127.0.0.1:11434/v1"><small>支持 Ollama、LM Studio 和兼容 /v1 的本机服务。</small></section>
@@ -15,6 +20,6 @@
 <section id="subscription" hidden><label for="account">ChatGPT 账号</label><select id="account"></select><div class="row"><button id="signin">Continue with ChatGPT</button><button id="reauth">重新授权</button><button id="signout">断开</button><button id="usage">套餐用量 ↗</button></div><small>使用你授权的套餐额度。授权在系统浏览器中完成。</small></section>
 <label for="model">模型</label><div class="row"><input id="model" list="models" placeholder="选择或输入模型 ID"><datalist id="models"></datalist><button id="load-models">读取可用模型</button></div>
 <label for="personality">语气</label><select id="personality"><option>简洁</option><option>温和</option><option>幽默</option></select><label class="cockpit-permission"><input type="checkbox" id="allow-cockpit">允许音乐宇宙中的副驾使用这条模型连接</label><button class="solid" id="save">保存连接</button>
-<details><summary>本机记忆与对话</summary><div id="memories"></div><button id="clear">清除对话记录</button></details>
+<details><summary>本机记忆与对话</summary><div id="memories"></div><button id="clear">清除全部离线电台记录</button></details>
 <details><summary>配对网页版身份</summary><p>在网页的设置里生成配对码，允许本机查询公开的同歌星球。</p><div class="row"><input id="code" placeholder="一次性配对码"><button id="pair">配对</button><button id="unpair">断开配对</button></div></details>
 <p id="settings-status" role="status"></p></dialog><script src="desk.js" defer></script></body></html>

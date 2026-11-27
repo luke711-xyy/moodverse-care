@@ -21,6 +21,13 @@ if (process.isMainFrame) {
     status:()=>request('status'),
     openSettings:()=>request('settings'),
     chat:input=>request('chat',input),
+    history:range=>request('history',range),
+    clearHistory:()=>request('clearHistory'),
+    onHistoryChanged:callback=>{
+      const listener=()=>callback()
+      ipcRenderer.on('cockpit-history-changed',listener)
+      return ()=>ipcRenderer.removeListener('cockpit-history-changed',listener)
+    },
     cancel:()=>request('cancel'),
     voiceStart:()=>{
       if (armedHold === null) return Promise.reject(new Error('请按住说话键开始听写。'))
