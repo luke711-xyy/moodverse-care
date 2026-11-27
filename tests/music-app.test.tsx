@@ -1324,14 +1324,20 @@ test('a visitor can send a friend request from a public planet and block its own
   ])
 })
 
-test('a visitor can send, receive, open, comment on and release a drift bottle', async () => {
+function mockDriftBottleMailbox() {
   let sentToday = false
   let receiving = true
+  let opened = false
   let released = false
   const bottlePayloads: unknown[] = []
   const commentPayloads: unknown[] = []
+  const bottleRequests: string[] = []
+  const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString()
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), 'https://moodverse.test')
+    if (url.pathname.startsWith('/api/me/drift-bottles')) {
+      bottleRequests.push(`${init?.method ?? 'GET'} ${url.pathname}`)
+    }
     if (url.pathname === '/api/music/catalog') return Response.json({ tracks })
     if (url.pathname === '/api/me/music-planet') return Response.json({ planet: null })
     if (url.pathname === '/api/me/music-planet/moments') return Response.json({ moments: [] })
@@ -1342,7 +1348,7 @@ test('a visitor can send, receive, open, comment on and release a drift bottle',
     }
     if (url.pathname === '/api/me/drift-bottles') return Response.json({
       date: '2026-09-30', allowReceiving: receiving, sentToday,
-      inbox: released ? [] : [{ id: 'incoming-bottle', topicType: 'song', topicLabel: '歌曲 · 夜航', status: 'unread', deliveredAt: '2026-09-30T09:00:00.000Z', expiresAt: '2026-09-30T10:00:00.000Z' }],
+      inbox: released ? [] : [{ id: 'incoming-bottle', topicType: 'song', topicLabel: '歌曲 · 夜航', status: opened ? 'read' : 'unread', deliveredAt: new Date().toISOString(), expiresAt }],
       sent: sentToday ? [{ id: 'sent-bottle', topicType: 'song', topicLabel: '歌曲 · 夜航', status: 'delivered', deliveryCount: 1, createdAt: '2026-09-30T10:00:00.000Z' }] : [],
     })
     if (url.pathname === '/api/me/social-settings' && init?.method === 'PATCH') {
@@ -1351,45 +1357,101 @@ test('a visitor can send, receive, open, comment on and release a drift bottle',
     }
     if (url.pathname === '/api/me/drift-bottles/incoming-bottle' && init?.method === 'PATCH') {
       const action = (JSON.parse(String(init.body)) as { action: string }).action
+      if (action === 'open') opened = true
       if (action === 'release') released = true
       return Response.json(action === 'open' ? { delivery: { status: 'read' }, alreadyOpened: false } : { released: true, status: 'waiting' })
     }
     if (url.pathname === '/api/me/drift-bottles/incoming-bottle') return Response.json({
-      bottle: { id: 'incoming-bottle', topic: { type: 'song', track: { id: 'song-a', title: '夜航', artistName: '星际旅人', versionLabel: '', officialUrl: 'https://music.example/a', coverUrl: null } }, messageText: '沿着这首歌继续漂流。', sender: null },
-      delivery: { id: 'delivery-a', status: 'read', deliveredAt: '2026-09-30T09:00:00.000Z', expiresAt: '2026-09-30T10:00:00.000Z', canRelease: true },
+      bottle: { id: 'incoming-bottle', topic: { type: 'song', track: tracks[0] }, messageText: '沿着这首歌继续漂流。', sender: null },
+      delivery: { id: 'delivery-a', status: 'read', deliveredAt: new Date().toISOString(), expiresAt, canRelease: true },
       comments: [],
     })
     if (url.pathname === '/api/me/drift-bottles/incoming-bottle/comments' && init?.method === 'POST') {
-      const contentText = (JSON.parse(String(init.body)) as { contentText: string }).contentText
-      commentPayloads.push(contentText)
+      const payload = JSON.parse(String(init.body)) as { contentText: string; shareWithSender?: boolean }
+      const { contentText } = payload
+      commentPayloads.push(payload)
       return Response.json({ comment: { id: 'comment-a', contentText, createdAt: '2026-09-30T09:30:00.000Z', authorName: '你', isOwn: true, likeCount: 0, likedByMe: false } }, { status: 201 })
+    }
+    if (url.pathname === '/api/me/drift-bottles/incoming-bottle/comments/comment-a/like' && init?.method === 'POST') {
+      return Response.json({ liked: true, likeCount: 1 })
+    }
+    if (url.pathname === '/api/me/drift-bottles/sent-bottle/journey' && (!init?.method || init.method === 'GET')) {
+      return Response.json({
+        bottle: { id: 'sent-bottle', status: 'waiting_for_release', createdAt: '2026-09-30T10:00:00.000Z', topic: { type: 'song', track: tracks[0] }, messageText: '沿着这首歌继续漂流。' },
+        journey: { deliveryCount: 1, openedCount: 1, releasedCount: 0, commentCount: 1, lastActivityAt: '2026-09-30T10:15:00.000Z' },
+        comments: [{ id: 'echo-1', authorName: '听众', isOwn: false, contentText: '这段前奏好像雨声。', createdAt: '2026-09-30T10:15:00.000Z', likedByMe: false, likeCount: 0 }],
+      })
     }
     throw new Error(`Unexpected request: ${url.pathname}`)
   }))
+  return { bottleRequests, bottlePayloads, commentPayloads, isReceiving: () => receiving, isReleased: () => released }
+}
 
+async function openBottleMailbox() {
   await renderCockpit()
-  await screen.findByRole('heading', { name: '为你的星球选三首歌' })
   await openExploration('漂流瓶')
-  expect(await screen.findByRole('heading', { name: '漂流瓶' })).toBeTruthy()
+  await screen.findByRole('button', { name: '打开漂流瓶' })
+}
+
+test('sending a drift bottle opens the outbox and its echoes without recipient permissions', async () => {
+  const mailbox = mockDriftBottleMailbox()
+  await openBottleMailbox()
+  expect(screen.queryByLabelText(/附上一句话/)).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: /^写一只/ }))
   fireEvent.change(screen.getByLabelText(/附上一句话/), { target: { value: '沿着这首歌继续漂流。' } })
   fireEvent.click(screen.getByRole('button', { name: '放出漂流瓶 ↗' }))
-  expect(await screen.findByRole('button', { name: '今日已放流' })).toBeTruthy()
-  expect(bottlePayloads).toEqual([{ topic: { type: 'song', trackId: 'song-a' }, messageText: '沿着这首歌继续漂流。' }])
+  fireEvent.click(await screen.findByRole('button', { name: /查看回声/ }))
+  expect(await screen.findByText('这段前奏好像雨声。')).toBeTruthy()
+  expect(mailbox.bottlePayloads).toEqual([{ topic: { type: 'song', trackId: 'song-a' }, messageText: '沿着这首歌继续漂流。' }])
+  expect(mailbox.bottleRequests.filter(request => request.includes('/sent-bottle'))).toEqual(['GET /api/me/drift-bottles/sent-bottle/journey'])
+  expect(screen.queryByRole('button', { name: /继续放流/ })).toBeNull()
+  expect(screen.queryByRole('button', { name: '留下评论' })).toBeNull()
+  expect(screen.queryByRole('checkbox', { name: '匿名寄一份给瓶主' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: /^写一只/ }))
+  expect(screen.getByRole('button', { name: '去看已寄出' })).toBeTruthy()
+  expect(screen.queryByRole('button', { name: '放出漂流瓶 ↗' })).toBeNull()
+})
 
+test('recipients can open a drift bottle, leave a comment, like it and pass the bottle on', async () => {
+  const mailbox = mockDriftBottleMailbox()
+  await openBottleMailbox()
   fireEvent.click(screen.getByRole('button', { name: '打开漂流瓶' }))
   expect(await screen.findByText('沿着这首歌继续漂流。')).toBeTruthy()
+  const shareWithSender = screen.getByRole('checkbox', { name: /匿名寄一份给瓶主/ }) as HTMLInputElement
+  expect(shareWithSender.checked).toBe(false)
   fireEvent.change(screen.getByLabelText('添加评论'), { target: { value: '我也把这首歌放进今晚。' } })
+  fireEvent.click(shareWithSender)
   fireEvent.click(screen.getByRole('button', { name: '留下评论' }))
   expect(await screen.findByText('我也把这首歌放进今晚。')).toBeTruthy()
-  expect(commentPayloads).toEqual(['我也把这首歌放进今晚。'])
+  expect(mailbox.commentPayloads).toEqual([{ contentText: '我也把这首歌放进今晚。', shareWithSender: true }])
+  expect((screen.getByRole('checkbox', { name: /匿名寄一份给瓶主/ }) as HTMLInputElement).checked).toBe(false)
+  fireEvent.click(screen.getByRole('button', { name: /^点赞/ }))
+  await screen.findByRole('button', { name: /^已赞.*1/, pressed: true })
   fireEvent.click(screen.getByRole('button', { name: '继续放流 ↗' }))
-  expect(await screen.findByText('你已放流；系统暂时没有找到下一位，会继续寻找。')).toBeTruthy()
+  await waitFor(() => {
+    expect(mailbox.isReleased()).toBe(true)
+    expect(screen.queryByRole('button', { name: /继续放流|打开漂流瓶/ })).toBeNull()
+  })
 
   const receiveToggle = screen.getByRole('checkbox', { name: /接收漂流瓶/ }) as HTMLInputElement
   expect(receiveToggle.checked).toBe(true)
   fireEvent.click(receiveToggle)
-  expect(await screen.findByText('关闭后不会收到新的投递；已收到的瓶仍可处理。')).toBeTruthy()
-  expect(receiving).toBe(false)
+  await waitFor(() => expect(receiveToggle.checked).toBe(false))
+  expect(mailbox.isReceiving()).toBe(false)
+})
+
+test('a drift bottle reply stays with the relay by default', async () => {
+  const mailbox = mockDriftBottleMailbox()
+  await openBottleMailbox()
+  fireEvent.click(screen.getByRole('button', { name: '打开漂流瓶' }))
+  const shareWithSender = await screen.findByRole('checkbox', { name: /匿名寄一份给瓶主/ }) as HTMLInputElement
+  expect(shareWithSender.checked).toBe(false)
+  fireEvent.change(screen.getByLabelText('添加评论'), { target: { value: '留给下一位听众' } })
+  fireEvent.click(screen.getByRole('button', { name: '留下评论' }))
+  await screen.findByText('留给下一位听众')
+  expect(mailbox.commentPayloads).toHaveLength(1)
+  expect(mailbox.commentPayloads[0]).toMatchObject({ contentText: '留给下一位听众' })
+  expect(mailbox.commentPayloads[0]).not.toMatchObject({ shareWithSender: true })
 })
 
 test('settings can remove a virtual friend satellite without treating it as a real friendship', async () => {

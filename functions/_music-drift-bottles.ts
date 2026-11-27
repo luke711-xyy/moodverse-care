@@ -2,6 +2,7 @@ import { pairIsBlocked, isSocialRecord, socialResponse } from './_music-social'
 import { safeHttpsUrl, type Env } from './_shared'
 import { isManagedMomentPhoto } from '../src/music/moment-photo'
 import { catalogTrack, CATALOG_VISUAL_COLUMNS, type CatalogTrackRow } from './_music-dither'
+import type { MusicDriftBottleTopic, MusicDriftBottlesResponse, MusicDriftBottleProgress } from '../src/music-api'
 
 const MAX_BOTTLE_TEXT = 500
 const MAX_BOTTLE_COMMENTS_PER_MINUTE = 30
@@ -205,6 +206,7 @@ function candidateRowsSql(recentLimit: number) {
       SELECT p.owner_user_id AS user_id, p.id AS planet_id
       FROM music_planets p
       WHERE p.visibility = 'public'
+        AND p.owner_user_id NOT GLOB 'demo:*'
         AND p.owner_user_id <> ?1
         AND COALESCE((SELECT allow_receiving FROM music_drift_preferences WHERE user_id = p.owner_user_id), 1) = 1
         AND NOT EXISTS (
@@ -404,6 +406,7 @@ async function recipientStillEligible(env: Env, bottle: BottleRow, userId: strin
   const row = await env.DB.prepare(`
     SELECT 1 AS ok FROM music_planets p
     WHERE p.owner_user_id = ?1 AND p.visibility = 'public'
+      AND p.owner_user_id NOT GLOB 'demo:*'
       AND COALESCE((SELECT allow_receiving FROM music_drift_preferences WHERE user_id = ?1), 1) = 1
       AND NOT EXISTS (
         SELECT 1 FROM music_user_blocks b WHERE (b.blocker_user_id = ?2 AND b.blocked_user_id = ?1)
@@ -445,6 +448,7 @@ async function assignNextRecipient(env: Env, bottleId: string, now: Date) {
         AND EXISTS (
           SELECT 1 FROM music_planets p
           WHERE p.owner_user_id = ?3 AND p.visibility = 'public'
+            AND p.owner_user_id NOT GLOB 'demo:*'
             AND COALESCE((SELECT allow_receiving FROM music_drift_preferences WHERE user_id = ?3), 1) = 1
         )
         AND NOT EXISTS (
@@ -494,6 +498,57 @@ function publicTopic(topic: BottleTopic) {
   return { type: 'moment', momentId: topic.momentId }
 }
 
+// Echoes are opt-in per message. Existing UUID-only comments stay on the recipient route.
+const sharedEcho = `c.id GLOB 'echo-*' AND NOT EXISTS (
+  SELECT 1 FROM music_user_blocks bl WHERE (bl.blocker_user_id = c.author_user_id AND bl.blocked_user_id = ?1)
+    OR (bl.blocker_user_id = ?1 AND bl.blocked_user_id = c.author_user_id)
+)`
+
+type SentBottle = {
+  id: string; topic_type: BottleRow['topic_type']; info_title: string | null; track_title: string | null
+  created_at: string; delivery_state: MusicDriftBottlesResponse['sent'][number]['status']
+  delivery_count: number; opened_count: number; released_count: number; comment_count: number; last_activity_at: string
+}
+
+async function sentBottleSummaries(env: Env, userId: string, now: Date, bottleId?: string) {
+  const query = env.DB.prepare(`
+    WITH mine AS (
+      SELECT b.*, c.title AS track_title,
+        CASE WHEN b.status <> 'active' THEN b.status
+          WHEN b.topic_type = 'song' AND COALESCE(c.is_active, 0) = 0 THEN 'unavailable'
+          WHEN b.topic_type = 'moment' AND NOT EXISTS (
+            SELECT 1 FROM music_moments m JOIN music_planets p ON p.id = m.planet_id AND p.visibility = 'public'
+            WHERE m.id = b.moment_id AND p.owner_user_id = ?1 AND m.visibility = 'public' AND m.published_at IS NOT NULL
+          ) THEN 'unavailable' ELSE 'active' END AS effective_status
+      FROM music_drift_bottles b LEFT JOIN music_track_catalog c ON c.id = b.track_id
+      WHERE b.sender_user_id = ?1 ${bottleId === undefined ? '' : 'AND b.id = ?3'}
+      ORDER BY b.created_at DESC, b.id LIMIT 50
+    ), echoes AS (
+      SELECT c.bottle_id, COUNT(*) AS total, MAX(c.created_at) AS latest
+      FROM mine JOIN music_drift_comments c ON c.bottle_id = mine.id
+      WHERE mine.effective_status = 'active' AND ${sharedEcho} GROUP BY c.bottle_id
+    )
+    SELECT b.id, b.topic_type, b.info_title, b.track_title, b.created_at,
+      count(d.id) AS delivery_count, count(d.opened_at) AS opened_count, count(d.released_at) AS released_count,
+      COALESCE(e.total, 0) AS comment_count,
+      MAX(b.created_at, COALESCE(MAX(d.delivered_at), ''), COALESCE(MAX(d.opened_at), ''),
+          COALESCE(MAX(d.released_at), ''), COALESCE(e.latest, '')) AS last_activity_at,
+      CASE WHEN b.effective_status <> 'active' THEN b.effective_status
+           WHEN MAX(CASE WHEN d.status = 'read' THEN 1 ELSE 0 END) = 1 THEN 'waiting_for_release'
+           WHEN MAX(CASE WHEN d.status = 'unread' AND d.expires_at > ?2 THEN 1 ELSE 0 END) = 1 THEN 'delivered'
+           ELSE 'waiting' END AS delivery_state
+    FROM mine b LEFT JOIN music_drift_deliveries d ON d.bottle_id = b.id LEFT JOIN echoes e ON e.bottle_id = b.id
+    GROUP BY b.id ORDER BY b.created_at DESC, b.id
+  `)
+  const bindings = bottleId === undefined ? [userId, now.toISOString()] : [userId, now.toISOString(), bottleId]
+  return (await query.bind(...bindings).all<SentBottle>()).results
+}
+
+function journeyProgress(row: SentBottle): MusicDriftBottleProgress {
+  return { deliveryCount: row.delivery_count, openedCount: row.opened_count, releasedCount: row.released_count,
+    commentCount: row.comment_count, lastActivityAt: row.last_activity_at }
+}
+
 export async function listDriftBottles(env: Env, userId: string, now = new Date()) {
   const [inbox, sent, preference] = await Promise.all([
     env.DB.prepare(`
@@ -502,9 +557,11 @@ export async function listDriftBottles(env: Env, userId: string, now = new Date(
       FROM music_drift_deliveries d JOIN music_drift_bottles b ON b.id = d.bottle_id AND b.status = 'active'
       LEFT JOIN music_track_catalog c ON c.id = b.track_id
       WHERE d.recipient_user_id = ?1 AND d.status IN ('unread', 'read')
+        AND (d.status = 'read' OR d.expires_at > ?2)
+        AND (b.topic_type <> 'song' OR c.is_active = 1)
         AND (b.topic_type <> 'moment' OR EXISTS (
           SELECT 1 FROM music_moments m JOIN music_planets p ON p.id = m.planet_id
-          WHERE m.id = b.moment_id AND p.owner_user_id = b.sender_user_id
+          WHERE m.id = b.moment_id AND p.owner_user_id = b.sender_user_id AND p.visibility = 'public'
             AND m.visibility = 'public' AND m.published_at IS NOT NULL
         ))
         AND NOT EXISTS (
@@ -512,22 +569,8 @@ export async function listDriftBottles(env: Env, userId: string, now = new Date(
             OR (bl.blocker_user_id = b.sender_user_id AND bl.blocked_user_id = ?1)
         )
       ORDER BY d.delivered_at DESC, b.id ASC LIMIT 50
-    `).bind(userId).all<{ id: string; topic_type: string; info_title: string | null; track_title: string | null; delivery_status: string; delivered_at: string; expires_at: string }>(),
-    env.DB.prepare(`
-      SELECT b.id, b.topic_type, b.info_title, c.title AS track_title, b.status, b.created_at,
-             count(d.id) AS delivery_count,
-             CASE WHEN b.status <> 'active' THEN b.status
-                  WHEN current.status = 'unread' THEN 'delivered'
-                  WHEN current.status = 'read' THEN 'waiting_for_release'
-                  ELSE 'waiting' END AS delivery_state
-      FROM music_drift_bottles b
-      LEFT JOIN music_track_catalog c ON c.id = b.track_id
-      LEFT JOIN music_drift_deliveries d ON d.bottle_id = b.id
-      LEFT JOIN music_drift_deliveries current ON current.bottle_id = b.id AND current.status IN ('unread', 'read')
-      WHERE b.sender_user_id = ?1
-      GROUP BY b.id, b.topic_type, b.info_title, c.title, b.status, b.created_at, current.status
-      ORDER BY b.created_at DESC, b.id ASC LIMIT 50
-    `).bind(userId).all<{ id: string; topic_type: string; info_title: string | null; track_title: string | null; status: string; created_at: string; delivery_count: number; delivery_state: string }>(),
+    `).bind(userId, now.toISOString()).all<{ id: string; topic_type: string; info_title: string | null; track_title: string | null; delivery_status: string; delivered_at: string; expires_at: string }>(),
+    sentBottleSummaries(env, userId, now),
     env.DB.prepare(`SELECT allow_receiving FROM music_drift_preferences WHERE user_id = ?1`).bind(userId).first<{ allow_receiving: number }>(),
   ])
   const topicLabel = (type: string, title: string | null, trackTitle: string | null) =>
@@ -542,9 +585,9 @@ export async function listDriftBottles(env: Env, userId: string, now = new Date(
     })),
     sentToday: Boolean(await env.DB.prepare(`SELECT 1 FROM music_drift_bottles WHERE sender_user_id = ?1 AND created_day_utc = ?2 LIMIT 1`)
       .bind(userId, utcDay(now)).first()),
-    sent: sent.results.map((row) => ({
+    sent: sent.map((row) => ({
       id: row.id, topicType: row.topic_type, topicLabel: topicLabel(row.topic_type, row.info_title, row.track_title),
-      status: row.delivery_state, deliveryCount: row.delivery_count, createdAt: row.created_at,
+      status: row.delivery_state, createdAt: row.created_at, ...journeyProgress(row),
     })),
   }
 }
@@ -563,22 +606,26 @@ async function accessIsAllowed(env: Env, bottle: BottleRow, userId: string, deli
   return !(await pairIsBlocked(env, bottle.sender_user_id, userId))
 }
 
-async function detailsForRecipient(env: Env, bottle: BottleRow, delivery: DeliveryRow, viewerId: string) {
-  let topic: Record<string, unknown>
+async function readBottleTopic(env: Env, bottle: BottleRow): Promise<MusicDriftBottleTopic | null> {
   if (bottle.topic_type === 'song') {
-    const trackRow = await env.DB.prepare(`SELECT ${CATALOG_VISUAL_COLUMNS} FROM music_track_catalog c WHERE c.id = ?1`)
+    const trackRow = await env.DB.prepare(`SELECT ${CATALOG_VISUAL_COLUMNS} FROM music_track_catalog c WHERE c.id = ?1 AND c.is_active = 1`)
       .bind(bottle.track_id).first<CatalogTrackRow>()
-    topic = { type: 'song', track: trackRow ? catalogTrack(trackRow) : null }
-  } else if (bottle.topic_type === 'info') {
-    topic = { type: 'info', title: bottle.info_title, url: bottle.info_url, summary: bottle.info_summary }
-  } else {
-    const moment = await env.DB.prepare(`
+    return trackRow ? { type: 'song', track: catalogTrack(trackRow) } : null
+  }
+  if (bottle.topic_type === 'info') {
+    const url = safeHttpsUrl(bottle.info_url)
+    return url && bottle.info_title ? { type: 'info', title: bottle.info_title, url, summary: bottle.info_summary ?? '' } : null
+  }
+  const moment = await env.DB.prepare(`
       SELECT m.content_text, m.photo_url, ${CATALOG_VISUAL_COLUMNS}
       FROM music_moments m JOIN music_planets p ON p.id = m.planet_id JOIN music_track_catalog c ON c.id = m.track_id
-      WHERE m.id = ?1 AND p.owner_user_id = ?2 AND m.visibility = 'public' AND m.published_at IS NOT NULL
+      WHERE m.id = ?1 AND p.owner_user_id = ?2 AND p.visibility = 'public' AND m.visibility = 'public' AND m.published_at IS NOT NULL
     `).bind(bottle.moment_id, bottle.sender_user_id).first<CatalogTrackRow & { content_text: string; photo_url: string | null }>()
-    topic = { type: 'moment', momentId: bottle.moment_id, contentText: moment?.content_text ?? '', photoUrl: isManagedMomentPhoto(moment?.photo_url) ? moment.photo_url : safeHttpsUrl(moment?.photo_url), track: moment ? catalogTrack(moment) : null }
-  }
+  return moment ? { type: 'moment', momentId: bottle.moment_id, contentText: moment.content_text,
+    photoUrl: isManagedMomentPhoto(moment.photo_url) ? moment.photo_url : safeHttpsUrl(moment.photo_url), track: catalogTrack(moment) } : null
+}
+
+async function detailsForRecipient(env: Env, bottle: BottleRow, delivery: DeliveryRow, viewerId: string, topic: MusicDriftBottleTopic) {
   const sender = await env.DB.prepare(`
     SELECT p.id AS planet_id, p.display_name, p.tagline FROM music_planets p
     WHERE p.owner_user_id = ?1 AND p.visibility = 'public'
@@ -618,12 +665,37 @@ export async function getDriftBottleDetails(env: Env, bottleId: string, userId: 
   if (!bottle || bottle.status !== 'active') return { status: 404, body: { error: 'BOTTLE_NOT_FOUND' } }
   const delivery = await activeDeliveryForRecipient(env, bottleId, userId)
   if (!delivery || !(await accessIsAllowed(env, bottle, userId, delivery))) return { status: 404, body: { error: 'BOTTLE_NOT_FOUND' } }
-  if (!(await contentIsAvailable(env, bottle))) {
+  const topic = await readBottleTopic(env, bottle)
+  if (!topic) {
     await stopUnavailableBottle(env, bottleId, now)
     return { status: 410, body: { error: 'BOTTLE_CONTENT_UNAVAILABLE' } }
   }
   if (delivery.status !== 'read') return { status: 409, body: { error: 'BOTTLE_NOT_OPENED' } }
-  return { status: 200, body: await detailsForRecipient(env, bottle, delivery, userId) }
+  return { status: 200, body: await detailsForRecipient(env, bottle, delivery, userId, topic) }
+}
+
+export async function getSentBottleJourney(env: Env, bottleId: string, userId: string, now = new Date()) {
+  const [summary] = await sentBottleSummaries(env, userId, now, bottleId)
+  if (!summary) return { status: 404, body: { error: 'BOTTLE_NOT_FOUND' } }
+  const bottle = await loadBottle(env, bottleId)
+  if (!bottle || bottle.sender_user_id !== userId) return { status: 404, body: { error: 'BOTTLE_NOT_FOUND' } }
+  const topic = bottle.status === 'active' && summary.delivery_state !== 'unavailable'
+    ? await readBottleTopic(env, bottle) : null
+  const journey = journeyProgress(summary)
+  const echoes = topic && journey.commentCount > 0 ? (await env.DB.prepare(`
+    SELECT c.id, c.content_text, c.created_at, d.hop,
+      (SELECT count(*) FROM music_drift_comment_likes l WHERE l.comment_id = c.id) AS like_count
+    FROM music_drift_comments c JOIN music_drift_deliveries d ON d.id = c.delivery_id
+    WHERE c.bottle_id = ?2 AND ${sharedEcho}
+    ORDER BY c.created_at DESC, c.id DESC LIMIT 200
+  `).bind(userId, bottleId).all<{ id: string; content_text: string; created_at: string; hop: number; like_count: number }>()).results : []
+  return { status: 200, body: {
+    bottle: { id: bottle.id, topic, messageText: topic ? bottle.message_text : '', createdAt: bottle.created_at,
+      status: topic ? summary.delivery_state : bottle.status === 'stopped' ? 'stopped' : 'unavailable' },
+    journey: { ...journey, commentCount: topic ? journey.commentCount : 0 },
+    comments: echoes.reverse().map(row => ({ id: row.id, contentText: row.content_text, createdAt: row.created_at,
+      authorName: `第 ${row.hop} 站`, isOwn: false, likedByMe: false, likeCount: row.like_count })),
+  } }
 }
 
 export async function openOrReleaseDriftBottle(env: Env, bottleId: string, userId: string, action: unknown, now = new Date()) {
@@ -671,12 +743,15 @@ async function currentReadDelivery(env: Env, bottleId: string, userId: string) {
 }
 
 export async function addDriftBottleComment(env: Env, bottleId: string, userId: string, payload: unknown, now = new Date()) {
-  if (!isSocialRecord(payload) || !exactKeys(payload, ['contentText'])) return { status: 400, body: { error: 'INVALID_BOTTLE_COMMENT' } }
+  if (!isSocialRecord(payload) || (!exactKeys(payload, ['contentText'])
+    && !(exactKeys(payload, ['contentText', 'shareWithSender']) && typeof payload.shareWithSender === 'boolean'))) {
+    return { status: 400, body: { error: 'INVALID_BOTTLE_COMMENT' } }
+  }
   const contentText = boundedText(payload.contentText, MAX_BOTTLE_TEXT, false)
   if (!contentText) return { status: 400, body: { error: 'INVALID_BOTTLE_COMMENT' } }
   const current = await currentReadDelivery(env, bottleId, userId)
   if (!current) return { status: 409, body: { error: 'BOTTLE_MUST_BE_OPENED' } }
-  const id = crypto.randomUUID()
+  const id = payload.shareWithSender === true ? `echo-${crypto.randomUUID()}` : crypto.randomUUID()
   const createdAt = now.toISOString()
   const windowStart = new Date(now.getTime() - 60_000).toISOString()
   const result = await env.DB.prepare(`
@@ -698,7 +773,7 @@ export async function addDriftBottleComment(env: Env, bottleId: string, userId: 
       ? { status: 429, body: { error: 'COMMENT_RATE_LIMITED' } }
       : { status: 409, body: { error: 'BOTTLE_DELIVERY_CHANGED' } }
   }
-  return { status: 201, body: { comment: { id, contentText, createdAt, authorName: '你', likeCount: 0, likedByMe: false } } }
+  return { status: 201, body: { comment: { id, contentText, createdAt, authorName: '你', isOwn: true, likeCount: 0, likedByMe: false } } }
 }
 
 export async function setDriftBottleCommentLike(env: Env, bottleId: string, commentId: string, userId: string, liked: boolean, now = new Date()) {

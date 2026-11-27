@@ -1,4 +1,5 @@
-import { Paginated, PagedSelect } from './Pagination'
+import { Paginated } from './Pagination'
+import { DriftBottlePanel } from './DriftBottlePanel'
 import { OrbitGrid } from './OrbitGrid'
 import { Communicator } from './Communicator'
 import { GalaxyAxisNode } from './GalaxyAxisNode'
@@ -6,7 +7,7 @@ import { GalaxySelectionSettings } from './GalaxySelectionSettings'
 import { FriendManagement, type FriendChange } from './FriendManagement'
 import type { GalaxySelectionKind, GalaxySelectionOption } from './galaxy-preferences'
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type CSSProperties, type FormEvent } from 'react'
-import type { GalaxyGroupBy, MusicAdminReport, MusicApi, MusicDiscoveryResponse, MusicDriftBottleDetail, MusicDriftBottlesResponse, MusicFriendSatellite, MusicGalaxyResponse, MusicMoment, MusicOrbitResponse, MusicPlanet, MusicPlanetVisitSource, MusicReportQueueFilter, MusicReportReason, MusicReportStatus, MusicReportTarget, MusicSocialSettings, PublicMusicPlanet, SongPortalMatch, SongPortalResponse } from '../music-api'
+import type { GalaxyGroupBy, MusicAdminReport, MusicApi, MusicDiscoveryResponse, MusicFriendSatellite, MusicGalaxyResponse, MusicMoment, MusicOrbitResponse, MusicPlanet, MusicPlanetVisitSource, MusicReportQueueFilter, MusicReportReason, MusicReportStatus, MusicReportTarget, MusicSocialSettings, PublicMusicPlanet, SongPortalMatch, SongPortalResponse } from '../music-api'
 import { createMusicApi, MusicApiError } from '../music-api'
 import { togglePlanetTrack, validatePlanetDraft } from '../music-app-domain'
 import type { MusicTrackSummary } from '../music-domain'
@@ -236,248 +237,6 @@ function discoveryReason(reasonCode: MusicDiscoveryResponse['recommendations'][n
   return '随机路过'
 }
 
-function driftBottleStatus(status: string) {
-  if (status === 'unread') return '待打开 · 一小时内未打开会重新投递'
-  if (status === 'read') return '已打开 · 读后可选择继续放流'
-  if (status === 'delivered') return '正在漂流'
-  if (status === 'waiting_for_release') return '已读 · 等待收件人主动放流'
-  if (status === 'waiting') return '暂时没有合适的接收人，系统会继续寻找'
-  if (status === 'unavailable') return '内容已不可用，漂流已停止'
-  if (status === 'stopped') return '漂流已停止'
-  return status
-}
-
-function DriftBottlePanel({ api, tracks, moments, onVisitPlanet, player }: {
-  api: MusicApi
-  tracks: MusicTrackSummary[]
-  moments: MusicMoment[]
-  onVisitPlanet: (planetId: string, displayName: string) => void
-  player?: MusicPlayerControls
-}) {
-  const [snapshot, setSnapshot] = useState<MusicDriftBottlesResponse | null>(null)
-  const [detail, setDetail] = useState<MusicDriftBottleDetail | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [sending, setSending] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [preferenceBusy, setPreferenceBusy] = useState(false)
-  const [topicType, setTopicType] = useState<'song' | 'info' | 'moment'>('song')
-  const [trackId, setTrackId] = useState('')
-  const [momentId, setMomentId] = useState('')
-  const [infoTitle, setInfoTitle] = useState('')
-  const [infoUrl, setInfoUrl] = useState('')
-  const [infoSummary, setInfoSummary] = useState('')
-  const [messageText, setMessageText] = useState('')
-  const [commentText, setCommentText] = useState('')
-  const [error, setError] = useState('')
-  const [feedback, setFeedback] = useState('')
-
-  const reload = async () => {
-    setLoading(true)
-    setError('')
-    try { setSnapshot(await api.loadDriftBottles()) }
-    catch { setError('暂时无法读取漂流瓶，请稍后重试。') }
-    finally { setLoading(false) }
-  }
-
-  useEffect(() => { void reload() }, [api])
-  useEffect(() => {
-    if (!trackId && tracks[0]) setTrackId(tracks[0].id)
-    if (!momentId) setMomentId(moments.find((moment) => moment.visibility === 'public' && moment.publishedAt)?.id ?? '')
-  }, [tracks, moments, trackId, momentId])
-
-  const createBottle = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    if (!snapshot || snapshot.sentToday || sending) return
-    let topic: { type: 'song'; trackId: string } | { type: 'info'; title: string; url: string; summary: string } | { type: 'moment'; momentId: string }
-    if (topicType === 'song') topic = { type: 'song', trackId }
-    else if (topicType === 'moment') topic = { type: 'moment', momentId }
-    else topic = { type: 'info', title: infoTitle, url: infoUrl, summary: infoSummary }
-    setSending(true)
-    setError('')
-    setFeedback('')
-    try {
-      const result = await api.createDriftBottle(topic, messageText)
-      setMessageText('')
-      setInfoTitle('')
-      setInfoUrl('')
-      setInfoSummary('')
-      setFeedback(result.bottle.status === 'waiting'
-        ? '漂流瓶已保存，暂时没有合适的接收人；系统会继续寻找。'
-        : '漂流瓶已交给系统随机投递。你可以在下方查看传播状态。')
-      await reload()
-    } catch (cause) {
-      setError(cause instanceof Error && 'code' in cause && cause.code === 'DAILY_BOTTLE_LIMIT'
-        ? '今天已经发过一只漂流瓶了，明天可以再发。'
-        : '漂流瓶没有发出，请确认内容后重试。')
-    } finally { setSending(false) }
-  }
-
-  const openBottle = async (bottleId: string) => {
-    setBusy(true)
-    setError('')
-    try {
-      await api.updateDriftBottle(bottleId, 'open')
-      setDetail(await api.getDriftBottle(bottleId))
-      setCommentText('')
-      await reload()
-    } catch {
-      setError('这只漂流瓶已过期、停止传播或暂时无法打开。')
-      setDetail(null)
-      await reload()
-    } finally { setBusy(false) }
-  }
-
-  const releaseBottle = async () => {
-    if (!detail || busy) return
-    setBusy(true)
-    setError('')
-    try {
-      const result = await api.updateDriftBottle(detail.bottle.id, 'release')
-      setDetail(null)
-      setFeedback(result.status === 'waiting'
-        ? '你已放流；系统暂时没有找到下一位，会继续寻找。'
-        : '你已放流，漂流瓶正在寻找下一位。')
-      await reload()
-    } catch { setError('放流没有完成，请刷新后重试。') }
-    finally { setBusy(false) }
-  }
-
-  const submitComment = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    if (!detail || !commentText.trim() || busy) return
-    setBusy(true)
-    setError('')
-    try {
-      const { comment } = await api.addDriftBottleComment(detail.bottle.id, commentText)
-      setDetail({ ...detail, comments: [...detail.comments, comment] })
-      setCommentText('')
-    } catch { setError('评论没有保存，请稍后重试。') }
-    finally { setBusy(false) }
-  }
-
-  const toggleLike = async (commentId: string, liked: boolean) => {
-    if (!detail || busy) return
-    setBusy(true)
-    try {
-      const result = await api.setDriftBottleCommentLike(detail.bottle.id, commentId, !liked)
-      setDetail({ ...detail, comments: detail.comments.map((comment) => comment.id === commentId
-        ? { ...comment, likedByMe: result.liked, likeCount: result.likeCount } : comment) })
-    } catch { setError('点赞没有更新，请重试。') }
-    finally { setBusy(false) }
-  }
-
-  const deleteComment = async (commentId: string) => {
-    if (!detail || busy) return
-    setBusy(true)
-    try {
-      await api.deleteDriftBottleComment(detail.bottle.id, commentId)
-      setDetail({ ...detail, comments: detail.comments.filter((comment) => comment.id !== commentId) })
-    } catch { setError('评论没有删除，请稍后重试。') }
-    finally { setBusy(false) }
-  }
-
-  const toggleReceiving = async (allowDriftBottles: boolean) => {
-    setPreferenceBusy(true)
-    setError('')
-    try {
-      await api.updateSocialSettings({ allowDriftBottles })
-      setSnapshot((current) => current ? { ...current, allowReceiving: allowDriftBottles } : current)
-    } catch { setError('接收偏好没有保存，请稍后重试。') }
-    finally { setPreferenceBusy(false) }
-  }
-
-  const momentOptions = moments.filter((moment) => moment.visibility === 'public' && Boolean(moment.publishedAt))
-
-  return <aside className="music-panel music-drift-panel" aria-label="漂流瓶">
-    <div className="music-panel-head"><div><span className="music-kicker">每天最多一只 · 接收随机发生</span><DitherTitle level={2}>漂流瓶</DitherTitle></div></div>
-    <p className="music-panel-note">选择歌曲、资讯或已公开的 Moment。瓶子会随机交给一位合适的星主；收件人读后可以评论、点赞，再决定是否继续放流。</p>
-    {error && <p className="music-form-error" role="alert">{error}</p>}
-    {feedback && <p className="music-feedback" role="status">{feedback}</p>}
-
-    <form className="music-bottle-form" onSubmit={(event) => { void createBottle(event) }}>
-      <div className="music-section-heading"><DitherTitle level={3}>放出一只瓶</DitherTitle><span>{snapshot?.date ?? '…'} · 每日 1 只</span></div>
-      <label htmlFor="music-bottle-topic">漂流主题</label>
-      <select id="music-bottle-topic" value={topicType} onChange={(event) => setTopicType(event.target.value as typeof topicType)}>
-        <option value="song">一首歌曲</option><option value="info">一则资讯</option><option value="moment">一篇 Moment</option>
-      </select>
-      {topicType === 'song' && <>
-        <label htmlFor="music-bottle-song">选择曲目</label>
-        <PagedSelect id="music-bottle-song" items={tracks} value={trackId} onChange={setTrackId} label="漂流瓶歌曲" itemLabel={track => `${track.title} · ${track.artistName}`} />
-        {!tracks.length && <p className="music-moments-empty">曲库暂时没有可用歌曲。</p>}
-      </>}
-      {topicType === 'info' && <>
-        <label htmlFor="music-bottle-info-title">资讯标题</label><input id="music-bottle-info-title" value={infoTitle} onChange={(event) => setInfoTitle(event.target.value)} maxLength={160} required />
-        <label htmlFor="music-bottle-info-url">来源链接</label><input id="music-bottle-info-url" type="url" value={infoUrl} onChange={(event) => setInfoUrl(event.target.value)} placeholder="https://…" required />
-        <label htmlFor="music-bottle-info-summary">安全摘要（不复制全文）</label><textarea id="music-bottle-info-summary" value={infoSummary} onChange={(event) => setInfoSummary(event.target.value)} maxLength={800} />
-      </>}
-      {topicType === 'moment' && <>
-        <label htmlFor="music-bottle-moment">选择一篇已公开 Moment</label>
-        <PagedSelect id="music-bottle-moment" items={momentOptions} value={momentId} onChange={setMomentId} label="漂流瓶 Moment" itemLabel={moment => `${moment.track.title} · ${moment.contentText.slice(0, 42) || '公开 Moment'}`} />
-        {!momentOptions.length && <p className="music-moments-empty">还没有可分享的公开 Moment；私密内容不会通过漂流瓶传播。</p>}
-      </>}
-      <label htmlFor="music-bottle-message">附上一句话 <span>{messageText.length}/500</span></label>
-      <textarea id="music-bottle-message" value={messageText} onChange={(event) => setMessageText(event.target.value)} maxLength={500} placeholder="留一小段给下一个遇见的人……" />
-      <DitherButton className="music-primary-button" type="submit" disabled={sending || !snapshot || snapshot.sentToday || (topicType === 'song' && !trackId) || (topicType === 'moment' && !momentId)}>
-        {sending ? '正在放流…' : snapshot?.sentToday ? '今日已放流' : '放出漂流瓶 ↗'}
-      </DitherButton>
-      {snapshot?.sentToday && <small className="music-bottle-limit-note">每天最多新发一只；收件数量不保证，也不会每日强制分配。</small>}
-    </form>
-
-    <label className="music-visit-incognito music-bottle-preference">
-      <input type="checkbox" checked={snapshot?.allowReceiving ?? true} disabled={preferenceBusy || !snapshot} onChange={(event) => { void toggleReceiving(event.target.checked) }} />
-      <span><strong>接收漂流瓶</strong><small>关闭后不会收到新的投递；已收到的瓶仍可处理。</small></span>
-    </label>
-
-    {detail ? <section className="music-bottle-detail" aria-label="漂流瓶内容">
-      <div className="music-section-heading"><div><span className="music-kicker">瓶中来信 · 已打开</span><DitherTitle level={3}>{detail.bottle.topic.type === 'song' ? '一首歌曲' : detail.bottle.topic.type === 'info' ? '一则资讯' : '一篇 Moment'}</DitherTitle></div>
-        <DitherButton className="music-close-inline" type="button" aria-label="关闭漂流瓶详情" onClick={() => setDetail(null)}>×</DitherButton></div>
-      {detail.bottle.topic.type === 'song' && <div className="music-bottle-topic-card">
-        <strong>{detail.bottle.topic.track?.title ?? '歌曲资料暂不可用'}</strong>
-        <span>{detail.bottle.topic.track?.artistName}{detail.bottle.topic.track?.versionLabel ? ` · ${detail.bottle.topic.track.versionLabel}` : ''}</span>
-        {detail.bottle.topic.track?.audioUrl && player && <DitherButton data-music-toggle onClick={() => { if (detail.bottle.topic.type === 'song' && detail.bottle.topic.track) player.toggle(detail.bottle.topic.track) }}>播放歌曲 ▶</DitherButton>}
-      </div>}
-      {detail.bottle.topic.type === 'info' && <div className="music-bottle-topic-card"><strong>{detail.bottle.topic.title}</strong><p>{detail.bottle.topic.summary}</p><a href={detail.bottle.topic.url} target="_blank" rel="noreferrer">查看来源 ↗</a></div>}
-      {detail.bottle.topic.type === 'moment' && <div className="music-bottle-topic-card"><MomentContent player={player} track={detail.bottle.topic.track ?? undefined} contentText={detail.bottle.topic.contentText} photoUrl={detail.bottle.topic.photoUrl} /></div>}
-      {detail.bottle.messageText && <blockquote>{detail.bottle.messageText}</blockquote>}
-      {detail.bottle.sender && <DitherButton className="music-text-button" type="button" onClick={() => onVisitPlanet(detail.bottle.sender!.planetId, detail.bottle.sender!.displayName)}>访问瓶主星球 · {detail.bottle.sender.displayName} ↗</DitherButton>}
-      <ReportControl api={api} target={{ type: 'drift_bottle', id: detail.bottle.id }} ariaLabel="举报这只漂流瓶" />
-      <section className="music-bottle-comments" aria-label="漂流瓶评论">
-        <div className="music-section-heading"><h4>接力留言</h4><span>{detail.comments.length}</span></div>
-        {!detail.comments.length ? <p className="music-moments-empty">还没有评论，你可以留下一句回应。</p> : <Paginated items={detail.comments} label="漂流瓶评论">{(comment) => <article className="music-bottle-comment" key={comment.id}>
-          <div><strong>{comment.authorName}</strong><time dateTime={comment.createdAt}>{new Date(comment.createdAt).toLocaleString('zh-CN')}</time></div>
-          <p>{comment.contentText}</p>
-          <div className="music-bottle-comment-actions">
-            <DitherButton className="music-text-button" type="button" disabled={busy} aria-pressed={comment.likedByMe} onClick={() => { void toggleLike(comment.id, comment.likedByMe) }}>{comment.likedByMe ? '已赞' : '点赞'} · {comment.likeCount}</DitherButton>
-            {comment.isOwn && <DitherButton className="music-text-button" type="button" disabled={busy} onClick={() => { void deleteComment(comment.id) }}>删除</DitherButton>}
-          </div>
-          {!comment.isOwn && <ReportControl api={api} target={{ type: 'drift_comment', id: comment.id }} ariaLabel="举报这条漂流瓶评论" />}
-        </article>}</Paginated>}
-        <form className="music-bottle-comment-form" onSubmit={(event) => { void submitComment(event) }}>
-          <label htmlFor="music-bottle-comment">添加评论</label>
-          <textarea id="music-bottle-comment" value={commentText} onChange={(event) => setCommentText(event.target.value)} maxLength={500} placeholder="你想把什么留给下一个人？" />
-          <DitherButton className="music-secondary-button" type="submit" disabled={busy || !commentText.trim()}>留下评论</DitherButton>
-        </form>
-      </section>
-      <DitherButton className="music-primary-button music-release-button" type="button" disabled={busy} onClick={() => { void releaseBottle() }}>{busy ? '正在处理…' : '继续放流 ↗'}</DitherButton>
-      <p className="music-panel-note">如果不继续放流，瓶子会停留在这里，不会自动无限传播。</p>
-    </section> : <>
-      {loading && <DitherLoadingRing label="正在寻找传来的漂流瓶…" />}
-      {!loading && snapshot?.inbox.length === 0 && <p className="music-moments-empty">今天还没有漂流瓶来到这里；收瓶由系统随机决定。</p>}
-      {<Paginated items={snapshot?.inbox ?? []} label="收到的漂流瓶">{(bottle) => <article className="music-bottle-inbox-card" key={bottle.id}>
-        <div><span className="music-kicker">{bottle.status === 'unread' ? '新抵达' : '已打开'}</span><strong>{bottle.topicLabel}</strong><small>{new Date(bottle.deliveredAt).toLocaleString('zh-CN')}</small></div>
-        <DitherButton className="music-secondary-button" type="button" disabled={busy} onClick={() => { void openBottle(bottle.id) }}>{bottle.status === 'read' ? '继续阅读' : '打开漂流瓶'}</DitherButton>
-      </article>}</Paginated>}
-      <section className="music-bottle-sent">
-        <div className="music-section-heading"><DitherTitle level={3}>我放出的瓶</DitherTitle><span>{snapshot?.sent.length ?? 0}</span></div>
-        {snapshot?.sent.length === 0 ? <p className="music-moments-empty">你放出的瓶及接力状态会显示在这里。</p> : <Paginated items={snapshot?.sent ?? []} label="放出的漂流瓶">{(bottle) => <article className="music-bottle-sent-item" key={bottle.id}>
-          <div><strong>{bottle.topicLabel}</strong><small>{new Date(bottle.createdAt).toLocaleString('zh-CN')} · 已接力 {bottle.deliveryCount} 次</small></div><span>{driftBottleStatus(bottle.status)}</span>
-        </article>}</Paginated>}
-      </section>
-    </>}
-    {!snapshot && !loading && <DitherButton className="music-text-button" type="button" onClick={() => { void reload() }}>重新加载</DitherButton>}
-  </aside>
-}
-
 function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
   const [api] = useState(() => apiOverride ?? createMusicApi())
   const [galaxyPreloader] = useState(() => createGalaxyPreloader(api))
@@ -583,6 +342,7 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
   const [visitingPlanetId, setVisitingPlanetId] = useState('')
   const [visitError, setVisitError] = useState('')
   const accountEpoch = useRef(0)
+  const bottleAccountEpoch = accountEpoch.current
   const social = useSocialSync(api, home.status === 'ready', accountEpoch.current)
   const friendRequests = social.snapshot
   const orbitFriends = social.snapshot?.friends.map(friend => ({ ...friend, visual: friend.visual ?? (orbit.status === 'ready'
@@ -2164,9 +1924,15 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
 
       {bottlesMounted && <div hidden={view !== 'bottles'}><DriftBottlePanel
         api={api}
+        key={bottleAccountEpoch}
+        active={view === 'bottles' && cockpit.console.focus !== 'overview'}
+        onSettingsChange={settings => {
+          if (bottleAccountEpoch === accountEpoch.current) setSocialSettings(settings)
+        }}
+        ReportControl={ReportControl}
         player={musicPlayer}
-        tracks={tracks}
-        moments={moments}
+        tracks={planetEditTracks}
+        moments={planet?.visibility === 'public' ? moments : []}
         onVisitPlanet={(planetId, name) => requestPublicPlanetVisit(planetId, name, 'direct')}
       /></div>}
 

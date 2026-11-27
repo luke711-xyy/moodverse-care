@@ -1,0 +1,70 @@
+.cockpit .music-drift-panel {
+  max-width: 48rem;
+  margin-inline: auto;
+  gap: 16px;
+  color: var(--ink);
+  --bottle-rule: #a38b574f;
+  --bottle-paper: #f2dfac;
+  --bottle-caption: #c9bc9e;
+}
+.music-drift-panel .bottle-header { display: flex; align-items: center; gap: 16px; padding-block: 4px; }
+.music-drift-panel .bottle-header h2, .music-drift-panel .bottle-header p { margin: 0; }
+.music-drift-panel .bottle-header p { margin-top: 4px; font-size: 14px; color: var(--bottle-caption); }
+.bottle-mark { flex: none; width: 44px; height: 44px; color: var(--phosphor); }
+.bottle-channels { display: flex; align-items: stretch; border-bottom: 1px solid var(--bottle-rule); }
+.cockpit .bottle-channels button {
+  flex: 1;
+  min-height: 44px;
+  padding: 6px 10px;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  background: transparent;
+  color: var(--bottle-caption);
+  font: 600 15px/1.4 var(--cockpit-body);
+  cursor: pointer;
+}
+.cockpit .bottle-channels button[aria-pressed="true"] { color: var(--bottle-paper); border-bottom-color: var(--phosphor); background: #352e1f; }
+.cockpit .bottle-channels button:hover { background: #2b2519; }
+.music-drift-panel :focus-visible { outline: 2px solid var(--phosphor); outline-offset: 2px; }
+.bottle-unread { display: inline-block; margin-inline-start: 6px; color: var(--phosphor); font-size: 12px; }
+.bottle-inbox-tools, .bottle-echo-opt { display: flex; align-items: center; gap: 8px; }
+.bottle-inbox-tools { flex-wrap: wrap; justify-content: space-between; }
+.music-drift-panel .music-bottle-preference, .music-drift-panel .bottle-echo-opt {
+  min-height: 44px; padding: 0; margin: 0; background: transparent; border: none; cursor: pointer;
+}
+.music-drift-panel input[type="checkbox"] { accent-color: var(--phosphor); }
+.music-drift-panel .music-bottle-preference strong, .music-drift-panel .bottle-echo-opt { color: var(--bottle-caption); font-size: 14px; }
+.music-drift-panel .bottle-rest { padding: 24px 0 20px; }
+.music-drift-panel .bottle-rest h3 { margin: 0 0 6px; font-size: 20px; }
+.music-drift-panel .bottle-rest p { margin: 0 0 16px; color: var(--bottle-caption); }
+.music-drift-panel .music-bottle-form, .music-drift-panel .music-bottle-detail, .music-drift-panel .music-bottle-sent, .bottle-journey {
+  display: grid; gap: 12px !important; margin: 0; padding: 4px 0; border: 0; min-width: 0;
+}
+.music-drift-panel :is(h3, h4, .music-section-heading p, .bottle-journey > p) { margin: 0; }
+.music-drift-panel .music-section-heading { align-items: center; flex-wrap: wrap; column-gap: 12px; }
+.music-drift-panel .music-bottle-form > label { font-size: 14px; color: var(--bottle-caption); }
+.music-drift-panel .music-bottle-form > label span { color: var(--bottle-caption); font: inherit; font-variant-numeric: tabular-nums; }
+.music-drift-panel .music-bottle-form > :is(input, select), .music-drift-panel textarea { width: 100%; min-width: 0; box-sizing: border-box; }
+.music-drift-panel .music-bottle-form textarea, .music-drift-panel .music-bottle-comment-form textarea { min-height: 5rem; }
+.music-drift-panel .music-bottle-form > label:not(:first-child) { margin-top: 4px; }
+.music-drift-panel .music-bottle-form > .music-primary-button { justify-self: start; }
+.music-drift-panel :is(.music-bottle-detail, .bottle-journey) blockquote {
+  margin: 4px 0; padding: 14px 18px; border: 1px dashed var(--bottle-rule); color: var(--bottle-paper);
+  font-size: 16px; line-height: 1.75; overflow-wrap: anywhere; white-space: pre-wrap;
+}
+.bottle-route { display: flex; flex-wrap: wrap; gap: 12px 32px; margin: 0; padding-block: 12px; border-block: 1px solid var(--bottle-rule); }
+.bottle-route div { display: flex; align-items: baseline; gap: 8px; }
+.bottle-route dt { font-size: 13px; color: var(--bottle-caption); }
+.bottle-route dd { margin: 0; color: var(--bottle-paper); font-variant-numeric: tabular-nums; }
+.music-drift-panel :is(.music-bottle-inbox-card,.music-bottle-sent-item) { align-items: center; gap: 12px; padding-block: 12px; }
+.music-drift-panel :is(.music-bottle-inbox-card,.music-bottle-sent-item) > div strong { font-size: 16px; white-space: normal; overflow-wrap: anywhere; }
+.music-drift-panel :is(.music-bottle-inbox-card,.music-bottle-sent-item) > div small,
+.music-drift-panel :is(.music-bottle-comment time,.music-bottle-comment strong) { color: var(--bottle-caption); font-size: 13px; }
+.music-drift-panel .music-bottle-topic-card :is(strong,p,span,a) { font-size: 15px; }
+.music-drift-panel :is(.music-bottle-comments,.bottle-journey) h4 { font-size: 16px; color: var(--bottle-paper); }
+.music-drift-panel .music-bottle-comment { margin: 0; padding: 12px; }
+.music-drift-panel .music-bottle-comment > p { color: var(--ink); }
+.music-drift-panel .music-bottle-comment-actions { align-items: center; }
+.music-drift-panel .music-bottle-comment-form .bottle-echo-opt { justify-content: flex-start; }
+.music-drift-panel .music-bottle-detail .music-release-button { justify-self: start; }
+.music-drift-panel .music-pagination:has(> button:first-child:disabled):has(> button:last-child:disabled) { display: none; }

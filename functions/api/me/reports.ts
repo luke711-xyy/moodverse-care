@@ -64,6 +64,14 @@ async function reportable(env: Env, userId: string, target: ReportInput['target'
         WHERE c.id = ?1 AND c.author_user_id <> ?2 AND (
           EXISTS (SELECT 1 FROM music_drift_deliveries d WHERE d.bottle_id = b.id AND d.recipient_user_id = ?2)
           OR EXISTS (SELECT 1 FROM music_drift_comments own WHERE own.bottle_id = b.id AND own.author_user_id = ?2)
+          OR (b.sender_user_id = ?2 AND c.id GLOB 'echo-*' AND b.status = 'active'
+            AND NOT EXISTS (SELECT 1 FROM music_user_blocks bl
+              WHERE (bl.blocker_user_id = ?2 AND bl.blocked_user_id = c.author_user_id)
+                 OR (bl.blocker_user_id = c.author_user_id AND bl.blocked_user_id = ?2))
+            AND (b.topic_type <> 'song' OR EXISTS (SELECT 1 FROM music_track_catalog t WHERE t.id = b.track_id AND t.is_active = 1))
+            AND (b.topic_type <> 'moment' OR EXISTS (SELECT 1 FROM music_moments m JOIN music_planets p ON p.id = m.planet_id
+              WHERE m.id = b.moment_id AND p.owner_user_id = ?2 AND p.visibility = 'public'
+                AND m.visibility = 'public' AND m.published_at IS NOT NULL)))
         )
       `).bind(target.id, userId).first<{ author_user_id: string; sender_user_id: string }>()
       return Boolean(row)

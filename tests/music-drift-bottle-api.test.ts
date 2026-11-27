@@ -4,6 +4,9 @@ import { scheduled as runScheduled } from '../cron-worker'
 import { onRequestGet as getBottles, onRequestPost as createBottle } from '../functions/api/me/drift-bottles'
 import { onRequestGet as getBottle, onRequestPatch as updateBottle } from '../functions/api/me/drift-bottles/[id]'
 import { onRequestPost as addComment } from '../functions/api/me/drift-bottles/[id]/comments'
+import { onRequestGet as getJourney } from '../functions/api/me/drift-bottles/[id]/journey'
+import { onRequestDelete as deleteComment } from '../functions/api/me/drift-bottles/[id]/comments/[commentId]'
+import { onRequestPost as reportContent } from '../functions/api/me/reports'
 import { onRequestDelete as unlikeComment, onRequestPost as likeComment } from '../functions/api/me/drift-bottles/[id]/comments/[commentId]/like'
 import { onRequestGet as getSocialSettings, onRequestPatch as patchSocialSettings } from '../functions/api/me/social-settings'
 import { onRequestDelete as deleteMoment } from '../functions/api/me/music-planet/moments/[id]'
@@ -330,6 +333,100 @@ test('drift-bottle comments are limited to 30 per user per minute', async () => 
   expect(await overLimit.json()).toEqual({ error: 'COMMENT_RATE_LIMITED' })
   expect(fixture.sqlite.prepare('SELECT count(*) AS count FROM music_drift_comments WHERE author_user_id = ?').get(recipientId))
     .toEqual({ count: 30 })
+})
+
+test('only the sender can read the anonymous journey and explicitly shared echoes after release', async () => {
+  const reader = await identityFor('first-reader')
+  createPlanet('a-real-planet', reader, 'public', 'bottle-song-a')
+  const created = await createSongBottle('灯火如昨')
+  const { bottle: { id } } = await created.json()
+  const path = `/api/me/drift-bottles/${id}`
+  const params = { id }
+  const journey = (who: string) => call(who, path + '/journey', getJourney, { params })
+  expect((await journey('first-reader')).status).toBe(404)
+  expect((await journey('other-user')).status).toBe(404)
+  expect(await (await journey('bottle-sender')).json()).toMatchObject({
+    bottle: { topic: { type: 'song', track: { id: 'bottle-song-a' } }, messageText: '灯火如昨', status: 'delivered' },
+    journey: { deliveryCount: 1, openedCount: 0, releasedCount: 0, commentCount: 0 }, comments: [],
+  })
+  await call('first-reader', path, updateBottle, { method: 'PATCH', body: { action: 'open' }, params })
+  const add = (body: object) => call('first-reader', path + '/comments', addComment, { method: 'POST', body, params })
+  const old = (await (await add({ contentText: '给下一站的私语' })).json()).comment
+  const local = (await (await add({ contentText: '仅给沿途', shareWithSender: false })).json()).comment
+  expect((await add({ contentText: '类型错误', shareWithSender: 'true' })).status).toBe(400)
+  const echo = (await (await add({ contentText: '寄回的回声', shareWithSender: true })).json()).comment
+  expect(echo.isOwn).toBe(true)
+  const throwAway = (await (await add({ contentText: '待删除', shareWithSender: true })).json()).comment
+  expect((await call('first-reader', path + '/comments/' + throwAway.id, deleteComment, {
+    method: 'DELETE', params: { id, commentId: throwAway.id },
+  })).status).toBe(200)
+  expect((await call('first-reader', path + '/comments/' + echo.id + '/like', likeComment, {
+    method: 'POST', params: { id, commentId: echo.id },
+  })).status).toBe(200)
+  await call('first-reader', path, updateBottle, { method: 'PATCH', body: { action: 'release' }, params })
+  const result = await (await journey('bottle-sender')).json()
+  expect(result).toMatchObject({
+    journey: { deliveryCount: 1, openedCount: 1, releasedCount: 1, commentCount: 1 },
+    comments: [{ contentText: '寄回的回声', authorName: '第 1 站', likeCount: 1, isOwn: false }],
+  })
+  expect(result.comments).toHaveLength(1)
+  const serialized = JSON.stringify(result)
+  for (const privateData of [reader, 'a-real-planet', '给下一站的私语', '仅给沿途']) expect(serialized).not.toContain(privateData)
+  const report = (commentId: string) => call('bottle-sender', '/api/me/reports', reportContent, {
+    method: 'POST', body: { target: { type: 'drift_comment', id: commentId }, reason: 'other' },
+  })
+  expect((await report(old.id)).status).toBe(404)
+  expect((await report(local.id)).status).toBe(404)
+  expect((await report(echo.id)).status).toBe(201)
+
+  fixture.sqlite.prepare('INSERT INTO music_user_blocks (blocker_user_id,blocked_user_id,created_at) VALUES (?,?,?)')
+    .run(reader, senderId, new Date().toISOString())
+  expect(await (await journey('bottle-sender')).json()).toMatchObject({ journey: { commentCount: 0 }, comments: [] })
+  expect((await report(echo.id)).status).toBe(404)
+  const list = await (await call('bottle-sender', '/api/me/drift-bottles', getBottles)).json()
+  expect(list.sent).toMatchObject([{ id, openedCount: 1, releasedCount: 1, commentCount: 0 }])
+})
+
+test('an elapsed opening deadline leaves the inbox before the next scheduled run', async () => {
+  const reader = await identityFor('expired-reader')
+  createPlanet('expired-reader-planet', reader, 'public', 'bottle-song-a')
+  await createSongBottle()
+  fixture.sqlite.prepare("UPDATE music_drift_deliveries SET expires_at = '2000-01-01T00:00:00.000Z'").run()
+  const received = await (await call('expired-reader', '/api/me/drift-bottles', getBottles)).json()
+  expect(received.inbox).toEqual([])
+  const sent = await (await call('bottle-sender', '/api/me/drift-bottles', getBottles)).json()
+  expect(sent.sent[0].status).toBe('waiting')
+})
+
+test('journey omits retracted Moment content, note and echoes as soon as its planet becomes private', async () => {
+  const reader = await identityFor('moment-reader')
+  createPlanet('moment-reader-planet', reader, 'public', 'bottle-song-a')
+  addMoment('shared-moment', 'public')
+  const result = await call('bottle-sender', '/api/me/drift-bottles', createBottle, {
+    method: 'POST', body: { topic: { type: 'moment', momentId: 'shared-moment' }, messageText: '只有公开时可见' },
+  })
+  const { bottle: { id } } = await result.json()
+  const path = `/api/me/drift-bottles/${id}`
+  await call('moment-reader', path, updateBottle, { method: 'PATCH', body: { action: 'open' }, params: { id } })
+  const reply = await call('moment-reader', path + '/comments', addComment, { method: 'POST', body: { contentText: '回声', shareWithSender: true }, params: { id } })
+  const { comment } = await reply.json()
+  fixture.sqlite.prepare("UPDATE music_planets SET visibility = 'private' WHERE id = 'bottle-sender-planet'").run()
+  const journey = await call('bottle-sender', path + '/journey', getJourney, { params: { id } })
+  expect(await journey.json()).toMatchObject({ bottle: { topic: null, messageText: '', status: 'unavailable' }, journey: { commentCount: 0 }, comments: [] })
+  expect((await (await call('moment-reader', '/api/me/drift-bottles', getBottles)).json()).inbox).toEqual([])
+  const report = await call('bottle-sender', '/api/me/reports', reportContent, {
+    method: 'POST', body: { target: { type: 'drift_comment', id: comment.id }, reason: 'other' },
+  })
+  expect(report.status).toBe(404)
+})
+
+test('a public demo planet that cannot sign in is never chosen as a recipient', async () => {
+  fixture.sqlite.prepare(`INSERT INTO users (id,token_hash,timezone,star_color,star_texture_webp,created_at,updated_at)
+    VALUES ('demo:user:quiet','demo-disabled:quiet','UTC','#000','','2026','2026')`).run()
+  createPlanet('demo:planet:quiet', 'demo:user:quiet', 'public', 'bottle-song-a')
+  const result = await createSongBottle()
+  expect(await result.json()).toMatchObject({ bottle: { status: 'waiting' } })
+  expect(fixture.sqlite.prepare('SELECT COUNT(*) AS count FROM music_drift_deliveries').get()).toEqual({ count: 0 })
 })
 
 test('an unread delivery expires after one hour and is re-routed by the scheduled worker', async () => {

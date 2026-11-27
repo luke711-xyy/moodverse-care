@@ -233,6 +233,14 @@ export type MusicDriftBottleComment = {
   likedByMe: boolean
 }
 
+export type MusicDriftBottleProgress = {
+  deliveryCount: number
+  openedCount: number
+  releasedCount: number
+  commentCount: number
+  lastActivityAt: string
+}
+
 export type MusicDriftBottlesResponse = {
   date: string
   allowReceiving: boolean
@@ -251,6 +259,10 @@ export type MusicDriftBottlesResponse = {
     topicLabel: string
     status: 'delivered' | 'waiting_for_release' | 'waiting' | 'stopped' | 'unavailable'
     deliveryCount: number
+    openedCount?: number
+    releasedCount?: number
+    commentCount?: number
+    lastActivityAt?: string
     createdAt: string
   }>
 }
@@ -263,6 +275,12 @@ export type MusicDriftBottleDetail = {
     sender: { planetId: string; displayName: string; tagline: string } | null
   }
   delivery: { id: string; status: 'read'; deliveredAt: string; expiresAt: string; canRelease: boolean }
+  comments: MusicDriftBottleComment[]
+}
+
+export type MusicDriftBottleJourney = {
+  bottle: { id: string; topic: MusicDriftBottleTopic | null; messageText: string; createdAt: string; status: MusicDriftBottlesResponse['sent'][number]['status'] }
+  journey: MusicDriftBottleProgress
   comments: MusicDriftBottleComment[]
 }
 
@@ -518,14 +536,17 @@ export function createMusicApi(fetcher: typeof fetch = fetch, options: { liveSoc
     getDriftBottle(bottleId: string) {
       return request<MusicDriftBottleDetail>(`/api/me/drift-bottles/${encodeURIComponent(bottleId)}`)
     },
+    getDriftBottleJourney(bottleId: string) {
+      return request<MusicDriftBottleJourney>(`/api/me/drift-bottles/${encodeURIComponent(bottleId)}/journey`)
+    },
     updateDriftBottle(bottleId: string, action: 'open' | 'release') {
       return request<{ delivery?: { status: 'read' }; alreadyOpened?: boolean; released?: boolean; status?: string }>(`/api/me/drift-bottles/${encodeURIComponent(bottleId)}`, {
         method: 'PATCH', body: JSON.stringify({ action }),
       })
     },
-    addDriftBottleComment(bottleId: string, contentText: string) {
+    addDriftBottleComment(bottleId: string, contentText: string, shareWithSender = false) {
       return request<{ comment: MusicDriftBottleComment }>(`/api/me/drift-bottles/${encodeURIComponent(bottleId)}/comments`, {
-        method: 'POST', body: JSON.stringify({ contentText }),
+        method: 'POST', body: JSON.stringify(shareWithSender ? { contentText, shareWithSender } : { contentText }),
       })
     },
     setDriftBottleCommentLike(bottleId: string, commentId: string, liked: boolean) {
