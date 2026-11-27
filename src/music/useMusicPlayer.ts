@@ -12,6 +12,12 @@ const playable = (track: PlayableTrack) => track.audioUrl === DEFAULT_AUDIO_URL 
  * an already-warmed element avoids resolving and downloading its source again. */
 export function useMusicPlayer({ backgroundTrack = null, ready = true, playlist = [], visit = null, preloadTrack = null }: { backgroundTrack?: MusicTrackSummary | null; ready?: boolean; playlist?: MusicTrackSummary[]; visit?: VisitMusic | null; preloadTrack?: MusicTrackSummary | null } = {}) {
   const audio = useRef<HTMLAudioElement | null>(null)
+  const ducked = useRef(false)
+  const [completedTrack, setCompletedTrack] = useState<{ id: string; title: string; at: number } | null>(null)
+  const setDucked = useCallback((value: boolean) => {
+    ducked.current = value
+    if (audio.current) audio.current.volume = value ? .09 : .4
+  }, [])
   const pool = useRef(new Map<string, HTMLAudioElement>())
   const createPlayer = useRef<(() => HTMLAudioElement) | null>(null)
   const releasePlayer = useRef<(player: HTMLAudioElement) => void>(() => {})
@@ -59,7 +65,7 @@ export function useMusicPlayer({ backgroundTrack = null, ready = true, playlist 
     const cleanups = new Map<HTMLAudioElement, () => void>()
     createPlayer.current = () => {
       const player = new Audio('')
-      player.loop = true; player.preload = 'auto'; player.volume = .4
+      player.loop = true; player.preload = 'auto'; player.volume = ducked.current ? .09 : .4
       const active = () => audio.current === player
       const onPlay = () => {
         if (!active()) { player.pause(); return }
@@ -81,10 +87,22 @@ export function useMusicPlayer({ backgroundTrack = null, ready = true, playlist 
         if (!active() || !seek || seek.id !== currentId.current) return
         try { player.currentTime = seek.time; pendingSeek.current = null } catch { /* Retry when media becomes seekable. */ }
       }
+      // Looping media never fires ended. Observe an actual wrap at the track boundary.
+      let previousTime = 0
+      const onProgress = () => {
+        if (active() && !player.paused && Number.isFinite(player.duration) && player.duration > 3
+          && previousTime >= player.duration - 1.5 && player.currentTime < 1.5 && selectedTrack.current) {
+          const { id, title } = selectedTrack.current
+          setCompletedTrack({ id, title, at: Date.now() })
+        }
+        previousTime = player.currentTime
+      }
+      player.addEventListener('timeupdate', onProgress)
       player.addEventListener('play', onPlay); player.addEventListener('pause', onPause)
       player.addEventListener('error', onError); player.addEventListener('waiting', onWaiting); player.addEventListener('playing', onReady)
       player.addEventListener('canplay', onCanPlay); player.addEventListener('loadedmetadata', onMetadata)
       cleanups.set(player, () => {
+        player.removeEventListener('timeupdate', onProgress)
         player.removeEventListener('play', onPlay); player.removeEventListener('pause', onPause)
         player.removeEventListener('error', onError); player.removeEventListener('waiting', onWaiting); player.removeEventListener('playing', onReady)
         player.removeEventListener('canplay', onCanPlay); player.removeEventListener('loadedmetadata', onMetadata)
@@ -144,6 +162,7 @@ export function useMusicPlayer({ backgroundTrack = null, ready = true, playlist 
     if (!playable(track)) return
     const player = getPlayer(track)
     if (!player) return
+    player.volume = ducked.current ? .09 : .4
     pendingSeek.current = null
     selectedTrack.current = track
     if (currentId.current !== track.id) {
@@ -255,7 +274,7 @@ export function useMusicPlayer({ backgroundTrack = null, ready = true, playlist 
     const nextIndex = index < 0 ? (direction === 1 ? 0 : queue.length - 1) : (index + direction + queue.length) % queue.length
     selectTrack(queue[nextIndex], !pausedByUser.current)
   }
-  return { playing, blocked, error, loading, currentTrack, currentTrackId: currentTrack.id, toggle,
+  return { playing, blocked, error, loading, setDucked, play: selectTrack, completedTrack, currentTrack, currentTrackId: currentTrack.id, toggle,
     canSkip: ready && queue.length > 1, previous: () => skip(-1), next: () => skip(1) }
 }
 export type MusicPlayerControls = { playing: boolean; currentTrackId?: string; toggle: (track?: MusicTrackSummary) => void }

@@ -29,9 +29,17 @@ database_id = "58d7ea1b-aaaf-4639-8adb-5fb2136dddf4"
 migrations_dir = "./migrations-music-staging"
 
 [env.production.vars]
+MUSIC_COPILOT_SOCIAL_ENABLED = "true"
 MUSIC_EMAIL_LOGIN_ENABLED = "false"
 MUSIC_ALLOW_LEGACY_ACCESS_AUTH = "false"
 
+[ai]
+binding = "AI"
+
+[env.production.ai]
+binding = "AI"
+
 [vars]
+MUSIC_COPILOT_SOCIAL_ENABLED = "true"
 MUSIC_EMAIL_LOGIN_ENABLED = "false"
 MUSIC_ALLOW_LEGACY_ACCESS_AUTH = "false"

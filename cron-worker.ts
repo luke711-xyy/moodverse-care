@@ -1,13 +1,17 @@
+import type { Env as MusicEnv } from './functions/_shared'
 import { careCardInsert, makeCareCard } from './functions/_care'
+import { pruneCopilot } from './functions/_music-copilot-state'
+import { processCopilotSocialQueue } from './functions/_music-copilot-social'
 import { processDriftBottleQueue } from './functions/_music-drift-bottles'
 import { oneSqlStatementPerLine } from './functions/_music-demo-seed'
 import { processDemoSocialQueue } from './functions/_music-demo-social'
 
-type Env = {
-  DB: D1Database
+type Env = Pick<MusicEnv, 'DB' | 'AI' | 'MUSIC_COPILOT_MODEL' | 'MUSIC_COPILOT_DAILY_LIMIT' | 'MUSIC_COPILOT_GLOBAL_DAILY_LIMIT'> & {
   ASSETS: Fetcher
   MUSIC_DEMO_SEED_ENABLED?: string
   MUSIC_DEMO_SOCIAL_ENABLED?: string
+  MUSIC_COPILOT_SOCIAL_ENABLED?: string
+  MUSIC_COPILOT_RETENTION_ENABLED?: string
 }
 type CheckInRow = {
   user_id: string
@@ -112,7 +116,13 @@ export async function scheduled(event: ScheduledEvent, env: Env) {
   } catch (error) {
     demoSocialError = error
   }
-  await processDriftBottleQueue(env)
+  const jobs = await Promise.allSettled([
+    processDriftBottleQueue(env),
+    processCopilotSocialQueue(env),
+    ...(env.MUSIC_COPILOT_RETENTION_ENABLED === 'true' && new Date(event.scheduledTime).getUTCMinutes() === 0
+      ? [pruneCopilot(env)] : []),
+  ])
+  for (const job of jobs) if (job.status === 'rejected') throw job.reason
   if (careCardError) throw careCardError
   if (demoSeedError) throw demoSeedError
   if (demoSocialError) throw demoSocialError

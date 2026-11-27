@@ -29,6 +29,7 @@ type Props = {
   personalPreview?: ReactNode
   explorationPreview?: ReactNode
   windowNavigation?: ReactNode
+  projection?: ReactNode
   terminalActions?: ReactNode
   by: GalaxyGroupBy
   onClassify: (by: GalaxyGroupBy) => void
@@ -46,7 +47,7 @@ const explorationPages: Array<[CockpitPage, string]> = [['collision', '撞歌'],
 const pageNames: Record<CockpitPage, string> = {
   planet: '我的星球', manage: '星球资料', appearance: '星球外观', moment: 'Moment', orbit: 'Orbit',
   collision: '撞歌', roam: '漫游', bottles: '漂流瓶', galaxy: 'Galaxy', visitor: '星球档案',
-  preflight: '访问确认', settings: '设置', moderation: '举报审核',
+  copilot: '舰载副驾', preflight: '访问确认', settings: '设置', moderation: '举报审核',
 }
 const signalNames: Record<CockpitSignal, string> = { idle: 'SYSTEM ON', loading: '搜索中', traveling: '航行中', error: '暂不可用' }
 const classificationNames: Record<GalaxyGroupBy, string> = { song: '歌曲', artist: '艺人', genre: '曲风' }
@@ -145,7 +146,10 @@ export function CockpitShell(props: Props) {
     let timer: ReturnType<typeof setTimeout> | undefined
     if (previousFocus.current !== props.state.console.focus) {
       if (focused) { setRetreating(false); region.current?.focus({ preventScroll: true }) }
-      else {
+      else if (props.state.console.page === 'copilot') {
+        setRetreating(false)
+        overview.current?.closest('.cockpit')?.querySelector<HTMLElement>('.copilot-projection')?.focus({ preventScroll: true })
+      } else {
         const target = trigger.current?.isConnected ? trigger.current : overview.current?.querySelector<HTMLButtonElement>('.cockpit-personal-monitor')
         target?.focus({ preventScroll: true })
         if (!props.reducedMotion) { setRetreating(true); timer = setTimeout(() => setRetreating(false), 450) }
@@ -154,7 +158,7 @@ export function CockpitShell(props: Props) {
     previousFocus.current = props.state.console.focus
     if (props.reducedMotion) setRetreating(false)
     return () => { if (timer) clearTimeout(timer) }
-  }, [props.state.console.focus, focused, props.reducedMotion])
+  }, [props.state.console.focus, props.state.console.page, focused, props.reducedMotion])
   useEffect(() => {
     if (focused && !region.current?.contains(document.activeElement)) region.current?.focus({ preventScroll: true })
   }, [props.state.console.page, focused])
@@ -179,6 +183,7 @@ export function CockpitShell(props: Props) {
       {props.scene}
       <div className="cockpit-window-nav">{props.windowNavigation}</div>
       <WindowHud state={props.state} connected={props.connected !== false} signal={props.signal} heading={props.heading} telemetry={props.telemetry} flight={props.flight} galaxyLabel={props.galaxyLabel} planetName={props.planetName} />
+      {props.projection}
     </div>
     <div className="cockpit-pan-nav" hidden={focused} aria-label="控制台区域">
       {(['personal', 'exploration', 'controls'] as const).map((zone, i) => <button key={zone} aria-pressed={pan === zone} onClick={() => {
@@ -241,7 +246,7 @@ export function CockpitShell(props: Props) {
       onKeyDown={trapFocus} onFocusCapture={event => setTyping(['INPUT', 'TEXTAREA'].includes(event.target.tagName))}
       onBlurCapture={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setTyping(false) }}>
       <header className="cockpit-terminal-header">
-        {props.state.console.page !== 'settings' && <nav aria-label={personal ? '个人频道' : '探索频道'}>{(personal ? personalPages : explorationPages).map(([page, label]) => <button key={page} aria-pressed={props.state.console.page === page} onClick={() => open(page)}>{label}</button>)}</nav>}
+        {props.state.console.page !== 'settings' && <nav aria-label={personal ? '个人频道' : '探索频道'}>{(personal ? [...personalPages, ['copilot', '副驾'] as const] : explorationPages).map(([page, label]) => <button key={page} aria-pressed={props.state.console.page === page} onClick={() => open(page)}>{label}</button>)}</nav>}
         <i className="cockpit-lamp" data-lit="true" />
       </header>
       <div className="cockpit-terminal-glass"><CrtScreen active={focused} motion={!props.reducedMotion} enabled={props.crtEnabled}><div ref={content} className="cockpit-terminal-content">{props.children}</div></CrtScreen></div>

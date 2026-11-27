@@ -37,7 +37,8 @@ function driftBottleStatus(status: string) {
   return status
 }
 
-export function DriftBottlePanel({ api, active, tracks, moments, onVisitPlanet, onSettingsChange, player, ReportControl }: {
+export function DriftBottlePanel({ api, active, tracks, moments, onVisitPlanet, onSettingsChange, player, ReportControl, copilotDraft }: {
+  copilotDraft?: { text: string; trackId?: string } | null
   active: boolean
   ReportControl: ComponentType<{ api: MusicApi; target: MusicReportTarget; ariaLabel: string }>
   api: MusicApi
@@ -66,6 +67,16 @@ export function DriftBottlePanel({ api, active, tracks, moments, onVisitPlanet, 
   const [commentText, setCommentText] = useState('')
   const [error, setError] = useState('')
   const [feedback, setFeedback] = useState('')
+
+  useEffect(() => {
+    if (!copilotDraft) return
+    setChannel('compose')
+    setMessageText(copilotDraft.text.slice(0, 500))
+    if (copilotDraft.trackId) {
+      setTopicType('song')
+      setTrackId(copilotDraft.trackId)
+    }
+  }, [copilotDraft])
 
   const ticket = useRef(0)
   const reload = useCallback(async () => {

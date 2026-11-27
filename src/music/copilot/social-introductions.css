@@ -1,0 +1,74 @@
+.copilot-social {
+  display: grid;
+  gap: 1rem;
+  color: inherit;
+  min-width: 0;
+}
+.copilot-social header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+.copilot-social h3,
+.copilot-social h4,
+.copilot-social p {
+  margin: 0.3rem 0;
+}
+.copilot-social p {
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.copilot-social fieldset,
+.copilot-social article,
+.copilot-social-preview {
+  border: 1px solid currentColor;
+  padding: 0.65rem;
+  min-width: 0;
+}
+.copilot-social label {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0.4rem 0;
+}
+.copilot-social input,
+.copilot-social textarea,
+.copilot-social select {
+  max-width: 100%;
+  color: inherit;
+  background: #131b1b;
+  border: 1px solid #69776c;
+  font: inherit;
+  padding: 0.3rem;
+}
+.copilot-social button {
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  padding: 0.3rem 0.55rem;
+  margin: 0.2rem 0.25rem 0.2rem 0;
+  font: inherit;
+  cursor: pointer;
+}
+.copilot-social button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.copilot-social article {
+  margin: 0.4rem 0;
+}
+.copilot-social-line {
+  border-inline-start: 2px solid currentColor;
+  padding-inline-start: 0.6rem;
+}
+.copilot-social-line b {
+  display: block;
+  font-size: 0.82em;
+}
+
+.copilot-social-line small {
+  display: inline-block;
+  margin-inline-end: 0.45rem;
+  opacity: 0.8;
+}

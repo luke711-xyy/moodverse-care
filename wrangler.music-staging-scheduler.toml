@@ -11,7 +11,12 @@ crons = ["*/5 * * * *"]
 directory = "./scripts"
 binding = "ASSETS"
 
+[ai]
+binding = "AI"
+
 [vars]
+MUSIC_COPILOT_RETENTION_ENABLED = "true"
+MUSIC_COPILOT_SOCIAL_ENABLED = "true"
 MUSIC_DEMO_SEED_ENABLED = "false"
 MUSIC_DEMO_SOCIAL_ENABLED = "true"
 

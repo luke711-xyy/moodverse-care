@@ -40,6 +40,9 @@ import { GalaxyWindow } from './GalaxyWindow'
 import { PlanetCard } from './PlanetCard'
 import { AUDIUS_GENRES, DEFAULT_GALAXY_GENRES } from './genres'
 import { momentPhotoError } from './moment-photo'
+import { CopilotPanel, type CopilotIntercomHandle, type CopilotPhase } from './copilot/CopilotPanel'
+import { PairedDevices } from './copilot/PairedDevices'
+import { CopilotProjection } from './cockpit/CopilotProjection'
 import { FirstRun } from './onboarding/FirstRun'
 import './music-app.css'
 import './dither/product.css'
@@ -305,6 +308,19 @@ function MusicApp({ apiOverride, firstRunStorageKey = 'mosic-first-run-v1', repl
     setMomentComposeRequested(false)
   }, [view, momentComposeRequested])
   const [crtEnabled, setCrtEnabled] = useState(() => { try { return localStorage.getItem('moodverse-crt') !== 'off' } catch { return true } })
+  const projectionOpen = view === 'copilot' && cockpit.console.focus === 'overview' && cockpit.travel.status === 'idle'
+  const [copilotPhase, setCopilotPhase] = useState<CopilotPhase>('idle')
+  const copilotIntercom = useRef<CopilotIntercomHandle>(null)
+  const [copilotPlanets, setCopilotPlanets] = useState<{ planetId: string; displayName: string }[]>([])
+  const [initiative, setInitiative] = useState<'quiet' | 'balanced' | 'chatty'>('quiet')
+  const [copilotNotice, setCopilotNotice] = useState<{ text: string; page: 'bottles' | 'copilot' } | null>(null)
+  const noticeCount = useRef(0)
+  const announce = useCallback((text: string, page: 'bottles' | 'copilot' = 'copilot') => {
+    if (document.hidden || initiative === 'quiet' || noticeCount.current >= (initiative === 'chatty' ? 4 : 2)) return
+    noticeCount.current++
+    setCopilotNotice({ text, page })
+  }, [initiative])
+  const [bottleDraft, setBottleDraft] = useState<{ text: string; trackId?: string } | null>(null)
   const [bottlesMounted, setBottlesMounted] = useState(false)
   const profileInitialized = useRef(false)
   const [blockConfirm, setBlockConfirm] = useState(false)
@@ -314,7 +330,7 @@ function MusicApp({ apiOverride, firstRunStorageKey = 'mosic-first-run-v1', repl
     if (galaxy.status !== 'ready' || cockpit.exterior !== 'galaxy' || cockpit.console.focus !== 'overview') setGalaxyWindowOpen(false)
   }, [galaxy.status, cockpit.exterior, cockpit.console.focus])
   const { journey: galaxyJourney, journeyRef: galaxyJourneyRef, setJourney: setGalaxyJourney, animateTo: animateGalaxyJourney } = useGalaxyJourney(
-    reducedMotion, cockpit.exterior === 'galaxy' && cockpit.console.focus === 'overview' && cockpit.travel.status === 'idle' && galaxy.status === 'ready',
+    reducedMotion, !projectionOpen && cockpit.exterior === 'galaxy' && cockpit.console.focus === 'overview' && cockpit.travel.status === 'idle' && galaxy.status === 'ready',
   )
   const [galaxyRotation, setGalaxyRotation] = useState(0)
   const [galaxyRegrouping, setGalaxyRegrouping] = useState(false)
@@ -377,7 +393,10 @@ function MusicApp({ apiOverride, firstRunStorageKey = 'mosic-first-run-v1', repl
   const flightController = useCockpitFlight(reducedMotion, trip => {
     if (trip.to === 'visitor') setVisitedPlanet(trip.targetVisitor)
     else setVisitedPlanet(null)
-    if (trip.returning) returnVisitors.current.pop()
+    if (trip.returning) {
+      returnVisitors.current.pop()
+      announce('已归航。要再听一首刚才那颗星球的歌吗？')
+    }
     else if (trip.to === 'visitor') returnVisitors.current.push(trip.sourceVisitor)
     setPendingVisit(null)
     dispatchCockpit({ type: 'arrive', token: trip.token })
@@ -391,6 +410,31 @@ function MusicApp({ apiOverride, firstRunStorageKey = 'mosic-first-run-v1', repl
       ? approachingPlanet.tracks.find(track => track.isPrimary && track.audioUrl) ?? null
       : preflightMusic?.planetId === pendingVisit?.planetId ? preflightMusic?.track ?? null : null,
   })
+  const lastTrackEnding = useRef(0)
+  useEffect(() => {
+    const ended = musicPlayer.completedTrack
+    if (!ended || ended.at === lastTrackEnding.current) return
+    lastTrackEnding.current = ended.at
+    if (cockpit.console.focus === 'overview') announce(`《${ended.title}》播完了。再找一首？`)
+  }, [musicPlayer.completedTrack, cockpit.console.focus, announce])
+  const priorEchoes = useRef<Map<string, number> | null>(null)
+  useEffect(() => {
+    if (initiative === 'quiet' || home.status !== 'ready' || cockpit.console.focus !== 'overview') return
+    let active = true
+    const checkEchoes = async () => {
+      if (document.hidden) return
+      try {
+        const { sent } = await api.loadDriftBottles()
+        if (!active) return
+        const previous = priorEchoes.current
+        priorEchoes.current = new Map(sent.map(row => [row.id, row.commentCount ?? 0]))
+        if (previous && sent.some(row => (row.commentCount ?? 0) > (previous.get(row.id) ?? 0))) announce('你寄出的漂流瓶收到新回声了。', 'bottles')
+      } catch { /* Mail remains available from the exploration terminal. */ }
+    }
+    void checkEchoes()
+    document.addEventListener('visibilitychange', checkEchoes)
+    return () => { active = false; document.removeEventListener('visibilitychange', checkEchoes) }
+  }, [api, home.status, cockpit.console.focus, initiative, announce])
   useEffect(() => {
     if (!pendingVisit || home.status !== 'ready') { setPreflightMusic(null); return }
     if (cockpit.travel.status !== 'idle' || !canPreloadMusic()) return
@@ -436,6 +480,13 @@ function MusicApp({ apiOverride, firstRunStorageKey = 'mosic-first-run-v1', repl
     dispatchCockpit({ type: 'reset' })
     profileInitialized.current = false
     setBottlesMounted(false)
+    setCopilotPhase('idle')
+    setCopilotPlanets([])
+    setInitiative('quiet')
+    setCopilotNotice(null)
+    setBottleDraft(null)
+    noticeCount.current = 0
+    priorEchoes.current = null
     setQuery('')
     setDisplayName('')
     setTagline('')
@@ -662,6 +713,22 @@ function MusicApp({ apiOverride, firstRunStorageKey = 'mosic-first-run-v1', repl
     setPendingVisit({ planetId, displayName, source, ...(trackId ? { trackId } : {}), ...(sourcePlanetId ? { sourcePlanetId } : {}) })
     setView('preflight')
   }
+
+  useEffect(() => {
+    if (home.status !== 'ready' || firstRunOpen) return
+    const url = new URL(window.location.href)
+    const id = url.searchParams.get('visitPlanet')
+    const panel = url.searchParams.get('panel')
+    if (id && /^[a-zA-Z0-9:_-]{1,128}$/.test(id)) {
+      requestPublicPlanetVisit(id, (url.searchParams.get('planetName') || '公开星球').slice(0, 80))
+      url.searchParams.delete('visitPlanet')
+      url.searchParams.delete('planetName')
+    } else if (panel === 'copilot' || panel === 'devices') {
+      changeView(panel === 'devices' ? 'settings' : 'copilot')
+      url.searchParams.delete('panel')
+    } else return
+    window.history.replaceState(window.history.state, '', url)
+  }, [home.status, firstRunOpen])
 
   const visitPublicPlanet = async () => {
     if (!pendingVisit || visitLock.current) return
@@ -1260,6 +1327,7 @@ function MusicApp({ apiOverride, firstRunStorageKey = 'mosic-first-run-v1', repl
   const changeView = (next: ProductView) => {
     // Opening a channel restores its existing results; only an explicit song
     // action may start a new search and replace the middle monitor's snapshot.
+    if (next === 'copilot') setCopilotNotice(null)
     setView(next)
     if (next === 'galaxy' && galaxy.status === 'idle') void loadGalaxy('genre')
     if (next === 'roam') {
@@ -1310,7 +1378,7 @@ function MusicApp({ apiOverride, firstRunStorageKey = 'mosic-first-run-v1', repl
   }, [cockpit.exterior, cockpit.console.focus, galaxy.status === 'idle' ? undefined : galaxy.by])
 
   useEffect(() => {
-    if (cockpit.exterior !== 'galaxy' || cockpit.console.focus !== 'overview' || cockpit.travel.status !== 'idle' || galaxy.status !== 'ready') return
+    if (projectionOpen || cockpit.exterior !== 'galaxy' || cockpit.console.focus !== 'overview' || cockpit.travel.status !== 'idle' || galaxy.status !== 'ready') return
     const onWheel = (event: WheelEvent) => {
       const target = event.target
       if (target instanceof Element) {
@@ -1328,7 +1396,7 @@ function MusicApp({ apiOverride, firstRunStorageKey = 'mosic-first-run-v1', repl
     }
     window.addEventListener('wheel', onWheel, { passive: false })
     return () => window.removeEventListener('wheel', onWheel)
-  }, [galaxy.status, cockpit.exterior, cockpit.console.focus, cockpit.travel.status])
+  }, [galaxy.status, cockpit.exterior, cockpit.console.focus, cockpit.travel.status, projectionOpen])
 
   const collisionPlanet = cockpit.exterior === 'visitor' ? visitedPlanet : planet
   const panelPlanet = view === 'collision' ? collisionPlanet : planet
@@ -1461,8 +1529,8 @@ function MusicApp({ apiOverride, firstRunStorageKey = 'mosic-first-run-v1', repl
   const monitorVisitor = cockpit.exterior === 'visitor' ? visitedPlanet : null
   const monitorPlanet = monitorVisitor ?? planet
   const monitorTrack = monitorVisitor ? monitorVisitor.tracks.find(track => track.id === musicPlayer.currentTrackId) : playingMetadata
-  const scanSignals = songPortal.status === 'ready' ? songPortal.response.matches : songPortal.status === 'idle' && discovery.status === 'ready' ? discovery.response.recommendations : []
-  const scanTitle = songPortal.status === 'ready' ? 'SCAN RESULTS' : songPortal.status === 'loading' ? 'SCANNING' : songPortal.status === 'error' ? 'SCAN FAILED' : cockpit.exterior === 'visitor' ? visitedPlanet?.displayName ?? 'SYSTEM ON' : cockpit.exterior === 'galaxy' ? selectedGalaxyGroup?.label ?? 'SYSTEM ON' : 'SYSTEM ON'
+  const scanSignals = copilotPlanets.length && songPortal.status === 'idle' ? copilotPlanets : songPortal.status === 'ready' ? songPortal.response.matches : songPortal.status === 'idle' && discovery.status === 'ready' ? discovery.response.recommendations : []
+  const scanTitle = copilotPlanets.length && songPortal.status === 'idle' ? '副驾发现' : songPortal.status === 'ready' ? 'SCAN RESULTS' : songPortal.status === 'loading' ? 'SCANNING' : songPortal.status === 'error' ? 'SCAN FAILED' : cockpit.exterior === 'visitor' ? visitedPlanet?.displayName ?? 'SYSTEM ON' : cockpit.exterior === 'galaxy' ? selectedGalaxyGroup?.label ?? 'SYSTEM ON' : 'SYSTEM ON'
   const socialNotice = social.notice && <div className="music-social-notice" aria-label="好友动态">
     <p role="status">{social.notice}</p>
     <DitherButton type="button" disabled={cockpit.travel.status !== 'idle'} onClick={() => { social.dismiss(); changeView('orbit') }}>{friendRequests?.incoming.length ? '查看好友请求' : '查看好友'}</DitherButton>
@@ -1532,6 +1600,20 @@ function MusicApp({ apiOverride, firstRunStorageKey = 'mosic-first-run-v1', repl
         targetName: flightController.flight?.targetVisitor?.displayName ?? (flightController.flight?.to === 'visitor' ? pendingVisit?.displayName ?? null : null) }}
       by={galaxy.status === 'idle' ? 'genre' : galaxy.by} onClassify={by => { void regroupGalaxy(by) }}
       classifying={galaxy.status === 'loading' || galaxyRegrouping}
+      projection={homeReady && <CopilotProjection active={projectionOpen} phase={copilotPhase} reducedMotion={reducedMotion}
+        visible={!firstRunOpen && cockpit.console.focus === 'overview' && cockpit.travel.status === 'idle'}
+        open={() => changeView('copilot')} close={() => dispatchCockpit({ type: 'overview' })}
+        toggle={() => copilotIntercom.current?.toggle()} begin={() => copilotIntercom.current?.begin()} end={() => copilotIntercom.current?.end()} cancel={() => copilotIntercom.current?.cancel()}
+        notice={copilotNotice?.text ?? ''} onDismiss={() => setCopilotNotice(null)}
+        onNotice={() => { changeView(copilotNotice?.page ?? 'copilot'); setCopilotNotice(null) }}>
+        <CopilotPanel key={accountEpoch.current}
+        active={projectionOpen} onPhaseChange={setCopilotPhase} onClose={() => dispatchCockpit({ type: 'overview' })} intercomRef={copilotIntercom}
+        player={musicPlayer} currentTrackId={musicPlayer.currentTrackId} currentPlanetId={monitorPlanet?.id}
+        currentView={cockpit.exterior} onPlay={musicPlayer.play} onDuckChange={musicPlayer.setDucked}
+        onVisit={(id, name) => requestPublicPlanetVisit(id, name, 'direct')}
+        onInitiativeChange={setInitiative} onPlanetsChange={setCopilotPlanets}
+        onDraftBottle={text => { setBottleDraft({ text, trackId: musicPlayer.currentTrackId }); changeView('bottles') }} />
+      </CopilotProjection>}
       onOpen={changeView} onOverview={() => dispatchCockpit({ type: 'overview' })} onBack={() => dispatchCockpit({ type: 'back' })}
       onGalaxy={() => { void goGalaxy() }} onHome={jumpHome}
       personalPreview={cockpit.exterior === 'galaxy' ? <GalaxyTelemetry grouping={galaxySceneResponse?.by ?? (galaxy.status === 'idle' ? 'genre' : galaxy.by)}
@@ -1543,7 +1625,7 @@ function MusicApp({ apiOverride, firstRunStorageKey = 'mosic-first-run-v1', repl
       explorationPreview={<SignalMap signals={scanSignals} title={scanTitle} scanning={songPortal.status === 'loading' || songPortal.status === 'ready'} mode={songPortal.status === 'ready' || songPortal.status === 'loading' ? 'SONG LINK' : discovery.status === 'ready' ? 'ROAM LINK' : 'EXPLORATION / NAV'} />}
       scene={<Stage
       planet={planet} friendSatellites={home.status === 'ready' ? home.friendSatellites : []} visitedPlanet={cockpit.exterior === 'visitor' ? visitedPlanet : null} previewSeed={previewSeed} reducedMotion={reducedMotion}
-      exteriorView={cockpit.exterior === 'galaxy' ? 'galaxy' : 'home'} interactive={homeReady && !firstRunOpen && cockpit.console.focus === 'overview' && cockpit.travel.status === 'idle'} managedTravel flight={flightController.flight}
+      exteriorView={cockpit.exterior === 'galaxy' ? 'galaxy' : 'home'} interactive={homeReady && !firstRunOpen && !projectionOpen && cockpit.console.focus === 'overview' && cockpit.travel.status === 'idle'} managedTravel flight={flightController.flight}
       productView={view} galaxySystems={galaxySceneSystems}
       galaxyRotation={galaxyRotation} routeJourney={galaxyJourney} regrouping={galaxyRegrouping}
       onSelectGalaxy={focusGalaxyById}
@@ -1566,7 +1648,7 @@ function MusicApp({ apiOverride, firstRunStorageKey = 'mosic-first-run-v1', repl
       }}
       onRotate={(delta) => setGalaxyRotation((rotation) => rotation + delta)}
     />}
-      windowNavigation={<>{cockpit.exterior === 'galaxy' && galaxy.status === 'ready' && <MusicGalaxyAxis
+      windowNavigation={<>{!projectionOpen && cockpit.exterior === 'galaxy' && galaxy.status === 'ready' && <MusicGalaxyAxis
       systems={galaxySceneSystems} journey={galaxyJourney} homeApproach={homeAxisApproach} reducedMotion={reducedMotion}
       onSelect={(index) => {
         homeWheelApproach.current = 0; setHomeAxisApproach(0)
@@ -1578,6 +1660,7 @@ function MusicApp({ apiOverride, firstRunStorageKey = 'mosic-first-run-v1', repl
 
     {cockpit.console.focus !== 'overview' && socialNotice}
     <div className="cockpit-pages">
+
       {musicPlayer.error && <p className="music-form-error" role="alert">{musicPlayer.error}</p>}
       {view === 'planet' && <section className="cockpit-personal-heading"><DitherTitle level={2}>{planet?.displayName ?? '创建我的星球'}</DitherTitle>{planet?.tagline && <p>{planet.tagline}</p>}
         {planet && <div className="cockpit-page-actions"><DitherButton onClick={() => changeView('manage')}>星球资料与歌曲</DitherButton><DitherButton aria-label="编辑星球外观" onClick={() => { setAppearanceError(''); setAppearanceOpen(true); changeView('appearance') }}>调整外观</DitherButton></div>}
@@ -1696,6 +1779,7 @@ function MusicApp({ apiOverride, firstRunStorageKey = 'mosic-first-run-v1', repl
           <p className="music-panel-note">处理举报并记录状态。审核列表不展示被举报内容。</p>
           <DitherButton className="music-secondary-button" type="button" onClick={() => changeView('moderation')}>打开审核队列</DitherButton>
         </section>}
+        {view === 'settings' && <PairedDevices />}
         {view === 'settings' && <section className="music-settings-section" aria-label="匿名体验身份">
           <div className="music-section-heading"><DitherTitle level={3}>匿名体验身份</DitherTitle><span>自动创建</span></div>
           <p className="music-panel-note">账号已保存在这个浏览器中。换浏览器或清除本站点数据后，会生成新的随机账号；当前演示阶段暂不支持跨设备找回。</p>
@@ -1986,6 +2070,7 @@ function MusicApp({ apiOverride, firstRunStorageKey = 'mosic-first-run-v1', repl
       {bottlesMounted && <div hidden={view !== 'bottles'}><DriftBottlePanel
         api={api}
         key={bottleAccountEpoch}
+        copilotDraft={bottleDraft}
         active={view === 'bottles' && cockpit.console.focus !== 'overview'}
         onSettingsChange={settings => {
           if (bottleAccountEpoch === accountEpoch.current) setSocialSettings(settings)

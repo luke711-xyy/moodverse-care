@@ -1,4 +1,4 @@
-export type CockpitPage = 'planet' | 'moment' | 'manage' | 'appearance' | 'orbit'
+export type CockpitPage = 'copilot' | 'planet' | 'moment' | 'manage' | 'appearance' | 'orbit'
   | 'collision' | 'galaxy' | 'roam' | 'bottles' | 'visitor' | 'preflight' | 'settings' | 'moderation'
 export type ExteriorDestination = 'home' | 'galaxy' | 'visitor'
 export type ConsoleState = { focus: 'overview' | 'personal' | 'exploration'; page: CockpitPage }
@@ -23,7 +23,7 @@ export const initialCockpitState: CockpitState = {
   channels: { personal: 'planet', exploration: 'collision' },
 }
 export function pageTerminal(page: CockpitPage): 'personal' | 'exploration' {
-  return ['planet', 'moment', 'manage', 'appearance', 'orbit'].includes(page) ? 'personal' : 'exploration'
+  return ['planet', 'moment', 'manage', 'appearance', 'orbit', 'copilot'].includes(page) ? 'personal' : 'exploration'
 }
 export function cockpitReducer(state: CockpitState, action: CockpitAction): CockpitState {
   if (action.type === 'reset') return initialCockpitState
@@ -32,11 +32,18 @@ export function cockpitReducer(state: CockpitState, action: CockpitAction): Cock
   }
   if (action.type === 'open') {
     if (state.travel.status !== 'idle') return state
+    if (action.page === 'copilot') {
+      if (state.console.page === 'copilot' && state.console.focus === 'overview') return state
+      return { ...state, console: { focus: 'overview', page: 'copilot' }, history: [...state.history.slice(-7), state.console] }
+    }
     const console: ConsoleState = { focus: pageTerminal(action.page), page: action.page }
     if (state.console.focus === console.focus && state.console.page === console.page) return state
     return { ...state, console, channels: { ...state.channels, [console.focus]: action.page }, history: [...state.history.slice(-7), state.console] }
   }
-  if (action.type === 'overview') return { ...state, console: { ...state.console, focus: 'overview' }, history: [] }
+  if (action.type === 'overview') {
+    const page = state.console.page === 'copilot' ? state.exterior === 'home' ? 'planet' : state.exterior : state.console.page
+    return { ...state, console: { page, focus: 'overview' }, history: [] }
+  }
   if (action.type === 'back') {
     if (state.travel.status !== 'idle') return state
     const console = state.history.at(-1) ?? { ...state.console, focus: 'overview' }

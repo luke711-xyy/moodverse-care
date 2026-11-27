@@ -76,3 +76,12 @@ test('cancelled preflight restores the originating channel instead of reopening 
   state = cockpitReducer(state, { type: 'open', page: state.channels.exploration })
   expect(state.console.page).toBe('collision')
 })
+
+test('the copilot uses the observation window and yields to the physical consoles', () => {
+  const projection = cockpitReducer(initialCockpitState, { type: 'open', page: 'copilot' })
+  expect(projection.console).toEqual({ focus: 'overview', page: 'copilot' })
+  const terminal = cockpitReducer(projection, { type: 'open', page: 'orbit' })
+  expect(terminal.console).toEqual({ focus: 'personal', page: 'orbit' })
+  expect(cockpitReducer(terminal, { type: 'back' }).console).toEqual(projection.console)
+  expect(cockpitReducer(projection, { type: 'overview' }).console).toEqual({ focus: 'overview', page: 'galaxy' })
+})

@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#101613">
+  <title>MOSIC 驾驶舱 · 桌面下载</title>
+  <link rel="icon" href="/favicon.svg">
+  <style>
+    @font-face{font-family:Rajdhani;src:url('/fonts/rajdhani-latin-600.woff2') format('woff2');font-display:swap;font-weight:600}
+    *{box-sizing:border-box}body{margin:0;color:#eeeee4;background:#101613;font:16px/1.7 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif}
+    main{max-width:780px;margin:0 auto;padding:30px clamp(20px,5vw,54px) 60px}nav{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #425246;padding-bottom:14px;color:#bdd4a8}
+    nav b,.version{font:600 24px/1.3 Rajdhani,monospace;letter-spacing:.08em}a{color:#d0e8b8;text-underline-offset:.22em}.hero{padding:clamp(36px,8vw,78px) 0 34px}
+    h1{font-size:clamp(36px,7.8vw,64px);line-height:1.08;letter-spacing:-.04em;margin:0 0 18px;font-weight:650}.hero p{max-width:32em;color:#c4c9bb}
+    .downloads{display:flex;flex-wrap:wrap;gap:12px;margin:24px 0 10px}.downloads a{padding:10px 16px;text-decoration:none;border:1px solid #879a7a;font-size:16px;font-weight:600}
+    .primary{color:#142017;background:#d0e8b8}.downloads a:hover,.downloads a:focus-visible{outline:2px solid #f4bf73;outline-offset:3px}
+    .version{font-size:15px;color:#a5b59f}.guide{display:grid;grid-template-columns:9em 1fr;gap:16px;border-top:1px solid #425246;padding:18px 0}
+    h2{font-size:1.05rem;margin:0;color:#e0e7d5}.guide p{margin:0;color:#c4c9bb}code{font-size:.88em;color:#e3e8db;overflow-wrap:anywhere}
+    @media(max-width:530px){.guide{grid-template-columns:1fr;gap:4px}.downloads a{text-align:center;flex:1 1 100%}}
+  </style>
+</head>
+<body><main>
+  <nav aria-label="主导航"><b>MOSIC</b><a href="/">返回驾驶舱 ↗</a></nav>
+  <section class="hero">
+    <h1>MOSIC 桌面驾驶舱</h1>
+    <p>在 Mac 上进入与网页版相同的驾驶舱。点亮观察窗里的副驾，可以用自己的模型点歌、对讲，再去拜访选过同一首歌的星球。</p>
+    <div class="downloads">
+      <a class="primary" href="/api/music/copilot-download/app">下载 Mac 应用 ↓</a>
+      <a href="/api/music/copilot-download/source">下载开源源码 ↓</a>
+    </div>
+    <span class="version">v0.1.0 · Apple Silicon · ZIP · MIT</span>
+  </section>
+  <section class="guide"><h2>首次打开</h2><p>解压 ZIP，将 MOSIC Copilot 移到“应用程序”。此版本尚未通过 Apple 公证。如果 macOS 拦截首次打开，可核对下载来源后按 Apple 的步骤在“隐私与安全性”中确认。<a href="https://support.apple.com/zh-cn/102445">查看 Apple 说明</a></p></section>
+  <section class="guide"><h2>选择模型</h2><p>打开应用的本机连接设置，选择 Ollama、LM Studio、自己的 API Key 或 ChatGPT 授权。回到观察窗，在副驾设置里选择桌面连接。</p></section>
+  <section class="guide"><h2>本机对讲</h2><p>首次对讲时，允许使用麦克风和语音识别。支持普通话离线识别的 Mac 会在本机转写，所选模型处理转写文字。缺少本机语音支持时可以输入文字。</p></section>
+  <section class="guide"><h2>源码与 Claude Code</h2><p>桌面程序与源码可免费下载。源码包内的 <code>src/mcp.mjs</code> 可以注册为 Claude Code 的 stdio MCP 工具，用来查歌和起草介绍。主动配对设备后，还能查找真实的同歌星球。安装和配对步骤见源码包内的 README。</p></section>
+</main></body>
+</html>

@@ -1,0 +1,552 @@
+.cp-panel {
+  --cp-accent: #a6edc7;
+  --cp-line: rgba(153, 206, 180, 0.28);
+  --cp-muted: #9cb3ab;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  min-width: 0;
+  color: #e0eee8;
+  text-align: left;
+}
+.cp-panel *,
+.cp-panel *::after,
+.cp-panel *::before {
+  box-sizing: border-box;
+}
+.cp-panel button,
+.cp-panel a,
+.cp-panel input,
+.cp-panel textarea,
+.cp-panel select {
+  font: inherit;
+}
+.cp-panel button,
+.cp-panel .cp-card a {
+  background: #13261f;
+  color: #d8f0df;
+  border: 1px solid var(--cp-line);
+  border-radius: 3px;
+  cursor: pointer;
+  padding: 0.38rem 0.6rem;
+  font-size: 0.83rem;
+  line-height: 1.4;
+}
+.cp-panel button:hover:enabled,
+.cp-panel a:hover,
+.cp-panel button[aria-pressed='true'] {
+  border-color: var(--cp-accent);
+  color: var(--cp-accent);
+}
+.cp-panel button:focus-visible,
+.cp-panel :is(input, textarea, select):focus-visible {
+  outline: 2px solid var(--cp-accent);
+  outline-offset: 2px;
+}
+.cp-panel button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.cp-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.cp-head h2 {
+  margin: 0.15rem 0 0;
+  color: var(--cp-accent);
+  font-size: 1.25rem;
+}
+.cp-head small,
+.cp-status,
+.cp-entry header time {
+  font-family: ui-monospace, monospace;
+}
+.cp-head small {
+  letter-spacing: 0.14em;
+  color: var(--cp-muted);
+  font-size: 0.65rem;
+}
+.cp-status {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: var(--cp-muted);
+  font-size: 0.78rem;
+}
+.cp-status i {
+  background: var(--cp-accent);
+  border-radius: 50%;
+  width: 6px;
+  height: 6px;
+}
+.cp-status[data-active='true'] {
+  color: var(--cp-accent);
+}
+.cp-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--cp-line);
+  gap: 0.25rem;
+}
+.cp-tabs button {
+  background: transparent;
+  border: none;
+  padding: 0.45rem 0.64rem;
+  color: var(--cp-muted);
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+}
+.cp-tabs button[aria-pressed='true'] {
+  border-bottom-color: var(--cp-accent);
+}
+.cp-log-tools {
+  display: flex;
+  justify-content: flex-end;
+}
+.cp-log-tools button,
+.cp-entry-actions button {
+  font-size: 0.74rem;
+  background: transparent;
+}
+.cp-log {
+  max-height: min(43dvh, 31rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: grid;
+  gap: 0.85rem;
+  scrollbar-width: thin;
+  padding: 0.2rem;
+}
+.cp-ready {
+  padding: 0.4rem 0 1rem;
+}
+.cp-ready p {
+  color: var(--cp-accent);
+  margin: 0.35rem 0 0.9rem;
+}
+.cp-prompts,
+.cp-entry-actions,
+.cp-compose-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+}
+.cp-entry {
+  min-width: 0;
+  padding: 0.1rem 0.25rem 0.25rem 0.7rem;
+  border-left: 2px solid var(--cp-line);
+}
+.cp-entry[data-role='user'] {
+  border-color: #b1ab7d;
+}
+.cp-entry header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+.cp-entry header strong {
+  font-size: 0.81rem;
+  color: var(--cp-accent);
+}
+.cp-entry header :is(time, small),
+.cp-settings small,
+.cp-compose > small,
+.cp-card small {
+  color: var(--cp-muted);
+  font-size: 0.72rem;
+}
+.cp-entry > p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 0.9rem;
+  line-height: 1.65;
+  margin: 0.3rem 0 0.45rem;
+}
+.cp-card {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.6rem;
+  margin: 0.45rem 0;
+  background: #0d1e19;
+  border: 1px solid var(--cp-line);
+}
+.cp-card > :is(img, .cp-card-icon) {
+  display: grid;
+  place-items: center;
+  height: 36px;
+  width: 36px;
+  object-fit: cover;
+  color: var(--cp-accent);
+  background: #253a31;
+}
+.cp-card > div {
+  display: grid;
+  gap: 0.1rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.cp-card strong {
+  font-size: 0.86rem;
+  line-height: 1.35;
+}
+.cp-card div span,
+.cp-card div p {
+  font-size: 0.75rem;
+  margin: 0;
+}
+.cp-card a {
+  text-decoration: none;
+}
+.cp-compose {
+  border-top: 1px solid var(--cp-line);
+  padding-top: 0.7rem;
+  display: grid;
+  gap: 0.4rem;
+}
+.cp-draft {
+  display: grid;
+  gap: 0.25rem;
+}
+.cp-draft span,
+.cp-settings label {
+  font-size: 0.8rem;
+  color: #bbd0c5;
+}
+.cp-panel :is(input:not([type='checkbox']), textarea, select) {
+  background: #0b1814;
+  color: #e5f6ed;
+  border: 1px solid var(--cp-line);
+  border-radius: 3px;
+  padding: 0.45rem 0.55rem;
+  min-width: 0;
+}
+.cp-draft textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 3rem;
+}
+.cp-compose-actions .cp-intercom {
+  touch-action: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+.cp-compose-actions .cp-send {
+  margin-left: auto;
+  background: var(--cp-accent);
+  color: #10241a;
+}
+.cp-compose-actions .cp-send:hover:enabled {
+  color: #10241a;
+  background: #c4ffdc;
+}
+.cp-settings {
+  display: grid;
+  gap: 0.75rem;
+}
+.cp-settings fieldset {
+  min-width: 0;
+  border: 1px solid var(--cp-line);
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.7rem;
+  margin: 0;
+}
+.cp-settings fieldset > button,
+.cp-settings > button {
+  justify-self: start;
+}
+.cp-settings legend {
+  color: var(--cp-accent);
+  padding: 0 0.35rem;
+  font-size: 0.85rem;
+}
+.cp-settings label:not(.cp-check) {
+  display: grid;
+  gap: 0.18rem;
+}
+.cp-inline-form {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.cp-inline-form label {
+  flex: 1 1 10rem;
+}
+.cp-check {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+.cp-check input {
+  accent-color: var(--cp-accent);
+}
+.cp-memories {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.3rem;
+}
+.cp-memories li {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  padding-bottom: 0.3rem;
+  border-bottom: 1px solid var(--cp-line);
+}
+.cp-memories li > span {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 0.83rem;
+}
+.cp-memories small {
+  display: block;
+}
+.cp-error,
+.cp-confirm {
+  border-left: 2px solid #d6a77f;
+  color: #ffd6ae;
+  padding: 0.35rem 0.6rem;
+  margin: 0;
+  font-size: 0.84rem;
+}
+.cp-confirm button {
+  margin-right: 0.45rem;
+}
+
+/* Inside the cockpit sight glass: the scene and instrument share one physical frame. */
+.cp-instrument {
+  --cp-accent: #bde8cb;
+  --cp-line: #60786785;
+  --cp-muted: #adbdac;
+  color: #edf3df;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  container-type: size;
+  padding: clamp(6px, 1vw, 15px);
+  gap: 0.38rem;
+  background: transparent;
+  font-family: system-ui, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  pointer-events: auto;
+}
+.cp-instrument .cp-head {
+  gap: 0.4rem;
+  flex: 0 0 auto;
+}
+.cp-instrument .cp-head .cp-model-source {
+  margin-inline-end: auto;
+  color: var(--cp-muted);
+  font-weight: 500;
+  line-height: 1.35;
+  font-family: inherit;
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+}
+.cp-instrument .cp-head .cp-close {
+  background: transparent;
+  border: 0;
+  font: 1.18rem/1 monospace;
+  color: var(--cp-muted);
+  padding: 0.2rem;
+  min-width: 28px;
+}
+.cp-instrument .cp-status {
+  font-family: inherit;
+  font-size: 0.75rem;
+}
+.cp-instrument :is(button, input, textarea, select) {
+  font-family: inherit;
+}
+.cp-instrument button,
+.cp-instrument .cp-card a {
+  border-radius: 0;
+  min-height: 22px;
+  line-height: 1.24;
+}
+.cp-instrument .cp-tabs {
+  align-items: center;
+  gap: 0.65rem;
+  padding-bottom: 1px;
+  flex: 0 0 auto;
+}
+.cp-instrument .cp-tabs button {
+  padding: 0.22rem 0;
+  color: #aab9ab;
+  font-size: 0.75rem;
+}
+.cp-instrument .cp-tabs button[aria-pressed='true'] {
+  color: var(--cp-accent);
+}
+.cp-instrument .cp-log-tools {
+  flex: 0 0 auto;
+}
+.cp-instrument .cp-log-tools button {
+  padding: 0 0.2rem;
+  border: 0;
+  color: var(--cp-muted);
+  font-size: 0.68rem;
+}
+.cp-instrument .cp-log,
+.cp-instrument .cp-aux-scroll {
+  overflow: auto;
+  overscroll-behavior: contain;
+  min-height: 0;
+  max-height: none;
+  flex: 1 1 auto;
+  scrollbar-width: thin;
+  scrollbar-color: #668b71 transparent;
+}
+.cp-instrument .cp-log {
+  align-content: end;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0 0.1rem;
+}
+.cp-instrument .cp-ready {
+  padding: 0.4rem 0;
+  margin-block: auto;
+}
+.cp-instrument .cp-ready p {
+  color: #ecf6d9;
+  font-size: clamp(0.9rem, 5cqi, 1.24rem);
+  margin: 0.2rem 0 0.4rem;
+}
+.cp-instrument .cp-prompts {
+  gap: 0.3rem;
+}
+.cp-instrument .cp-prompts button {
+  background: #13261f69;
+  padding: 0.3rem 0.45rem;
+  font-size: 0.71rem;
+}
+.cp-instrument .cp-entry {
+  border: 0;
+  border-inline-start: 2px dotted var(--cp-line);
+  padding: 0.15rem 0.5rem;
+}
+.cp-instrument .cp-entry > p {
+  font-size: 0.88rem;
+  line-height: 1.46;
+  margin: 0.25rem 0;
+}
+.cp-instrument .cp-entry header {
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+.cp-instrument .cp-entry header time {
+  margin-left: auto;
+}
+.cp-instrument .cp-card {
+  background: #10231bad;
+  gap: 0.4rem;
+  padding: 0.3rem;
+  margin: 0.3rem 0;
+  border-radius: 0;
+}
+.cp-instrument .cp-card > img,
+.cp-instrument .cp-card-icon {
+  width: 30px;
+  height: 30px;
+}
+.cp-instrument .cp-entry-actions button {
+  font-size: 0.66rem;
+  padding: 0.14rem 0.32rem;
+}
+.cp-instrument .cp-compose {
+  flex: none;
+  gap: 0.26rem;
+  padding-top: 0.4rem;
+}
+.cp-instrument .cp-draft textarea {
+  border-radius: 0;
+  line-height: 1.35;
+  min-height: 28px;
+  max-height: 3.75rem;
+  padding: 0.35rem 0.45rem;
+  resize: none;
+  font-size: 0.82rem;
+}
+.cp-instrument .cp-compose-actions {
+  gap: 0.3rem;
+}
+.cp-instrument .cp-compose-actions button {
+  font-size: 0.71rem;
+  padding: 0.28rem 0.45rem;
+}
+.cp-instrument .cp-compose > small {
+  font-size: 0.65rem;
+}
+.cp-instrument .cp-settings {
+  padding-block: 0.4rem;
+}
+.cp-instrument .cp-settings fieldset {
+  background: #08140f6b;
+  gap: 0.45rem;
+}
+.cp-instrument .cp-settings label {
+  font-size: 0.78rem;
+}
+.cp-instrument .cp-settings :is(input, select) {
+  width: 100%;
+}
+.cp-instrument .cp-settings input[type='checkbox'] {
+  width: auto;
+}
+.cp-instrument .cp-desktop-connection p {
+  font-size: 0.75rem;
+  color: var(--cp-muted);
+}
+.cp-instrument .cp-aux-scroll .copilot-social {
+  font-size: 0.82rem;
+}
+.cp-instrument .cp-aux-scroll .copilot-social label,
+.cp-instrument .cp-aux-scroll .copilot-social p {
+  font-size: 0.78rem;
+}
+.cp-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+@container (max-width: 270px) {
+  .cp-instrument .cp-tabs {
+    gap: 0.5rem;
+  }
+  .cp-instrument .cp-card {
+    grid-template-columns: 1fr auto;
+  }
+  .cp-instrument .cp-card > img,
+  .cp-instrument .cp-card-icon {
+    display: none;
+  }
+  .cp-instrument .cp-inline-form {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+}
+
+@container (min-width: 300px) and (min-height: 280px) {
+  .cp-instrument :is(button, .cp-card a) { min-height: 34px; }
+  .cp-instrument .cp-head .cp-close { min-width: 34px; }
+  .cp-instrument .cp-tabs { gap: 0.5rem; }
+  .cp-instrument .cp-tabs button { padding-inline: 0.45rem; font-size: 0.86rem; }
+  .cp-instrument .cp-prompts button,
+  .cp-instrument .cp-compose-actions button { padding-inline: 0.7rem; font-size: 0.81rem; }
+  .cp-instrument .cp-entry > p { font-size: 0.96rem; line-height: 1.6; }
+  .cp-instrument .cp-draft textarea { min-height: 36px; font-size: 0.92rem; }
+}

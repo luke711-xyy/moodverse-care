@@ -1,6 +1,14 @@
 import { emailMusicSession } from './_music-email-auth'
 
 export type Env = {
+  AI?: { run(model: string, inputs: Record<string, unknown>, options?: { signal?: AbortSignal }): Promise<unknown> }
+  MUSIC_COPILOT_MODEL?: string
+  MUSIC_COPILOT_DAILY_LIMIT?: string
+  MUSIC_COPILOT_GLOBAL_DAILY_LIMIT?: string
+  MUSIC_COPILOT_SOCIAL_ENABLED?: string
+  AZURE_SPEECH_KEY?: string
+  AZURE_SPEECH_REGION?: string
+  AZURE_SPEECH_VOICE?: string
   DB: D1Database
   MUSIC_MEDIA?: R2Bucket
   AUDIUS_API_KEY?: string
