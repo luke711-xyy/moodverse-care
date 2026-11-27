@@ -24,12 +24,18 @@ async function call(
   })
   return handler({ request, env } as never)
 }
+const testKey = { 'X-Mosic-Provider-Key': 'unit-test-key' }
+const modelResponse = (content: string) => Response.json({ choices: [{ message: { content } }] })
+function turn(data: Record<string, unknown>, headers = {}) {
+  return call(onRequestPost, { provider: 'openai', ...data }, 'POST', cookie, { ...testKey, ...headers })
+}
 async function chat(text: string, requestId: string = crypto.randomUUID(), extra = {}) {
-  const r = await call(onRequestPost, { text, requestId, ...extra })
+  const r = await turn({ text, requestId, ...extra })
   expect(r.status).toBe(200)
   return r.json() as Promise<any>
 }
 beforeEach(async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => modelResponse('《不在候选中的测试唱片》')))
   db = createMusicApiFixture()
   db.sqlite.exec(readFileSync(new URL('../migrations-music-staging/0007_copilot.sql', import.meta.url), 'utf8'))
   env = { DB: db.db }
@@ -66,9 +72,9 @@ test('the active conversation and its model context begin at local midnight', as
   seedTurn(ownerId, 'today', midnight, 'today favorite song')
   const state = await (await call(onRequestGet, undefined, 'GET', cookie, timeZone)).json()
   expect(state.messages.map((m: any) => m.id)).toEqual(['today-u', 'today-a'])
-  const run = vi.fn(async () => ({ response: '好的' }))
-  env.AI = { run }
-  const chat = await call(onRequestPost, { text: '继续聊', requestId: 'after-midnight' }, 'POST', cookie, timeZone)
+  const run = vi.fn(async () => modelResponse('好的'))
+  vi.stubGlobal('fetch', run)
+  const chat = await turn({ text: '继续聊', requestId: 'after-midnight' }, timeZone)
   expect(chat.status).toBe(200)
   expect(JSON.stringify(run.mock.calls)).toContain('today favorite song')
   expect(JSON.stringify(run.mock.calls)).not.toContain('yesterday private song')
@@ -91,11 +97,11 @@ test('a reply completed after local midnight is archived with the preceding day�
   vi.useFakeTimers({ toFake: ['Date'] })
   try {
     vi.setSystemTime(Date.parse(sentAt))
-    env.AI = { run: async () => {
+    vi.stubGlobal('fetch', async () => {
       vi.setSystemTime(Date.parse(midnight) + 1000)
-      return { response: '晚安' }
-    } }
-    const reply = await call(onRequestPost, { text: '晚安', requestId: 'night' }, 'POST', cookie, timeZone)
+      return modelResponse('晚安')
+    })
+    const reply = await turn({ text: '晚安', requestId: 'night' }, timeZone)
     expect(reply.status).toBe(200)
     expect((await reply.json()).messages.map((m: any) => m.createdAt)).toEqual([sentAt, sentAt])
     const current = await call(onRequestGet, undefined, 'GET', cookie, timeZone)
@@ -139,7 +145,7 @@ test('anonymous sessions isolate private turns, require same-origin writes and r
   const first = await chat(text, 'same-id')
   expect(first.memories[0].text).toContain('爵士')
   expect((await chat(text, 'same-id')).messages).toEqual(first.messages)
-  expect((await call(onRequestPost, { text: '其他', requestId: 'same-id' })).status).toBe(409)
+  expect((await turn({ text: '其他', requestId: 'same-id' })).status).toBe(409)
   const fresh = await call(onRequestGet, undefined, 'GET', '')
   expect((await fresh.json()).messages).toEqual([])
   expect(
@@ -186,8 +192,8 @@ test('forgetting removes prior prompt context, edits persist, expiring moods are
   const changed = await call(onRequestPatch, { memory: { id: m.id, action: 'edit', text: '我偏爱民谣' } }, 'PATCH')
   expect((await changed.json()).memories[0].text).toBe('我偏爱民谣')
   await call(onRequestPatch, { memory: { id: m.id, action: 'forget' } }, 'PATCH')
-  const run = vi.fn(async () => ({ choices: [{ message: { content: '好的。' } }] }))
-  env.AI = { run }
+  const run = vi.fn(async () => modelResponse('好的。'))
+  vi.stubGlobal('fetch', run)
   await chat('我喜欢什么？')
   expect(JSON.stringify(run.mock.calls)).not.toContain('爵士')
   expect(JSON.stringify(run.mock.calls)).not.toContain('民谣')
@@ -212,13 +218,8 @@ test('session BYOK stays in provider headers, quotas atomically gate model calls
   )
   expect(JSON.stringify(db.sqlite.prepare('SELECT * FROM music_copilot_turns').all())).not.toContain(secret)
   env.MUSIC_COPILOT_DAILY_LIMIT = '1'
-  env.AI = { run: vi.fn(async () => ({ choices: [{ message: { content: '收到' } }] })) }
-  await chat('在吗')
-  expect((await chat('再聊会')).messages[1]).toMatchObject({
-    source: 'fallback',
-    fallbackReason: expect.stringContaining('额度'),
-  })
-  expect(env.AI.run).toHaveBeenCalledTimes(1)
+  expect((await turn({ text: '再聊会', requestId: 'quota' })).status).toBe(429)
+  expect(fetcher).toHaveBeenCalledTimes(1)
 })
 test.each([{ memory: { action: 'clear' } }, { clearHistory: true }])(
   'clearing data during an in-flight reply prevents stale messages and memories from being committed: %j', async (change) => {
@@ -226,19 +227,15 @@ test.each([{ memory: { action: 'clear' } }, { clearHistory: true }])(
   const running = new Promise<void>((r) => {
     started = r
   })
-  env.AI = {
-    run: () => {
-      started()
-      return new Promise((r) => {
-        finish = r
-      })
-    },
-  }
-  const first = call(onRequestPost, { text: '我喜欢听爵士', requestId: 'one' })
+  vi.stubGlobal('fetch', () => {
+    started()
+    return new Promise((resolve) => { finish = resolve })
+  })
+  const first = turn({ text: '我喜欢听爵士', requestId: 'one' })
   await running
-  expect((await call(onRequestPost, { text: '我喜欢摇滚', requestId: 'two' })).status).toBe(409)
+  expect((await turn({ text: '我喜欢摇滚', requestId: 'two' })).status).toBe(409)
   expect((await call(onRequestPatch, change, 'PATCH')).status).toBe(200)
-  finish({ response: '好的' })
+  finish(modelResponse('好的'))
   expect((await first).status).toBe(409)
   const s = await (await call(onRequestGet, undefined, 'GET')).json()
   expect(s.memories).toHaveLength(0)
@@ -275,7 +272,7 @@ test('a changed genre excludes rejected tracks and weekly labels require the rea
   const change = await chat('不要摇滚，改成爵士')
   expect(change.messages[1].cards.map((c: any) => c.track.id)).toEqual(['audius:JAZZ'])
   env.AUDIUS_API_KEY = 'test-only'
-  const api = vi.fn(async () =>
+  const api = vi.fn(async (url: string | URL) => String(url).startsWith('https://api.openai.com/') ? modelResponse('收到了。') :
     Response.json({
       data: [
         { id: 'Trend1', title: 'Real weekly record', user: { id: 'artist1', name: 'Band' }, genre: 'EDM', bpm: 122 },
@@ -292,12 +289,10 @@ test('private or blocked planet cards are removed even if visibility changes dur
   db.sqlite.exec(
     "INSERT INTO users(id,token_hash,created_at,updated_at) VALUES ('peer','peer','t','t'); INSERT INTO music_planets(id,owner_user_id,display_name,visibility,created_at,updated_at) VALUES ('planet','peer','海岛','public','t','t'); INSERT INTO music_planet_tracks VALUES ('planet','audius:X',0,1,'t')",
   )
-  env.AI = {
-    run: async () => {
-      db.sqlite.exec("UPDATE music_planets SET visibility='private' WHERE id='planet'")
-      return { response: '去海岛看看。' }
-    },
-  }
+  vi.stubGlobal('fetch', async () => {
+    db.sqlite.exec("UPDATE music_planets SET visibility='private' WHERE id='planet'")
+    return modelResponse('去海岛看看。')
+  })
   const result = await chat('给我推荐一个星球')
   expect(result.messages[1].cards).toEqual([])
   expect(result.messages[1].text).not.toContain('海岛')
@@ -311,4 +306,51 @@ test('explicitly entered short-term moods always expire, including a manually ed
   const id = (await music.json()).memories.find((m: any) => m.kind === 'preference').id
   const edit = await call(onRequestPatch, { memory: { action: 'edit', id, text: '我今天压力大' } }, 'PATCH')
   expect((await edit.json()).memories.filter((m: any) => m.kind === 'mood')).toHaveLength(2)
+})
+
+test('unconfigured and legacy default callers never invoke any model or save their draft', async () => {
+  env.AI = {run: vi.fn()}
+  for (const provider of [undefined, 'none', 'platform']) {
+    const response = await call(onRequestPost, { provider, text: '你好', requestId: 'unconfigured' })
+    expect(response.status).toBe(400)
+    expect((await response.json()).error).toBe('MODEL_NOT_CONFIGURED')
+  }
+  expect(env.AI.run).not.toHaveBeenCalled()
+  expect(fetch).not.toHaveBeenCalled()
+  const state = await (await call(onRequestGet, undefined, 'GET')).json()
+  expect(state.capabilities.platform).toBe(false)
+  expect(state.messages).toEqual([])
+})
+
+test.each([
+  ['openai', 'https://models.example.com/org/v1', '/org/v1/chat/completions', {choices:[{message:{content:'已收到。'}}]}],
+  ['responses', 'https://models.example.com/responses', '/responses', {output:[{content:[{type:'output_text',text:'已收到。'}]}]}],
+  ['anthropic', 'https://models.example.com/v1', '/v1/messages', {content:[{type:'text',text:'已收到。'}]}],
+  ['json', 'https://models.example.com/generate?api-version=2', '/generate?api-version=2', {data:[{answer:'已收到。'}]}],
+])('sends a custom %s turn only to the chosen endpoint', async (protocol, baseUrl, path, payload) => {
+  const outbound = vi.fn(async () => Response.json(payload))
+  vi.stubGlobal('fetch', outbound)
+  const template = protocol === 'json' ? {authHeader:'X-Model-Key',authScheme:'raw',bodyTemplate:'{"question":"{{prompt}}"}',responsePath:'data.0.answer'} : {}
+  const result = await turn({provider:'custom',protocol,baseUrl,model:'org/model:small',text:'你好',requestId:'custom-test',...template})
+  expect(result.status).toBe(200)
+  expect((await result.json()).messages[1]).toMatchObject({text:'已收到。',source:'custom'})
+  expect(outbound).toHaveBeenCalledWith('https://models.example.com'+path,expect.objectContaining({method:'POST',redirect:'error'}))
+  const options = (outbound.mock.calls[0] as unknown as [string,RequestInit])[1]
+  const headers = new Headers(options.headers)
+  expect(headers.get(protocol === 'anthropic' ? 'x-api-key' : protocol === 'json' ? 'X-Model-Key' : 'authorization')).toContain('unit-test-key')
+  expect(String(options.body)).toContain('你好')
+  expect(String(options.body)).not.toContain('unit-test-key')
+  expect(JSON.stringify(db.sqlite.prepare('SELECT * FROM music_copilot_turns').all())).not.toContain('unit-test-key')
+})
+test('invalid cloud destinations and refused credentials never change routes or commit a turn', async () => {
+  const data = { provider:'custom',protocol:'openai',model:'m',text:'你好',requestId:'t' }
+  for (const baseUrl of ['http://models.example.com/v1','https://127.0.0.1/v1','https://[::1]/v1','https://music.internal/v1','https://user:pass@models.example.com/v1']) {
+    expect((await turn({...data,baseUrl})).status).toBe(400)
+  }
+  expect(fetch).not.toHaveBeenCalled()
+  const rejected=vi.fn(async()=>new Response(null,{status:401}))
+  vi.stubGlobal('fetch',rejected)
+  expect((await turn({...data,baseUrl:'https://models.example.com/v1'})).status).toBe(422)
+  expect(rejected).toHaveBeenCalledTimes(1)
+  expect((await (await call(onRequestGet,undefined,'GET')).json()).messages).toEqual([])
 })

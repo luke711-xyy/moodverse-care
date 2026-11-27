@@ -1,7 +1,19 @@
 import type { Env } from './_shared'
-import { QWEN, replyText } from './_music-copilot-model'
-import { reserve } from './_music-copilot-state'
+import { object, reserve } from './_music-copilot-state'
 import { isSocialRecord } from './_music-social'
+
+const QWEN = '@cf/qwen/qwen3.8-27b'
+function replyText(result: unknown): string {
+  if (!object(result)) return ''
+  if (typeof result.response === 'string') return result.response
+  if (Array.isArray(result.content))
+    return result.content
+      .filter((c) => object(c) && c.type === 'text' && typeof c.text === 'string')
+      .map((c) => c.text)
+      .join('')
+  const c = Array.isArray(result.choices) ? result.choices[0] : null
+  return object(c) && object(c.message) && typeof c.message.content === 'string' ? c.message.content : ''
+}
 
 type Card = { trackId: string; title: string; artist: string; introduction: string; greeting: string }
 export type ExchangeFacts = { common: string; sender: Card; recipient: Card }

@@ -1,5 +1,10 @@
+import { modelRequest, modelReply } from './http-model.mjs'
+import { agentSubscriptionModels, chatWithAgent } from './agent-subscriptions.mjs'
+
 const openai = 'https://api.openai.com/v1'
 const anthropic = 'https://api.anthropic.com/v1'
+export const isAgentProvider = provider => provider==='codex' || provider==='copilot'
+export const acceptsNoModel = (provider,custom) => provider==='custom' && custom?.protocol==='json'
 const short = (value, size) => String(value || '').slice(0,size)
 
 export function localEndpoint(value) {
@@ -8,6 +13,54 @@ export function localEndpoint(value) {
     || u.username || u.password || u.search || u.hash || !['/v1','/v1/'].includes(u.pathname)) throw new Error('本地模型地址应为本机回环地址的 /v1。')
   return u.origin + '/v1'
 }
+const routes = { completions:'/chat/completions', responses:'/responses', messages:'/messages', json:'' }
+export function customService(value = {}) {
+  if (!Object.hasOwn(routes, value.protocol)) throw new Error('选择与服务商兼容的 API 协议。')
+  if (!['bearer','api-key','x-api-key','other'].includes(value.auth)) throw new Error('选择服务商要求的密钥格式。')
+  let u
+  try { u = new URL(String(value.url || '').trim()) } catch { throw new Error('填写有效的 API 地址。') }
+  if (u.protocol!=='https:' || u.username || u.password || u.hash)
+    throw new Error('自定义 API 需要 HTTPS 地址，凭据请填入密钥框。')
+  // Never persist a key accidentally pasted as a URL parameter.
+  for (const name of u.searchParams.keys()) if (/key|token|secret|password|signature|credential/i.test(name))
+    throw new Error('请将密钥单独填入 API Key 栏。')
+  const path=u.pathname.replace(/\/+$/, ''), suffix=routes[value.protocol]
+  const known=Boolean(suffix) && path.endsWith(suffix)
+  const full=value.protocol==='json' || value.full===true || known
+  const canList=!full || known
+  const base=known ? path.slice(0,-suffix.length) : path
+  const chatUrl=new URL(u), modelsUrl=new URL(u)
+  chatUrl.pathname=full ? path : base+suffix
+  modelsUrl.pathname=base+'/models'
+  u.pathname=path || '/'
+  const authHeader=value.auth==='other' ? String(value.authHeader || '').trim() : value.auth==='bearer' ? 'Authorization' : value.auth
+  const authScheme=value.auth==='other' ? value.authScheme : value.auth==='bearer' ? 'bearer' : 'raw'
+  if (!/^[A-Za-z][A-Za-z0-9-]{0,80}$/.test(authHeader) || !['bearer','raw'].includes(authScheme)) throw new Error('请填写有效的鉴权请求头和密钥格式。')
+  return {url:u.href,full,protocol:value.protocol,auth:value.auth,authHeader,authScheme,chatUrl:chatUrl.href,modelsUrl:canList ? modelsUrl.href : null,
+    ...(value.protocol==='json' ? {bodyTemplate:value.bodyTemplate,responsePath:value.responsePath} : {})}
+}
+const customProtocols={completions:'openai',responses:'responses',messages:'anthropic',json:'json'}
+export function customRequest(service,model,key,system,messages) {
+  return modelRequest({requestUrl:service.chatUrl,baseUrl:service.url,protocol:customProtocols[service.protocol],model,key,system,messages,
+    authHeader:service.authHeader,authScheme:service.authScheme,bodyTemplate:service.bodyTemplate,responsePath:service.responsePath})
+}
+
+function serviceFor(provider, endpoint, custom) {
+  if (provider==='custom') return customService(custom)
+  const known={local:[null,'completions','bearer'],openai:[openai,'responses','bearer'],anthropic:[anthropic,'messages','x-api-key'],subscription:[openai,'responses','bearer']}
+  if (!Object.hasOwn(known,provider)) throw new Error('副驾未配置，请先选择连接方式。')
+  const [base,protocol,auth]=known[provider]
+  const url=base || localEndpoint(endpoint)
+  return {chatUrl:url+routes[protocol],modelsUrl:url+'/models',protocol,authHeader:auth==='bearer' ? 'Authorization':auth,authScheme:auth==='bearer' ? 'bearer':'raw'}
+}
+function requestHeaders(service, token) {
+  const headers={'Content-Type':'application/json'}
+  if (service.protocol==='messages') headers['anthropic-version']='2023-06-01'
+  if (token) {
+    headers[service.authHeader]=service.authScheme==='bearer' ? 'Bearer '+token : token
+  }
+  return headers
+}
 async function call(url, options, net) {
   let res
   try { res = await net(url,{redirect:'error',signal:AbortSignal.timeout(90000),...options}) }
@@ -15,10 +68,12 @@ async function call(url, options, net) {
   if (!res.ok) throw new Error(`模型请求未完成（${res.status}）。请检查所选账号、模型与额度。`)
   return res
 }
-export async function availableModels({provider,endpoint,token},net = fetch) {
-  const base = provider === 'local' ? localEndpoint(endpoint) : provider === 'anthropic' ? anthropic : openai
-  const headers = provider === 'anthropic' ? {'x-api-key':token,'anthropic-version':'2023-06-01'} : token ? {Authorization:'Bearer '+token} : {}
-  const res = await call(base+'/models',{headers},net)
+export async function availableModels({provider,endpoint,custom,token},net = fetch) {
+  if (isAgentProvider(provider)) return agentSubscriptionModels(provider)
+  const service=serviceFor(provider,endpoint,custom)
+  if (!service.modelsUrl) throw new Error('这个自定义请求路径没有标准模型列表，请输入服务商提供的模型 ID。')
+  if (provider!=='local' && !token) throw new Error('所选提供方需要登录或 API Key。')
+  const res=await call(service.modelsUrl,{headers:requestHeaders(service,token)},net)
   const data = await res.json()
   if (provider==='subscription') return (data.models || []).filter(m=>m.visibility==='list').map(m=>({id:m.slug,name:m.display_name || m.slug}))
   return (data.data || []).filter(m=>typeof m.id==='string').map(m=>({id:m.id,name:m.display_name || m.id}))
@@ -49,28 +104,35 @@ export async function readResponseStream(body) {
   return text
 }
 
-export async function chat({provider,endpoint,model,token,instructions,history,text,signal},net=fetch) {
-  if (!model || model.length>250) throw new Error('先选择或填写一个模型。')
+export async function chat({provider,endpoint,custom,model='',token,instructions,history,text,signal},net=fetch) {
+  if (!provider || provider==='none') throw new Error('副驾未配置，请先选择连接方式。')
+  if ((!model && !acceptsNoModel(provider,custom)) || model.length>250) throw new Error('先选择或填写一个模型。')
+  if (isAgentProvider(provider)) return chatWithAgent({provider,model,instructions,history,text,signal})
+  const service=serviceFor(provider,endpoint,custom)
   if (provider!=='local' && !token) throw new Error('所选提供方需要登录或 API Key。')
   const input = history.slice(-10).map(m=>({role:m.role==='user'?'user':'assistant',content:short(m.text,1600)}))
   input.push({role:'user',content:short(text,1800)})
-  const headers={'Content-Type':'application/json'}
+  if (provider==='custom') {
+    const request=customRequest(service,model,token,instructions,input)
+    const response=await call(request.url,{method:'POST',headers:request.headers,body:JSON.stringify(request.body),signal:signal??AbortSignal.timeout(120000)},net)
+    const answer=modelReply(await response.json(),customProtocols[service.protocol],service.responsePath)
+    if (!answer.trim()) throw new Error('接口没有返回回复文字，请检查协议和回复字段设置。')
+    return answer
+  }
+  const headers=requestHeaders(service,token)
   const opts={method:'POST',headers,signal:signal??AbortSignal.timeout(120000)}
-  if (provider==='anthropic') {
-    headers['x-api-key']=token; headers['anthropic-version']='2023-06-01'
-    const res=await call(anthropic+'/messages',{...opts,body:JSON.stringify({model,max_tokens:850,system:instructions,messages:input})},net)
+  if (service.protocol==='messages') {
+    const res=await call(service.chatUrl,{...opts,body:JSON.stringify({model,max_tokens:850,system:instructions,messages:input})},net)
     return (await res.json()).content?.filter(x=>x.type==='text').map(x=>x.text).join('') || ''
   }
-  if (token) headers.Authorization='Bearer '+token
-  if (provider==='openai' || provider==='subscription') {
-    const res=await call(openai+'/responses',{...opts,body:JSON.stringify({model,input,instructions,store:false,stream:true})},net)
+  if (service.protocol==='responses') {
+    const res=await call(service.chatUrl,{...opts,body:JSON.stringify({model,input,instructions,store:false,stream:true})},net)
     return readResponseStream(res.body)
   }
-  if (provider!=='local') throw new Error('请选择已支持的模型来源。')
-  const res=await call(localEndpoint(endpoint)+'/chat/completions',{...opts,body:JSON.stringify({model,stream:false,max_tokens:1000,
+  const res=await call(service.chatUrl,{...opts,body:JSON.stringify({model,stream:false,max_tokens:1000,
     messages:[{role:'system',content:instructions},...input]})},net)
   const out=(await res.json()).choices?.[0]?.message?.content
-  if (typeof out!=='string' || !out.trim()) throw new Error('本机模型未返回文字。')
+  if (typeof out!=='string' || !out.trim()) throw new Error('模型未返回文字。')
   return out.replace(/<think>[\s\S]*?<\/think>/gi,'').trim()
 }
 
@@ -91,31 +153,4 @@ export function candidateTracks(all,text,previousIds,currentId) {
   return [...new Map([...all.slice().sort((a,b)=>score(b)-score(a)).slice(0,10),...priority].map(t=>[t.id,t])).values()]
 }
 
-export function parseAnswer(raw,candidates,userText) {
-  const clean=raw.trim().replace(/^\x60\x60\x60(?:json)?\s*|\s*\x60\x60\x60$/gi,'')
-  let data
-  try { data=JSON.parse(clean) } catch { /* Some local models answer in prose. */ }
-  if (!data || typeof data!=='object' || Array.isArray(data)) {
-    const marker=/^\s*[-*]?\s*["'`*]*playId["'`*]*\s*[:：=]\s*["'`*]*([\w:-]+)["'`*]*[,.。]?\s*$/im
-    const playId=clean.match(marker)?.[1]
-    const reply=clean.replace(marker,'').trim()
-    const words=reply.normalize('NFKC').toLowerCase()
-    // Exact titles may identify a track when a model omits IDs. A duplicated
-    // title cannot identify which version the listener was offered.
-    const titles=candidates.map(t=>t.title?.normalize('NFKC').trim().toLowerCase()||'')
-    const matches=candidates.filter((_,i)=>{
-      const title=titles[i]
-      if(title.length<2 || titles.indexOf(title)!==titles.lastIndexOf(title))return false
-      const escaped=title.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')
-      return new RegExp('(?<![a-z0-9])'+escaped+'(?![a-z0-9])','u').test(words)
-    })
-    data={reply,playId,trackIds:matches.map(t=>t.id)}
-  }
-  const ids=new Set([...(Array.isArray(data.trackIds)?data.trackIds:[]),data.playId])
-  const cards=[...ids].flatMap(id=>candidates.filter(t=>t.id===id)).slice(0,3)
-  const requested = /播放|放一首|给我放|直接播|播第|来一首|听第|请播|play\b/i.test(userText)
-  const declined = /(?:别|不(?:要|用|必)?|先不|暂不|停止).{0,5}(?:播|放|听)|仅推荐|只(?:要)?推荐|(?:don't|do not|never)\s+play/i.test(userText)
-  const nominated = cards.find(t=>t.id===data.playId)
-  const playId = requested && !declined ? (nominated?.id ?? (!data.playId && cards.length===1 ? cards[0].id : null)) : null
-  return {text:short(data.reply,2400)||(cards.length?'可以从这些结果开始。':'暂时没有找到合适的结果。'),cards,playId}
-}
+export { parseAnswer } from './answer.mjs'

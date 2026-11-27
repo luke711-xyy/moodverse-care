@@ -38,7 +38,7 @@ function setupDock(reducedMotion = true) {
         return Response.json({ by: 'genre', key: 'ambient', label: 'Ambient', tracks: [], status: 'local', hasMore: false })
       case '/api/me/copilot': {
         if (init?.method !== 'POST') return Response.json({
-          settings: defaultCopilotSettings, messages: [], memories: [], capabilities: { platform: true, stt: false, tts: false },
+          settings: defaultCopilotSettings, messages: [], memories: [], capabilities: { platform: false, stt: false, tts: false },
         })
         const { requestId, text } = JSON.parse(String(init.body))
         turns.push(text)
@@ -46,7 +46,7 @@ function setupDock(reducedMotion = true) {
         const createdAt = new Date().toISOString()
         return Response.json({ requestId, memories: [], messages: [
           { id: requestId + '-user', role: 'user', text, createdAt },
-          { id: requestId + '-assistant', role: 'assistant', text: '答复：' + text, source: 'platform', createdAt },
+          { id: requestId + '-assistant', role: 'assistant', text: '答复：' + text, source: 'openai', createdAt },
         ] })
       }
       default: return Response.json({ moments: [], incoming: [], outgoing: [], friends: [], groups: [] })
@@ -61,6 +61,10 @@ test('a minimized conversation receives its pending reply, sends another turn an
   const { firstReply, turns } = setupDock()
   fireEvent.click(await screen.findByRole('button', { name: /舰载副驾，点按打开/ }))
   const projection = within(screen.getByRole('region', { name: '观察窗副驾投影' }))
+  fireEvent.click(await projection.findByRole('button', { name: '设置与记忆' }))
+  fireEvent.change(await projection.findByLabelText('本次连接'), { target: { value: 'openai' } })
+  fireEvent.change(projection.getByLabelText('API 密钥'), { target: { value: 'test-session-key' } })
+  fireEvent.click(projection.getByRole('button', { name: '通讯', exact: true }))
   const send = async (text: string) => {
     fireEvent.change(await projection.findByRole('textbox', { name: '发给副驾' }), { target: { value: text } })
     fireEvent.click(projection.getByRole('button', { name: /发送/ }))

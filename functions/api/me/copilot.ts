@@ -1,4 +1,4 @@
-import { type CopilotContext, type CopilotMessage, type CopilotProvider } from '../../../src/music/copilot/contracts'
+import { type CopilotContext, type CopilotMessage } from '../../../src/music/copilot/contracts'
 import { type Env } from '../../_shared'
 import {
   bodyJson,
@@ -17,7 +17,7 @@ import {
   type TurnRow,
 } from '../../_music-copilot-state'
 import { copilotFacts, refreshMessages } from '../../_music-copilot-facts'
-import { speak } from '../../_music-copilot-model'
+import { readConnection, speak } from '../../_music-copilot-model'
 
 async function state(env: Env, uid: string, day: ReturnType<typeof currentDayRange>) {
   const [p, m, page] = await Promise.all([profile(env, uid), memories(env, uid), historyPage(env, uid, day)])
@@ -159,13 +159,7 @@ export const onRequestPost = endpoint(async (env, uid, request) => {
     text = string(input.text, 1600),
     requestId = string(input.requestId, 96)
   if (!text || !/^[a-zA-Z0-9_-]{1,96}$/.test(requestId)) return fail(400, 'INVALID_TURN')
-  const provider = (input.provider ?? 'platform') as CopilotProvider
-  if (!['platform', 'openai', 'anthropic'].includes(provider)) return fail(400, 'INVALID_PROVIDER')
-  const key = string(request.headers.get('X-Mosic-Provider-Key'), 600)
-  if (provider !== 'platform' && (!key || /[^!-~]/.test(key))) return fail(400, 'PROVIDER_KEY_REQUIRED')
-  const model = string(input.model, 96)
-  if ((input.model && (!model || !/^[A-Za-z0-9._-]+$/.test(model))) || 'apiKey' in input)
-    return fail(400, 'INVALID_MODEL_SETTINGS')
+  const connection = readConnection(input, request)
   const find = () =>
     env.DB.prepare('SELECT * FROM music_copilot_turns WHERE user_id=? AND request_id=?')
       .bind(uid, requestId)
@@ -173,7 +167,7 @@ export const onRequestPost = endpoint(async (env, uid, request) => {
   const old = await find()
   if (old) return previousReply(env, uid, old, text)
   const lock = crypto.randomUUID()
-  // Also limit fallback-only writes when the deployment has no model binding.
+  // Bound write volume independently of provider quotas.
   const count = await env.DB.prepare('SELECT count(*) AS n FROM music_copilot_turns WHERE user_id=? AND created_at>?')
     .bind(uid, new Date(now - 60000).toISOString())
     .first<{ n: number }>()
@@ -254,7 +248,7 @@ export const onRequestPost = endpoint(async (env, uid, request) => {
       memory: m.map((x) => x.text),
       memoryEnabled: p.settings.memoryEnabled,
     }
-    const reply = await speak(env, uid, provider, key, model, text, p.settings, history, modelFacts, fallback)
+    const reply = await speak(env, uid, connection, text, p.settings, history, modelFacts, fallback)
     const date = new Date(now).toISOString(),
       draft: CopilotMessage = {
         id: requestId + '-a',

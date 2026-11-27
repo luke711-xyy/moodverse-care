@@ -20,7 +20,7 @@ export const fail = (status: number, code: string): never => {
 export const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 export const string = (v: unknown, max: number) => (typeof v === 'string' && v.trim().length <= max ? v.trim() : '')
 export const week = 7 * 86400000
-export async function limitedBody(request: Request, max: number) {
+export async function limitedBody(request: Pick<Request, 'headers' | 'body'>, max: number) {
   if (Number(request.headers.get('content-length') ?? 0) > max) fail(413, 'INPUT_TOO_LARGE')
   const reader = request.body?.getReader()
   if (!reader) fail(400, 'EMPTY_BODY')
@@ -164,7 +164,7 @@ export function messagesFor(row: TurnRow): CopilotMessage[] {
   ]
 }
 export const capabilities = (env: Env) => ({
-  platform: !!env.AI,
+  platform: false,
   stt: !!env.AI,
   tts: !!(env.AZURE_SPEECH_KEY && env.AZURE_SPEECH_REGION),
 })

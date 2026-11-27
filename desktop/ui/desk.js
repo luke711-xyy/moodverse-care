@@ -22,7 +22,7 @@ function duck(on) {
 }
 function updateComposer() {
   $('stop').hidden = !busy && !dictation
-  $('send').disabled = busy || Boolean(dictation)
+  $('send').disabled = !state?.configured || busy || Boolean(dictation)
   $('message').readOnly = Boolean(dictation)
   $('mic').disabled = busy
   $('mic').textContent = !dictation ? '按住说话' : dictation.released ? '正在完成转写' : '松开结束'
@@ -46,10 +46,11 @@ function entry(m, timeLabel = '') {
 }
 function render(s){
   state=s
-  const names={local:'本机模型',openai:'OpenAI API',anthropic:'Anthropic API',subscription:'ChatGPT 套餐'}
-  $('connection').textContent=names[s.provider]+' / '+(s.model||'待选择模型')
+  const names={none:'未配置',custom:'自定义 API',codex:'Codex CLI',copilot:'GitHub Copilot CLI',local:'本机模型',openai:'OpenAI API',anthropic:'Anthropic API',subscription:'ChatGPT 套餐'}
+  $('connection').textContent=s.configured ? names[s.provider]+(s.model?' / '+s.model:'') : '未配置'
+  updateComposer()
   const log=$('messages');log.replaceChildren()
-  if(!s.history.length)log.append(el('p',s.model?'通讯已接通。今天想听什么？':'连接一个模型开始对话，或在电台查询并试听歌曲。','empty'))
+  if(!s.history.length)log.append(el('p',s.configured?'通讯已接通。今天想听什么？':'连接一个模型开始对话，或在电台查询并试听歌曲。','empty'))
   for(const message of s.history) log.append(entry(message))
   log.scrollTop=log.scrollHeight
   $('tracks').replaceChildren(...s.tracks.map(songButton))
@@ -59,19 +60,51 @@ function render(s){
   $('memories').replaceChildren(...s.memories.map(m=>{const row=el('div',null,'row'),input=el('input');input.value=m.text;input.maxLength=120
     row.append(input,action('保存',async()=>render(await call('memory',{id:m.id,text:input.value}))),action('遗忘',async()=>render(await call('memory',{id:m.id,remove:true}))));return row}))
 }
+const defaultTemplate=JSON.stringify({messages:'{{messages}}'},null,2)
 function providerFields(){
   const p=$('provider').value
-  $('local-settings').hidden=p!=='local';$('keys').hidden=!['openai','anthropic'].includes(p);$('subscription').hidden=p!=='subscription'
+  $('local-settings').hidden=p!=='local'
+  $('custom-settings').hidden=p!=='custom'
+  $('custom-header-settings').hidden=$('custom-auth').value!=='other'
+  const json=$('custom-protocol').value==='json'
+  $('custom-json-settings').hidden=!json
+  $('custom-full').disabled=json
+  if(json)$('custom-full').checked=true
+  $('keys').hidden=!['openai','anthropic','custom'].includes(p)
+  $('subscription').hidden=p!=='subscription'
+  const agent=p==='codex' || p==='copilot'
+  $('agent-settings').hidden=!agent
+  if (agent) {
+    const name=p==='codex'?'Codex CLI':'GitHub Copilot CLI'
+    const login=p==='codex'?'codex login':'copilot login'
+    $('agent-help').textContent='使用这台电脑上已登录的 '+name+'。先在终端运行 '+login+'，再点「读取可用模型」。模型 ID 填 default 即使用该 CLI 的默认模型。'
+  }
+  $('model-settings').hidden=p==='none'
+  $('model-label').textContent=p==='custom' && json ? '模型 ID（接口已指定时可留空）':'模型 ID'
+  $('load-models').disabled=p==='custom' && json
+  $('allow-cockpit').disabled=p==='none'
 }
 function fillSettings(){
   $('allow-cockpit').checked=!!state.allowCockpit;$('provider').value=state.provider;$('endpoint').value=state.endpoint;$('personality').value=state.personality
-  $('model').value=state.model;$('key').value='';$('key').placeholder=state.keyPresent?'已保存；留空保留':'保存到系统钥匙串'
+  $('legacy-subscription').hidden=state.accounts.length===0 && state.provider!=='subscription'
+  const c=state.custom || {}
+  $('custom-url').value=c.url || '';$('custom-protocol').value=c.protocol || 'completions';$('custom-full').checked=!!c.full
+  $('custom-auth').value=c.auth || 'bearer';$('custom-header').value=c.authHeader || '';$('custom-scheme').value=c.authScheme || 'raw'
+  $('body-template').value=c.bodyTemplate || defaultTemplate;$('response-path').value=c.responsePath || 'choices.0.message.content'
+  $('model').value=state.model;$('key').value='';$('key').placeholder=state.keyPresent?'已保存，留空保留':'保存到系统钥匙串'
   $('account').replaceChildren(...state.accounts.map(a=>new Option(a.label+' · '+a.clientId.slice(-5),a.clientId)))
   $('account').value=state.account||'';$('reauth').disabled=!state.account;$('signout').disabled=!state.accounts.find(a=>a.clientId===state.account)?.connected
   providerFields()
 }
-async function save(removeKey=false){render(await call('settings',{provider:$('provider').value,endpoint:$('endpoint').value,model:$('model').value,
-  key:$('key').value,removeKey,allowCockpit:$('allow-cockpit').checked,personality:$('personality').value}));fillSettings()}
+function connectionInput(){
+  return {provider:$('provider').value,endpoint:$('endpoint').value,model:$('model').value,key:$('key').value,
+    allowCockpit:$('allow-cockpit').checked,personality:$('personality').value,
+    custom:{url:$('custom-url').value,protocol:$('custom-protocol').value,full:$('custom-full').checked,auth:$('custom-auth').value,
+      authHeader:$('custom-header').value,authScheme:$('custom-scheme').value,bodyTemplate:$('body-template').value,responsePath:$('response-path').value}}
+}
+async function save(removeKey=false){
+  render(await call('settings',{...connectionInput(),removeKey}));fillSettings()
+}
 async function submit(text) {
   if(busy || dictation || !text.trim()) return
   const ticket=++turnTicket
@@ -99,13 +132,32 @@ on('match','click',async()=>{if(!current)return;const planets=await call('planet
   if(!planets.length)$('planets').textContent='目前没有查到公开的同歌星球。'})
 on('configure','click',async()=>{await cancelDictation();fillSettings();settings.showModal();notice('')});on('close','click',()=>settings.close())
 settings.addEventListener('close',()=>{if(document.body.dataset.deskMode==='settings')void call('closeSettings')})
-on('provider','change',()=>{providerFields();$('model').value='';$('models').replaceChildren();$('key').value=''})
-on('save','click',async()=>{await save();notice('连接设置已保存。')});on('remove-key','click',async()=>{await save(true);notice('密钥已移除。')})
-on('load-models','click',async()=>{await save();notice('正在读取模型…');const models=await call('models')
+on('copy-setup','click',async()=>{await call('copySetup');notice('提示词已复制，请粘贴给这台电脑上的 Agent。')})
+on('provider','change',()=>{
+  const p=$('provider').value
+  $('model').value=state.models[p] || (p==='codex' || p==='copilot' ? 'default' : '')
+  $('models').replaceChildren();$('key').value=''
+  $('key').placeholder='新密钥或保留此接口已保存的密钥'
+  $('allow-cockpit').checked=p!=='none' && (state.provider==='none' || !!state.allowCockpit)
+  providerFields()
+})
+on('custom-protocol','change',()=>{
+  $('custom-auth').value=$('custom-protocol').value==='messages'?'x-api-key':'bearer'
+  providerFields()
+})
+on('custom-auth','change',providerFields)
+on('save','click',async()=>{await save();notice(state.configured?'连接设置已保存。':'副驾未配置。')});on('remove-key','click',async()=>{await save(true);notice('密钥已移除。')})
+let modelRequest=0
+on('load-models','click',async()=>{
+  const ticket=++modelRequest, input=connectionInput()
+  notice('正在读取模型…')
+  const models=await call('models',input)
+  if(ticket!==modelRequest || JSON.stringify(input)!==JSON.stringify(connectionInput())) return
   const chatModels=models.filter(m=>!/(?:^|[./_:-])(?:embedding|embed|rerank(?:er)?)(?:s|[./_:-]|$)/i.test(m.id))
   $('models').replaceChildren(...chatModels.map(m=>new Option(m.name,m.id)))
-  if(chatModels.length===1 && !$('model').value){$('model').value=chatModels[0].id;await save()}
-  notice(chatModels.length?'已读取 '+chatModels.length+' 个对话模型。':'没有找到对话模型，可以手动输入兼容的模型 ID。')})
+  if(chatModels.length===1 && !$('model').value)$('model').value=chatModels[0].id
+  notice(chatModels.length?'已读取 '+chatModels.length+' 个模型，确认所选模型后点「保存连接」。':'没有找到对话模型，可以手动输入服务商提供的模型 ID。')
+})
 async function auth(clientId){notice('请在系统浏览器完成授权。');render(await call('signin',{clientId}));fillSettings();notice('已连接，请读取可用模型。')}
 on('signin','click',()=>auth());on('reauth','click',()=>auth(state.account))
 on('account','change',async()=>{render(await call('switchAccount',{clientId:$('account').value}));fillSettings()})
@@ -321,7 +373,7 @@ checkDay()
 async function switchDeskMode(view) {
   const next=view.settings?'settings':'radio'
   document.body.dataset.deskMode=next
-  if(!state)render(await call('state'))
+  if(view.settings || !state)render(await call('state'))
   if(view.settings){await cancelDictation();fillSettings();if(!settings.open)settings.showModal()}
   else {
     if(settings.open)settings.close()
@@ -329,4 +381,4 @@ async function switchDeskMode(view) {
   }
 }
 window.mosic.onView(view=>{void switchDeskMode(view).catch(e=>notice(errorText(e)))})
-Promise.all([call('state'),call('deskMode')]).then(([s,mode])=>{render(s);return switchDeskMode({settings:mode==='settings'})}).catch(e=>notice(errorText(e)))
+call('deskMode').then(mode=>switchDeskMode({settings:mode==='settings'})).catch(e=>notice(errorText(e)))

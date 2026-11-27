@@ -17,14 +17,14 @@ export const defaultCopilotSettings: CopilotSettings = {
 export type CopilotCard =
   | { type: 'track'; track: MusicTrackSummary; reason: string; source: 'catalog' | 'audius_weekly' }
   | { type: 'planet'; planetId: string; displayName: string; reason: string; source: 'public_planet' }
-export type CopilotProvider = 'platform' | 'openai' | 'anthropic'
+export type CopilotProvider = 'openai' | 'anthropic' | 'custom'
 export type CopilotMessage = {
   id: string
   role: 'user' | 'assistant'
   text: string
   createdAt: string
   cards?: CopilotCard[]
-  source?: CopilotProvider | 'fallback' | 'desktop'
+  source?: CopilotProvider | 'platform' | 'fallback' | 'desktop' | 'browser-local'
   fallbackReason?: string
   playTrackId?: string
 }
@@ -43,6 +43,12 @@ export type CopilotTurn = {
   context?: CopilotContext
   provider?: CopilotProvider
   model?: string
+  baseUrl?: string
+  protocol?: 'openai' | 'responses' | 'anthropic' | 'json'
+  authHeader?: string
+  authScheme?: 'bearer' | 'raw'
+  bodyTemplate?: string
+  responsePath?: string
 }
 export type CopilotReply = { messages: CopilotMessage[]; memories: CopilotMemory[]; requestId: string }
 export type CopilotPatch = {

@@ -10,9 +10,11 @@ import {
   CopilotState,
   CopilotTurn,
 } from './contracts'
-import { CopilotSettingsPanel, platformSession, type ModelSession } from './settings'
+import { CopilotSettingsPanel } from './settings'
+import { emptySession, configured, type ModelSession } from './connection'
+import { browserHistory, browserTurn, clearBrowserHistory, restoreBrowserModel, saveBrowserModel } from './browser-local'
 import { useCopilotVoice } from './voice'
-import { desktopProviders, type DesktopStatus } from './desktop-bridge'
+import { desktopModelLabel, desktopReady, type DesktopStatus } from './desktop-bridge'
 import { CopilotSocialPanel } from './SocialIntroductions'
 import { ArchiveEntries, HistoryPanel, localDay, rangeFor, useLocalDay, type HistoryPage, type ReadHistory } from './HistoryPanel'
 import './copilot.css'
@@ -58,6 +60,8 @@ const prompts = [
 ]
 const sourceLabel = {
   platform: '平台模型',
+  custom: '自定义 API',
+  'browser-local': '本机模型',
   openai: 'OpenAI',
   anthropic: 'Anthropic',
   desktop: '桌面模型',
@@ -69,6 +73,15 @@ async function requestJson<T>(init: RequestInit = {}): Promise<T> {
     headers: { 'X-Mosic-Time-Zone': Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC', ...init.headers },
   })
   if (!response.ok) {
+    const errorCode = (await response.json().catch(() => ({})))?.error
+    const modelErrors: Record<string, string> = {
+      MODEL_NOT_CONFIGURED: '副驾未配置。请选择自己的模型。',
+      PROVIDER_KEY_REJECTED: '服务商拒绝了这把密钥，请检查密钥、模型访问权限和额度。',
+      MODEL_CONNECTION_FAILED: '未能连接所选模型。请检查接口网址、协议和模型名称。',
+      INVALID_MODEL_REPLY: '接口没有返回预期格式的回答。请核对协议或回复文本字段。',
+      MODEL_RATE_LIMIT: '当前模型的调用额度已用完，请稍后重试或切换模型。',
+    }
+    if (typeof errorCode === 'string' && Object.hasOwn(modelErrors, errorCode)) throw new Error(modelErrors[errorCode])
     if (response.status === 429) throw new Error('今天的配额或本轮频率已达上限，请稍后再试。')
     if (response.status === 401 || response.status === 403)
       throw new Error('连接或密钥校验失败，请检查模型设置后重试。')
@@ -141,7 +154,11 @@ function CompactReply({
   progress,
   error,
   player,
+  connected,
+  openSettings,
 }: {
+  connected: boolean
+  openSettings: () => void
   message?: CopilotMessage
   progress: string
   error: string
@@ -160,7 +177,8 @@ function CompactReply({
         <p role="status">{progress}</p>
       ) : (
         <>
-          <p>{message?.text || '想听什么，船长？'}</p>
+          <p>{message?.text || (connected ? '想听什么，船长？' : '副驾未配置')}</p>
+          {!connected && <button type="button" onClick={openSettings}>连接模型</button>}
           {track && (
             <button
               className="cp-compact-track"
@@ -183,8 +201,10 @@ export function CopilotPanel(props: CopilotPanelProps) {
   const composer = useRef<HTMLTextAreaElement>(null)
   const expanded = active && visible && !compact
   const wasExpanded = useRef(false)
+  const openingSettings = useRef(false)
   useEffect(() => {
-    if (expanded && !wasExpanded.current && props.notice) setTab('chat')
+    if (expanded && !wasExpanded.current && props.notice && !openingSettings.current) setTab('chat')
+    if (expanded) openingSettings.current = false
     wasExpanded.current = expanded
   }, [expanded, props.notice])
   const today = useLocalDay(active)
@@ -196,6 +216,14 @@ export function CopilotPanel(props: CopilotPanelProps) {
   const state = cloudState ?? (bridge ? desktopEmpty : null)
   const [desktop, setDesktop] = useState<DesktopStatus | null>(null)
   const [desktopMessages, setDesktopMessages] = useState<CopilotMessage[]>([])
+  const [session, setSession] = useState<ModelSession>(emptySession)
+  const explicitlyChosen = useRef(false)
+  const acceptDesktopStatus = useCallback((next: DesktopStatus) => {
+    setDesktop(next)
+    if (!explicitlyChosen.current && next.connectionVersion === 2 && desktopReady(next)) {
+      setSession(current => current.provider === 'none' ? { ...emptySession, provider: 'desktop' } : current)
+    }
+  }, [])
   const desktopGeneration = useRef(0)
   const [desktopCursor, setDesktopCursor] = useState<string | null>(null)
   const [historyRevision, setHistoryRevision] = useState(0)
@@ -205,7 +233,7 @@ export function CopilotPanel(props: CopilotPanelProps) {
     const refresh = () => {
       void bridge.status().then(
         (result) => {
-          if (live) setDesktop(result)
+          if (live) acceptDesktopStatus(result)
         },
         () => {
           if (live) setDesktop(null)
@@ -218,18 +246,38 @@ export function CopilotPanel(props: CopilotPanelProps) {
       live = false
       window.removeEventListener('focus', refresh)
     }
+  }, [active, bridge, acceptDesktopStatus])
+  useEffect(() => {
+    if (!active || bridge || explicitlyChosen.current) return
+    const controller = new AbortController()
+    void restoreBrowserModel(controller.signal).then(browser => {
+      if (browser && !controller.signal.aborted && !explicitlyChosen.current) {
+        setSession({ ...emptySession, provider: 'browser-local', baseUrl: browser.endpoint, model: browser.model, browser })
+      }
+    })
+    return () => controller.abort()
   }, [active, bridge])
   const [loading, setLoading] = useState(false)
   const [pending, setPending] = useState('')
   const [saving, setSaving] = useState(false)
   const [draft, setDraft] = useState('')
-  const [session, setSession] = useState<ModelSession>(platformSession)
-  const local = session.provider === 'desktop'
+  const browserConnection = session.provider === 'browser-local' ? session.browser : undefined
+  const local = session.provider === 'desktop' || session.provider === 'browser-local'
+  const ready = configured(session, desktop)
+  const historySource = local ? session.provider + ':' + (browserConnection?.owner ?? '') : 'cloud'
+  const openSettings = () => {
+    if (compact) { openingSettings.current = true; props.onExpand?.() }
+    setTab('settings')
+  }
   const storedMessages = local ? desktopMessages : (state?.messages ?? noMessages)
   const currentMessages = useMemo(() => storedMessages.filter((message) =>
     localDay(new Date(message.createdAt)) === today), [storedMessages, today])
   const readHistory: ReadHistory = useCallback(async (range, cursor, signal) => {
-    if (local) {
+    if (session.provider === 'browser-local') {
+      if (!browserConnection) throw new Error('请先验证本机模型连接。')
+      return browserHistory(browserConnection.owner, range, cursor)
+    }
+    if (session.provider === 'desktop') {
       if (!bridge?.history) throw new Error('请更新 Mac 客户端以查看本机通讯记录。')
       return bridge.history({ ...range, cursor })
     }
@@ -238,7 +286,7 @@ export function CopilotPanel(props: CopilotPanelProps) {
     const response = await fetch(endpoint + '/history?' + query, { credentials: 'same-origin', cache: 'no-store', signal })
     if (!response.ok) throw new Error('无法读取通讯记录，请重试。')
     return response.json() as Promise<HistoryPage>
-  }, [local, bridge])
+  }, [session.provider, browserConnection, bridge])
   const [error, setError] = useState('')
   const pendingDay = useRef('')
   const pendingToday = pendingDay.current === today ? pending : ''
@@ -322,14 +370,17 @@ export function CopilotPanel(props: CopilotPanelProps) {
     if (active) void load()
   }, [active, today, load])
   useEffect(() => {
-    if (!active || !local || !bridge?.history) return
+    if (!active || !local) return
+    if (session.provider === 'browser-local' && !browserConnection || session.provider === 'desktop' && !bridge?.history) return
     let alive = true
     let readCount = 0
     const refresh = async () => {
       const token = ++readCount
       const generation = desktopGeneration.current
       try {
-        const page = await bridge.history!(rangeFor(today))
+        const page = browserConnection
+          ? browserHistory(browserConnection.owner, rangeFor(today))
+          : await bridge!.history!(rangeFor(today))
         if (alive && token === readCount) {
           if (generation !== desktopGeneration.current) { void refresh(); return }
           desktopPageDay.current = today
@@ -345,14 +396,16 @@ export function CopilotPanel(props: CopilotPanelProps) {
       }
     }
     void refresh()
-    const unsubscribe = bridge.onHistoryChanged?.(() => {
+    const changed = () => {
       setDesktopMessages([])
       setDesktopCursor(null)
       setHistoryRevision((value) => value + 1)
       void refresh()
-    })
-    return () => { alive = false; unsubscribe?.() }
-  }, [active, local, bridge, today])
+    }
+    const unsubscribe = session.provider === 'desktop' ? bridge?.onHistoryChanged?.(changed) : undefined
+    if (browserConnection) window.addEventListener('storage', changed)
+    return () => { alive = false; unsubscribe?.(); window.removeEventListener('storage', changed) }
+  }, [active, local, session.provider, browserConnection, bridge, today])
   useEffect(() => {
     isMounted.current = true
     return () => {
@@ -410,15 +463,12 @@ export function CopilotPanel(props: CopilotPanelProps) {
     text = text.trim()
     if (!text || !visible || busy.current || !state) return
     const sentInForeground = foregroundEpoch.current
-    const useDesktop = session.provider === 'desktop'
-    if (!useDesktop && !cloudState) {
-      setError('平台通讯尚未连接，请重试。')
+    if (session.provider === 'none' || session.provider !== 'desktop' && !ready) {
+      openSettings()
       return
     }
-    if (!useDesktop && session.provider !== 'platform' && !session.key.trim()) {
-      setError('先填写本次连接的 API 密钥，或切换到平台副驾。')
-      if (compact) props.onExpand?.()
-      setTab('settings')
+    if (!local && !cloudState) {
+      setError('平台通讯尚未连接，请重试。')
       return
     }
     voice.cancel()
@@ -432,21 +482,25 @@ export function CopilotPanel(props: CopilotPanelProps) {
       planetId: props.currentPlanetId,
       view: props.currentView,
     }
-    const signature = JSON.stringify([text, context, session.provider, session.model])
+    const signature = JSON.stringify([text, context, session.provider, session.baseUrl, session.protocol, session.model])
     const id = retry.current?.signature === signature ? retry.current.id : crypto.randomUUID()
     retry.current = { signature, id }
     const controller = new AbortController()
     inFlight.current = controller
     try {
       let messages: CopilotMessage[]
-      if (session.provider === 'desktop') {
+      if (session.provider === 'browser-local') {
+        if (!browserConnection) throw new Error('请先验证本机模型连接。')
+        messages = await browserTurn(browserConnection, { text, requestId: id, context }, state.settings,
+          state.memories.map(m => m.text), controller.signal)
+        if (!isMounted.current || controller.signal.aborted) return
+      } else if (session.provider === 'desktop') {
         if (!bridge) throw new Error('桌面连接已关闭。')
         const status = await bridge.status()
         if (controller.signal.aborted) return
         setDesktop(status)
-        if (!status.enabled) {
-          if (callbacks.current.compact) callbacks.current.onExpand?.()
-          setTab('settings')
+        if (!desktopReady(status)) {
+          openSettings()
           throw new Error('桌面连接尚未就绪，请打开本机模型设置。')
         }
         controller.signal.addEventListener(
@@ -465,24 +519,23 @@ export function CopilotPanel(props: CopilotPanelProps) {
         )
           throw new Error('桌面模型返回了无效的回合。')
         messages = reply.messages
-        desktopGeneration.current++
-        setDesktopMessages((previous) =>
-          [...previous.filter((m) => !messages.some((next) => next.id === m.id)), ...messages],
-        )
       } else {
         const body: CopilotTurn = {
           text,
           requestId: id,
           context,
           provider: session.provider,
-          ...(session.provider !== 'platform' && session.model.trim() ? { model: session.model.trim() } : {}),
+          ...(session.model.trim() ? { model: session.model.trim() } : {}),
+          ...(session.provider === 'custom' ? { protocol: session.protocol, baseUrl: session.baseUrl.trim(),
+            ...(session.protocol === 'json' ? { authHeader: session.authHeader.trim(), authScheme: session.authScheme,
+              bodyTemplate: session.bodyTemplate, responsePath: session.responsePath.trim() } : {}) } : {}),
         }
         const reply = await requestJson<CopilotReply>({
           method: 'POST',
           signal: controller.signal,
           headers: {
             'Content-Type': 'application/json',
-            ...(session.provider !== 'platform' ? { 'X-Mosic-Provider-Key': session.key.trim() } : {}),
+            'X-Mosic-Provider-Key': session.key.trim(),
           },
           body: JSON.stringify(body),
         })
@@ -499,6 +552,12 @@ export function CopilotPanel(props: CopilotPanelProps) {
                 ],
               }
             : previous,
+        )
+      }
+      if (local) {
+        desktopGeneration.current++
+        setDesktopMessages((previous) =>
+          [...previous.filter((m) => !messages.some((next) => next.id === m.id)), ...messages],
         )
       }
       retry.current = null
@@ -567,8 +626,13 @@ export function CopilotPanel(props: CopilotPanelProps) {
     setSaving(true)
     setError('')
     try {
-      if (!bridge?.clearHistory) throw new Error('请更新 Mac 客户端以清空本机通讯记录。')
-      await bridge.clearHistory()
+      if (session.provider === 'browser-local') {
+        if (!browserConnection) throw new Error('请先验证本机模型连接。')
+        clearBrowserHistory(browserConnection.owner)
+      } else {
+        if (!bridge?.clearHistory) throw new Error('请更新 Mac 客户端以清空本机通讯记录。')
+        await bridge.clearHistory()
+      }
       if (!isMounted.current) return false
       desktopGeneration.current++
       setDesktopMessages([])
@@ -663,9 +727,9 @@ export function CopilotPanel(props: CopilotPanelProps) {
       {!compact && (
         <header className="cp-head">
           <small className="cp-model-source">
-            {session.provider === 'desktop' && desktop?.enabled
-              ? desktopProviders[desktop.provider]
-              : sourceLabel[session.provider]}
+            {!ready || session.provider === 'none' ? '未配置'
+              : session.provider === 'desktop' && desktop ? desktopModelLabel(desktop)
+              : session.model.trim() ? `${sourceLabel[session.provider]} · ${session.model.trim()}` : sourceLabel[session.provider]}
           </small>
           {voice.phase === 'permission' && (
             <span className="cp-status" role="status">
@@ -757,7 +821,7 @@ export function CopilotPanel(props: CopilotPanelProps) {
                     void bridge
                       .openSettings()
                       .then(() => bridge.status())
-                      .then(setDesktop)
+                      .then(acceptDesktopStatus)
                       .catch(() => setError('无法打开本机设置。'))
                   }
                 : undefined
@@ -768,7 +832,12 @@ export function CopilotPanel(props: CopilotPanelProps) {
             clearHistory={clearHistory}
             session={session}
             setSession={(next) => {
-              if (!local && next.provider === 'desktop' && bridge?.history) {
+              explicitlyChosen.current = true
+              if (session.browser && session.browser !== next.browser) saveBrowserModel(session.browser, false)
+              if (next.browser && session.browser !== next.browser) saveBrowserModel(next.browser, true)
+              if (session.provider !== next.provider || session.browser !== next.browser) {
+                retry.current = null
+                desktopGeneration.current++
                 setDesktopMessages([])
                 setDesktopCursor(null)
               }
@@ -779,13 +848,15 @@ export function CopilotPanel(props: CopilotPanelProps) {
         </div>
       )}
       {!compact && tab === 'history' && state && (
-        <HistoryPanel key={local ? 'desktop' : 'cloud'} today={today} read={readHistory} renderMessage={renderMessage} revision={historyRevision} />
+        <HistoryPanel key={historySource} today={today} read={readHistory} renderMessage={renderMessage} revision={historyRevision} />
       )}
       {(compact || tab === 'chat') && state && (
         <>
           {compact ? (
             <CompactReply
               message={latest}
+              connected={ready}
+              openSettings={openSettings}
               player={props.player}
               error={error}
               progress={
@@ -802,9 +873,14 @@ export function CopilotPanel(props: CopilotPanelProps) {
             />
           ) : (
             <div ref={logElement} className="cp-log" aria-label="当前通讯" aria-live="polite">
-              {todayCursor && <ArchiveEntries key={[local, today, todayCursor].join('/')} range={rangeFor(today)}
+              {todayCursor && <ArchiveEntries key={[historySource, today, todayCursor].join('/')} range={rangeFor(today)}
                 read={readHistory} initialCursor={todayCursor} renderMessage={renderMessage} />}
-              {!currentMessages.length && !pendingToday && !props.notice && (
+              {!ready && !pendingToday && (
+                <div className="cp-connect-first"><span>选择自己的模型后即可发送。</span>
+                  <button type="button" onClick={openSettings}>连接模型</button>
+                </div>
+              )}
+              {!currentMessages.length && !pendingToday && !props.notice && ready && (
                 <div className="cp-ready">
                   <p>想听什么，船长？</p>
                   <div className="cp-prompts">

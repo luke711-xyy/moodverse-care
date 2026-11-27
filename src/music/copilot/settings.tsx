@@ -1,9 +1,7 @@
 import { useState } from 'react'
-import { desktopProviders, type DesktopStatus } from './desktop-bridge'
-import type { CopilotPatch, CopilotProvider, CopilotState } from './contracts'
-
-export type ModelSession = { provider: CopilotProvider | 'desktop'; key: string; model: string }
-export const platformSession: ModelSession = { provider: 'platform', key: '', model: '' }
+import type { DesktopStatus } from './desktop-bridge'
+import { ConnectionSettings, type ModelSession } from './connection'
+import type { CopilotPatch, CopilotState } from './contracts'
 
 export function CopilotSettingsPanel({
   state,
@@ -24,13 +22,13 @@ export function CopilotSettingsPanel({
   desktop?: DesktopStatus | null
   onDesktopSettings?: () => void
 }) {
-  const { settings, capabilities, memories } = state
+  const { settings, memories } = state
   const [name, setName] = useState(settings.name)
   const [memoryText, setMemoryText] = useState('')
   const [editing, setEditing] = useState<string | null>(null)
   const [confirm, setConfirm] = useState<'history' | 'memory' | null>(null)
   const [cleared, setCleared] = useState(false)
-  const local = session.provider === 'desktop'
+  const local = session.provider === 'desktop' || session.provider === 'browser-local'
   const saveMemory = async () => {
     const text = memoryText.trim()
     if (!text || busy) return
@@ -41,6 +39,8 @@ export function CopilotSettingsPanel({
   }
   return (
     <div className="cp-settings">
+      <ConnectionSettings session={session} busy={busy} desktop={desktop} onDesktopSettings={onDesktopSettings}
+        onChange={next => { setConfirm(null); setCleared(false); setSession(next) }} />
       <fieldset disabled={busy}>
         <legend>通讯设置</legend>
         <form
@@ -84,72 +84,8 @@ export function CopilotSettingsPanel({
         </label>
       </fieldset>
       <fieldset disabled={busy}>
-        <legend>模型连接</legend>
-        <label>
-          本次连接
-          <select
-            value={session.provider}
-            onChange={(event) =>
-              {
-                setConfirm(null)
-                setCleared(false)
-                setSession({ provider: event.target.value as ModelSession['provider'], key: '', model: '' })
-              }
-            }
-          >
-            <option value="platform">平台副驾</option>
-            {onDesktopSettings && <option value="desktop">桌面连接</option>}
-            <option value="openai">我的 OpenAI API</option>
-            <option value="anthropic">我的 Anthropic API</option>
-          </select>
-        </label>
-        {session.provider === 'desktop' ? (
-          <div className="cp-desktop-connection">
-            <small>
-              {desktop?.enabled
-                ? `${desktopProviders[desktop.provider]} · ${desktop.model}`
-                : '请在本机模型设置中选择模型，并允许驾驶舱连接。'}
-            </small>
-            <p>本次输入和当前歌曲、星球交给所选桌面模型。桌面通讯记录保存在这台 Mac 上。</p>
-            <button type="button" onClick={onDesktopSettings}>
-              打开本机模型设置
-            </button>
-          </div>
-        ) : session.provider === 'platform' ? (
-          <small>{capabilities.platform ? '平台模型已连接。' : '平台模型暂不可用，仍可使用曲库检索。'}</small>
-        ) : (
-          <>
-            <label>
-              API 密钥
-              <input
-                type="password"
-                autoComplete="off"
-                spellCheck={false}
-                value={session.key}
-                onChange={(event) => setSession({ ...session, key: event.target.value })}
-              />
-            </label>
-            <label>
-              模型名称（可选）
-              <input
-                spellCheck={false}
-                value={session.model}
-                placeholder="使用默认模型"
-                onChange={(event) => setSession({ ...session, model: event.target.value })}
-              />
-            </label>
-            <small>密钥仅在本次页面会话中保留，每次发送时经 Mosic 转交所选 API。</small>
-            {session.key && (
-              <button type="button" onClick={() => setSession(platformSession)}>
-                断开我的密钥
-              </button>
-            )}
-          </>
-        )}
-      </fieldset>
-      <fieldset disabled={busy}>
         <legend>个人记忆</legend>
-        {session.provider === 'desktop' && <small>这些是平台副驾的记忆，桌面连接使用独立上下文。</small>}
+        {session.provider === 'desktop' && <small>这些记忆用于网页连接。桌面连接使用这台 Mac 上的独立上下文。</small>}
         <label className="cp-check">
           <input
             type="checkbox"
@@ -239,7 +175,7 @@ export function CopilotSettingsPanel({
       </fieldset>
       {confirm && (
         <div className="cp-confirm" role="group" aria-label="确认清理">
-          <p>{confirm === 'history' ? `清空${local ? '这台 Mac 上的驾驶舱' : '当前账号的云端'}全部对话记录？此操作无法撤销。` : '清空已保存的全部记忆？'}</p>
+          <p>{confirm === 'history' ? `清空${session.provider === 'browser-local' ? '这个浏览器中当前驾驶员的' : local ? '这台 Mac 上的驾驶舱' : '当前账号的云端'}全部对话记录？此操作无法撤销。` : '清空已保存的全部记忆？'}</p>
           <button
             disabled={busy}
             onClick={async () => {

@@ -1,4 +1,4 @@
-<img src="https://raw.githubusercontent.com/luke711-xyy/moodverse-care/v0.1.4/desktop/assets/mosic-icon.png" width="88" height="88" alt="MOSIC 应用图标">
+<img src="https://raw.githubusercontent.com/luke711-xyy/moodverse-care/v0.1.5/desktop/assets/mosic-icon.png" width="88" height="88" alt="MOSIC 应用图标">
 
 # MOSIC 音乐宇宙
 
@@ -10,15 +10,17 @@
 
 1. **点亮自己的星球。** 第一次登舰时选三首不同的歌，预览星球随选曲变化的样子。给星球取个名字，选择公开或私密。之后还可以调整唱片架上的歌，最多保留五首。
 2. **顺着一首歌去串门。** 在自己的星球上选一首歌，点击「撞歌」。找到也选过这首歌的公开星球后，可以前往听对方的歌、翻看对方的 Moment，再从另一首歌继续漫游。
-3. **让副驾帮你点歌。** 点开观察窗里的副驾，输入「想听一首适合夜航的慢歌」，从推荐中挑一首播放。也可以按住说话，看转写逐步填入输入框，松手校对后点「发送」。
+3. **让副驾帮你点歌。** 副驾初次打开显示「未配置」。在「设置与记忆」接好自己的模型后，输入「想听一首适合夜航的慢歌」，从推荐中挑一首播放。也可以按住说话，看转写逐步填入输入框，松手校对后点「发送」。
 
 副驾可以缩在星图旁，一边航行一边聊天。「通讯」显示设备当地当天的对话，「历史」支持按日、周、月、年翻阅。在「设置与记忆」中可以清空当前来源的聊天记录。
 
 ## Mac 客户端
 
-在 GitHub Release 的 **Assets** 中下载 `mosic-macos-arm64.zip`，解压后将 **MOSIC.app** 移入「应用程序」。同一发行版提供桌面端源码包 `mosic-source.zip`。当前安装包适用于 Apple Silicon Mac，采用本地签名，尚未通过 Apple 公证。[v0.1.4 发行版](https://github.com/luke711-xyy/moodverse-care/releases/tag/v0.1.4) · [首次打开说明](https://moodverse-care.pages.dev/desktop/)
+在 GitHub Release 的 **Assets** 中下载 `mosic-macos-arm64.zip`，解压后将 **MOSIC.app** 移入「应用程序」。同一发行版提供桌面端源码包 `mosic-source.zip`。当前安装包适用于 Apple Silicon Mac，采用本地签名，尚未通过 Apple 公证。[v0.1.5 发行版](https://github.com/luke711-xyy/moodverse-care/releases/tag/v0.1.5) · [首次打开说明](https://moodverse-care.pages.dev/desktop/)
 
-客户端打开同一座驾驶舱。要使用自己的模型，按 **⌘,** 打开本机连接设置，选择 Ollama、LM Studio、自己的 API Key 或已授权的 ChatGPT 套餐，然后在副驾设置里切换到「桌面连接」。使用桌面连接产生的聊天记录保存在这台 Mac 上。离线电台也可以浏览本机已存的曲目和聊天记录。[桌面端安装与连接说明](https://github.com/luke711-xyy/moodverse-care/blob/v0.1.4/desktop/README.md)
+网页和 Mac 应用都提供本机模型配置提示词。复制给自己电脑上的 Agent，它会检查 Ollama、LM Studio 等运行时，列出已安装的模型，请你确认想用哪一个。如果需要下载，可以先用 llmfit 按内存、显存和磁盘空间挑选合适的模型。确认后，浏览器或 Mac 通过本机回环地址连接该模型。
+
+也可以选择「自定义 API」，填服务商的 HTTPS 接口、API Key 和模型。支持 OpenAI Chat Completions、OpenAI Responses、Anthropic Messages 和自定义 JSON。在 Mac 应用按 **⌘,** 打开本机连接设置，还可以选择「Codex CLI · ChatGPT 订阅」或「GitHub Copilot CLI · Copilot 订阅」，通过这台 Mac 上已登录的官方 CLI 使用自己的套餐额度。离线电台也可以浏览本机已存的曲目和聊天记录。[桌面端安装与连接说明](https://github.com/luke711-xyy/moodverse-care/blob/v0.1.5/desktop/README.md)
 
 ## 本地开发
 
@@ -42,4 +44,4 @@ sh speech/build.sh
 npm start
 ```
 
-桌面客户端源码采用 MIT 许可证，第三方运行时和字体沿用各自的许可证。[桌面端许可证](https://github.com/luke711-xyy/moodverse-care/blob/v0.1.4/desktop/LICENSE) · [字体说明](https://github.com/luke711-xyy/moodverse-care/blob/v0.1.4/public/fonts/README.md)
+桌面客户端源码采用 MIT 许可证，第三方运行时和字体沿用各自的许可证。[桌面端许可证](https://github.com/luke711-xyy/moodverse-care/blob/v0.1.5/desktop/LICENSE) · [字体说明](https://github.com/luke711-xyy/moodverse-care/blob/v0.1.5/public/fonts/README.md)

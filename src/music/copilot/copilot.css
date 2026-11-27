@@ -133,6 +133,8 @@
 .cp-history-more { align-self: center; }
 .cp-history .cp-entry { margin-block: 7px; }
 .cp-ready { margin-block: auto; padding: 2px 0 4px clamp(2px, 2.2cqi, 14px); }
+.cp-connect-first { margin-block: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 7px; color: var(--cp-muted); }
+.cp-connection textarea { width: 100%; min-height: 4.5em; resize: vertical; }
 .cp-ready p {
   margin: 0 0 8px;
   color: var(--cp-accent);

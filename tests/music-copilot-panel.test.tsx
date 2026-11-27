@@ -24,6 +24,12 @@ const track = {
   durationSeconds: null,
   audioUrl: '/api/music/tracks/t1/stream',
 }
+async function chooseWebApi() {
+  fireEvent.click(await screen.findByRole('button', { name: '设置与记忆' }))
+  fireEvent.change(await screen.findByLabelText('本次连接'), { target: { value: 'openai' } })
+  fireEvent.change(screen.getByLabelText('API 密钥'), { target: { value: 'test-session-key' } })
+  fireEvent.click(screen.getByRole('button', { name: '通讯', exact: true }))
+}
 function fixture(
   custom: Partial<CopilotPanelProps> = {},
   recent: CopilotState = state,
@@ -103,6 +109,86 @@ afterEach(() => {
   vi.useRealTimers()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
+  localStorage.clear()
+})
+
+test('an unconfigured navigator keeps the draft, requests no inference and provides a local setup prompt', async () => {
+  const writeText = vi.fn(async () => {})
+  vi.stubGlobal('navigator', Object.assign(Object.create(navigator), { clipboard: { writeText } }))
+  const { calls } = fixture()
+  fireEvent.change(await screen.findByLabelText('发给副驾'), { target: { value: '保留我' } })
+  fireEvent.click(screen.getByText('发送 ↗'))
+  expect(screen.getByLabelText<HTMLSelectElement>('本次连接').value).toBe('none')
+  expect(calls).toEqual([])
+  expect(vi.mocked(fetch).mock.calls.some(([url]) => /localhost|127\.0\.0\.1/.test(String(url)))).toBe(false)
+  fireEvent.click(screen.getByText('复制本机模型配置提示词'))
+  await screen.findByText(/已复制/)
+  expect(writeText.mock.calls[0][0]).toMatch(/llmfit/)
+  fireEvent.click(screen.getByText('通讯'))
+  expect(screen.getByLabelText<HTMLTextAreaElement>('发给副驾').value).toBe('保留我')
+})
+
+test('custom JSON API configuration is sent only after selection and never puts the API key in the body or storage', async () => {
+  const { calls } = fixture()
+  fireEvent.click(await screen.findByText('连接模型'))
+  fireEvent.change(screen.getByLabelText('本次连接'), { target: { value: 'custom' } })
+  fireEvent.change(screen.getByLabelText('接口协议'), { target: { value: 'json' } })
+  fireEvent.change(screen.getByLabelText('接口网址'), { target: { value: 'https://example.org/model' } })
+  fireEvent.change(screen.getByLabelText('密钥请求头'), { target: { value: 'X-Api-Key' } })
+  fireEvent.change(screen.getByLabelText('密钥格式'), { target: { value: 'raw' } })
+  fireEvent.change(screen.getByLabelText('请求 JSON 模板'), { target: { value: '{"question":"{{prompt}}"}' } })
+  fireEvent.change(screen.getByLabelText('回复文本字段'), { target: { value: 'data.answer' } })
+  fireEvent.change(screen.getByLabelText('API 密钥'), { target: { value: 'session-one' } })
+  fireEvent.click(screen.getByText('通讯'))
+  fireEvent.change(screen.getByLabelText('发给副驾'), { target: { value: '你好' } })
+  fireEvent.click(screen.getByText('发送 ↗'))
+  await screen.findByText('收到，夜航准备就绪。')
+  expect(JSON.parse(String(calls[0].body))).toMatchObject({ provider:'custom', baseUrl:'https://example.org/model', protocol:'json',
+    authHeader:'X-Api-Key', authScheme:'raw', responsePath:'data.answer', bodyTemplate:'{"question":"{{prompt}}"}' })
+  expect(calls[0].headers).toMatchObject({ 'X-Mosic-Provider-Key':'session-one' })
+  expect(JSON.stringify([calls[0].body,localStorage,sessionStorage])).not.toContain('session-one')
+})
+
+test('browser local configuration verifies the chosen model, and saves conversations under the current driver only', async () => {
+  const { calls } = fixture()
+  fireEvent.click(await screen.findByText('连接模型'))
+  const net = vi.mocked(fetch)
+  const original = net.getMockImplementation()!
+  const completions: RequestInit[] = []
+  const evidence: RequestInit[] = []
+  net.mockImplementation(async (url, init) => {
+    const path = String(url)
+    if (path.endsWith('/history?owner=1')) return Response.json({ ownerId: 'driver-a' })
+    if (path === 'http://127.0.0.1:11434/v1/models') return Response.json({ data: [{id:'local-test'}] })
+    if (path === 'http://127.0.0.1:11434/v1/chat/completions') {
+      completions.push(init!)
+      return Response.json({choices:[{message:{content:'{"reply":"本机音乐模型收到"}'}}]})
+    }
+    if (path.endsWith('/copilot/candidates')) { evidence.push(init!); return Response.json({cards:[]}) }
+    return original(url,init)
+  })
+  fireEvent.change(screen.getByLabelText('本次连接'), { target:{value:'browser-local'} })
+  fireEvent.change(screen.getByLabelText('本机模型 ID'), { target:{value:'missing'} })
+  fireEvent.click(screen.getByText('验证并连接本机模型'))
+  await screen.findByRole('alert')
+  fireEvent.change(screen.getByLabelText('本机模型 ID'), { target:{value:'local-test'} })
+  fireEvent.click(screen.getByText('验证并连接本机模型'))
+  await screen.findByText('已连接本机模型')
+  fireEvent.click(screen.getByText('通讯'))
+  fireEvent.change(screen.getByLabelText('发给副驾'), { target:{value:'这条对话仅本机处理'} })
+  fireEvent.click(screen.getByText('发送 ↗'))
+  await screen.findByText('本机音乐模型收到')
+  expect(calls).toHaveLength(0)
+  expect(evidence).toHaveLength(1)
+  expect(JSON.stringify(evidence)).not.toContain('这条对话仅本机处理')
+  expect(completions[0].credentials).toBe('omit')
+  expect(JSON.parse(String(completions[0].body)).model).toBe('local-test')
+  expect(Object.keys(localStorage).filter(key=>key.startsWith('mosic-browser-turn:driver-a:'))).toHaveLength(1)
+  fireEvent.click(screen.getByText('设置与记忆'))
+  fireEvent.click(screen.getByText('断开本次连接'))
+  expect(localStorage.getItem('mosic-browser-model:driver-a')).toBeNull()
+  fireEvent.click(screen.getByText('通讯'))
+  expect(screen.queryByText('本机音乐模型收到')).toBeNull()
 })
 
 test('a requested song can play, a suggested planet can be visited and a temporary model key stays out of storage and JSON', async () => {
@@ -170,6 +256,7 @@ test('browser interim text revises the dictation suffix and release leaves an ed
   const speak = vi.fn()
   vi.stubGlobal('speechSynthesis', { speak })
   const { props, calls } = fixture({}, { ...state, settings: { ...state.settings, voiceEnabled: true } })
+  await chooseWebApi()
   const button = await screen.findByRole('button', { name: '按住说话' })
   fireEvent.click(button)
   expect(LocalRecognizer.available).not.toHaveBeenCalled()
@@ -263,6 +350,7 @@ test('a delayed play request leaves a newer manual selection in place', async ()
     state,
     gate,
   )
+  await chooseWebApi()
   fireEvent.change(await screen.findByLabelText('发给副驾'), { target: { value: '播放夜航' } })
   fireEvent.click(screen.getByRole('button', { name: '发送 ↗' }))
   expect(calls).toHaveLength(1)
@@ -331,11 +419,51 @@ test('midnight and resuming wake up the daily conversation, including a minimize
   expect(screen.queryByText('昨夜回复')).toBeNull()
   expect(screen.getByLabelText<HTMLTextAreaElement>('发给副驾').value).toBe('未发草稿')
   result.rerender(<CopilotPanel {...props} compact={false} />)
-  expect(screen.getByText('想听什么，船长？')).toBeTruthy()
+  expect(screen.getByText('未配置')).toBeTruthy()
   fireEvent.click(screen.getByText('历史'))
   fireEvent.click(screen.getByLabelText('上一日'))
   await act(async () => {})
   expect(screen.getByText('昨夜回复')).toBeTruthy()
+})
+
+test('the cockpit names a GitHub Copilot CLI connection previously confirmed on this device', async () => {
+  vi.stubGlobal('mosicDesktop', {
+    status: async () => ({ enabled: true, configured: true, connectionVersion: 2, provider: 'copilot', model: 'user-selected' }),
+    openSettings: vi.fn(),
+    cancel: vi.fn(),
+  })
+  const { calls } = fixture()
+  await screen.findByText('GitHub Copilot CLI · user-selected')
+  fireEvent.click(screen.getByText('设置与记忆'))
+  expect(screen.getByLabelText<HTMLSelectElement>('本次连接').value).toBe('desktop')
+  expect(screen.getAllByText('GitHub Copilot CLI · user-selected')).toHaveLength(2)
+  expect(calls).toEqual([])
+})
+
+test('a confirmed desktop custom API can use its endpoint default model and revoking it prevents the next turn', async () => {
+  let configured = true
+  const chat = vi.fn(async ({ requestId }: { requestId: string }) => ({
+    requestId,
+    messages: [{ id: 'answer', role: 'assistant', source: 'desktop', text: '接口默认模型已回复', createdAt: new Date().toISOString() }],
+  }))
+  vi.stubGlobal('mosicDesktop', {
+    status: async () => ({ enabled: true, configured, connectionVersion: 2, provider: 'custom', model: '' }),
+    chat, cancel: vi.fn(), openSettings: vi.fn(),
+  })
+  const { calls } = fixture()
+  await screen.findByText('自定义 API · 接口默认模型')
+  fireEvent.click(screen.getByText('设置与记忆'))
+  expect(screen.getAllByText('自定义 API · 接口默认模型')).toHaveLength(2)
+  fireEvent.click(screen.getByText('通讯'))
+  fireEvent.change(screen.getByLabelText('发给副驾'), { target: { value: '你好' } })
+  fireEvent.click(screen.getByText('发送 ↗'))
+  await screen.findByText('接口默认模型已回复')
+  configured = false
+  fireEvent.change(screen.getByLabelText('发给副驾'), { target: { value: '再次问候' } })
+  fireEvent.click(screen.getByText('发送 ↗'))
+  await screen.findByText('桌面连接尚未就绪，请打开本机模型设置。')
+  expect(chat).toHaveBeenCalledOnce()
+  expect(calls).toEqual([])
 })
 
 test('desktop requires an explicit selection and sends only the current turn to its bridge, with no web fallback', async () => {
@@ -378,9 +506,9 @@ test('desktop requires an explicit selection and sends only the current turn to 
     },
   )
   fireEvent.click(await screen.findByRole('button', { name: '设置与记忆' }))
-  expect(screen.getByLabelText<HTMLSelectElement>('本次连接').value).toBe('platform')
+  expect(screen.getByLabelText<HTMLSelectElement>('本次连接').value).toBe('none')
   fireEvent.change(screen.getByLabelText('本次连接'), { target: { value: 'desktop' } })
-  expect(await screen.findByText('本地模型 · demo-local')).toBeTruthy()
+  expect(await screen.findAllByText('本地模型 · demo-local')).toHaveLength(2)
   fireEvent.click(screen.getByText('打开本机模型设置'))
   expect(bridge.openSettings).toHaveBeenCalledOnce()
   fireEvent.click(screen.getByText('通讯'))
@@ -401,7 +529,7 @@ test('desktop requires an explicit selection and sends only the current turn to 
   expect(calls).toEqual([])
   expect(patches).toEqual([])
   fireEvent.click(screen.getByText('设置与记忆'))
-  fireEvent.change(screen.getByLabelText('本次连接'), { target: { value: 'platform' } })
+  fireEvent.change(screen.getByLabelText('本次连接'), { target: { value: 'none' } })
   fireEvent.click(screen.getByText('通讯'))
   expect(screen.queryByText('本机私有回复')).toBeNull()
 })
@@ -478,7 +606,7 @@ test.each([{ active: false }, { visible: false }])(
     expect(stop).toHaveBeenCalledOnce()
     expect(screen.queryByLabelText('舰载副驾')).toBeNull()
     result.rerender(<CopilotPanel {...props} />)
-    await screen.findByText('想听什么，船长？')
+    await screen.findByText('未配置')
     expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes('/transcribe'))).toBe(false)
     expect(calls).toHaveLength(0)
   },
@@ -595,6 +723,7 @@ test('a turn sent from the full panel finishes in compact chat and its inline tr
     finish = resolve
   })
   const { result, props, calls } = fixture({}, state, reply)
+  await chooseWebApi()
   fireEvent.change(await screen.findByLabelText('发给副驾'), { target: { value: '播放夜航' } })
   fireEvent.click(screen.getByText('发送 ↗'))
   result.rerender(<CopilotPanel {...props} compact />)
@@ -649,7 +778,7 @@ test('the same desktop recording survives minimization and keyboard release leav
   const { result, props, calls } = fixture()
   fireEvent.click(await screen.findByText('设置与记忆'))
   fireEvent.change(screen.getByLabelText('本次连接'), { target: { value: 'desktop' } })
-  await screen.findByText('请在本机模型设置中选择模型，并允许驾驶舱连接。')
+  await screen.findByText('请在本机模型设置中配置接口，并允许驾驶舱连接。')
   enabled = true
   fireEvent.click(screen.getByText('通讯'))
   fireEvent.keyDown(screen.getByLabelText('按住说话'), { key: ' ' })
@@ -675,13 +804,15 @@ test('hidden navigation keeps an ongoing written reply and suppresses playback w
     finish = resolve
   })
   const { result, props, calls } = fixture(
-    { compact: true },
+    {},
     {
       ...state,
       settings: { ...state.settings, voiceEnabled: true },
     },
     reply,
   )
+  await chooseWebApi()
+  result.rerender(<CopilotPanel {...props} compact />)
   fireEvent.change(await screen.findByLabelText('发给副驾'), { target: { value: '播放夜航' } })
   fireEvent.click(screen.getByText('发送 ↗'))
   result.rerender(<CopilotPanel {...props} visible={false} />)
@@ -724,7 +855,7 @@ test('desktop clearing works on an empty day and a late history read cannot rest
 
 test('a late archive page is discarded on period changes and earlier pages prepend chronologically', async () => {
   fixture()
-  await screen.findByText('想听什么，船长？')
+  await screen.findByText('选择自己的模型后即可发送。')
   const http = vi.mocked(fetch)
   const now = new Date().toISOString()
   const page = (id: string, cursor: string | null = null) => Response.json({

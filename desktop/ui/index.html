@@ -14,11 +14,21 @@
 <div class="row"><button id="previous-period" aria-label="上一时段">←</button><strong id="period-label"></strong><button id="next-period" aria-label="下一时段">→</button></div>
 <div id="archive-entries"></div><button id="earlier" hidden>查看更早记录</button><p id="archive-status" role="status"></p></dialog>
 <dialog id="settings"><div class="panelhead"><h2>副驾设置</h2><button id="close" aria-label="关闭设置">×</button></div>
-<label for="provider">对话来源</label><select id="provider"><option value="local">本机模型</option><option value="subscription">ChatGPT 套餐</option><option value="openai">OpenAI API Key</option><option value="anthropic">Anthropic API Key</option></select>
-<section id="local-settings"><label for="endpoint">本地服务地址</label><input id="endpoint" placeholder="http://127.0.0.1:11434/v1"><small>支持 Ollama、LM Studio 和兼容 /v1 的本机服务。</small></section>
+<button id="copy-setup">复制给本机 Agent 的配置提示词</button>
+<label for="provider">对话来源</label><select id="provider"><option value="none">未配置</option><option value="local">本机模型（Ollama / LM Studio）</option><option value="codex">Codex CLI · ChatGPT 订阅</option><option value="copilot">GitHub Copilot CLI · Copilot 订阅</option><option value="custom">自定义 API 接口</option><option value="openai">OpenAI API Key</option><option value="anthropic">Anthropic API Key</option><option value="subscription" id="legacy-subscription" hidden>已授权的 ChatGPT 账号</option></select>
+<section id="local-settings" hidden><label for="endpoint">本机服务地址</label><input id="endpoint" placeholder="http://127.0.0.1:11434/v1"><small>支持这台电脑上的 Ollama、LM Studio 和其他兼容 /v1 的服务。</small></section>
+<section id="custom-settings" hidden>
+<label for="custom-protocol">接口协议</label><select id="custom-protocol"><option value="completions">OpenAI Chat Completions 兼容</option><option value="responses">OpenAI Responses 兼容</option><option value="messages">Anthropic Messages 兼容</option><option value="json">自定义 JSON 请求与响应</option></select>
+<label for="custom-url">API 网址</label><input type="url" id="custom-url" placeholder="https://api.example.com/v1" autocomplete="off" spellcheck="false">
+<label class="cockpit-permission"><input type="checkbox" id="custom-full">使用完整请求地址</label>
+<label for="custom-auth">密钥请求头</label><select id="custom-auth"><option value="bearer">Authorization: Bearer</option><option value="x-api-key">x-api-key</option><option value="api-key">api-key</option><option value="other">自定义请求头</option></select>
+<div id="custom-header-settings" hidden><label for="custom-header">请求头名称</label><input id="custom-header" placeholder="Authorization"><label for="custom-scheme">密钥格式</label><select id="custom-scheme"><option value="raw">直接发送 Key</option><option value="bearer">Bearer 前缀</option></select></div>
+<div id="custom-json-settings" hidden><label for="body-template">JSON 请求模板</label><textarea id="body-template" rows="3" spellcheck="false"></textarea><small>可用占位符 {{model}}、{{prompt}}、{{system}}、{{messages}}。</small><label for="response-path">回复文字字段</label><input id="response-path" placeholder="choices.0.message.content"></div>
+</section>
+<section id="agent-settings" hidden><p id="agent-help"></p></section>
 <section id="keys" hidden><label for="key">API Key</label><input type="password" id="key" autocomplete="off" placeholder="保存到系统钥匙串"><button id="remove-key">移除密钥</button></section>
 <section id="subscription" hidden><label for="account">ChatGPT 账号</label><select id="account"></select><div class="row"><button id="signin">Continue with ChatGPT</button><button id="reauth">重新授权</button><button id="signout">断开</button><button id="usage">套餐用量 ↗</button></div><small>使用你授权的套餐额度。授权在系统浏览器中完成。</small></section>
-<label for="model">模型</label><div class="row"><input id="model" list="models" placeholder="选择或输入模型 ID"><datalist id="models"></datalist><button id="load-models">读取可用模型</button></div>
+<section id="model-settings" hidden><label for="model" id="model-label">模型</label><div class="row"><input id="model" list="models" placeholder="选择或输入模型 ID"><datalist id="models"></datalist><button id="load-models">读取可用模型</button></div></section>
 <label for="personality">语气</label><select id="personality"><option>简洁</option><option>温和</option><option>幽默</option></select><label class="cockpit-permission"><input type="checkbox" id="allow-cockpit">允许音乐宇宙中的副驾使用这条模型连接</label><button class="solid" id="save">保存连接</button>
 <details><summary>本机记忆与对话</summary><div id="memories"></div><button id="clear">清除全部离线电台记录</button></details>
 <details><summary>配对网页版身份</summary><p>在网页的设置里生成配对码，允许本机查询公开的同歌星球。</p><div class="row"><input id="code" placeholder="一次性配对码"><button id="pair">配对</button><button id="unpair">断开配对</button></div></details>

@@ -4,7 +4,7 @@ const releases = new Map([
   ['app', 'mosic-macos-arm64.zip'],
   ['source', 'mosic-source.zip'],
 ])
-const releasePrefix = 'copilot-releases/v0.1.4/'
+const releasePrefix = 'copilot-releases/v0.1.5/'
 
 function rangeFor(header: string, size: number) {
   const value = /^bytes=(\d*)-(\d*)$/.exec(header)

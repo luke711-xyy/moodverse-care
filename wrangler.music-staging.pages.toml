@@ -2,6 +2,7 @@
 # D1 ID from wrangler.toml.
 name = "moodverse-music-staging"
 compatibility_date = "2026-09-22"
+compatibility_flags = ["global_fetch_strictly_public"]
 pages_build_output_dir = "./dist"
 
 # Like the music D1 data, Moment photos are shared with the music production site.

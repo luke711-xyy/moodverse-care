@@ -123,6 +123,7 @@ export function CopilotSocialPanel({ onVisitPlanet, onPlayTrack, api = defaultAp
         <>
           <fieldset disabled={busy}>
             <legend>出航授权</legend>
+            <p>双方授权后，后台可用 Cloudflare 模型根据公开名片和选曲生成介绍。</p>
             <label>
               副驾可以做什么
               <select value={draft.mode} onChange={(e) => change({ mode: e.target.value as IntroductionMode })}>
