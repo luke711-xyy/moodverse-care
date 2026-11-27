@@ -14,7 +14,9 @@ const phaseReadout = {
 
 type Props = {
   active: boolean
+  compact: boolean
   visible: boolean
+  name: string
   phase: CopilotPhase
   reducedMotion: boolean
   open(): void
@@ -30,15 +32,17 @@ type Props = {
 }
 
 export function CopilotProjection(props: Props) {
-  const { active, visible, phase } = props
+  const { active, compact, visible, phase } = props
   const station = useRef<HTMLElement>(null)
   const wasOpen = useRef(false)
+  const wasCompact = useRef(false)
   useEffect(() => {
     if (active && !wasOpen.current && !station.current?.contains(document.activeElement)) station.current?.focus({ preventScroll: true })
-    if (!active && wasOpen.current && visible) station.current?.querySelector<HTMLButtonElement>('.intercom-key')?.focus({ preventScroll: true })
+    if (visible && ((compact && !wasCompact.current) || (!active && wasOpen.current))) station.current?.querySelector<HTMLButtonElement>('.intercom-key')?.focus({ preventScroll: true })
     wasOpen.current = active
-  }, [active, visible])
-  return <section className="copilot-projection" data-open={active} data-phase={phase} hidden={!visible}
+    wasCompact.current = compact
+  }, [active, visible, compact])
+  return <section className="copilot-projection" data-open={active && !compact} data-mode={compact ? 'compact' : active ? 'expanded' : 'idle'} data-phase={phase} hidden={!visible}
     aria-label="观察窗副驾投影" tabIndex={-1} ref={station}
     onKeyDown={event => {
       if (active && event.key === 'Escape' && !event.nativeEvent.isComposing && !event.defaultPrevented) {
@@ -46,16 +50,19 @@ export function CopilotProjection(props: Props) {
       }
     }}>
     <div className="projection-visual">
-      <IntercomKey open={active ? props.toggle : props.open} begin={props.begin} end={props.end} cancel={props.cancel}
-        reveal={props.open} expanded={active} enabled={visible}
-        notice={props.notice} onDismiss={props.onDismiss} onNotice={props.onNotice}>
-        <ProjectionCore phase={phase} active={active && visible} animate={!props.reducedMotion} />
+      <IntercomKey open={active && !compact ? props.toggle : props.open} begin={props.begin} end={props.end} cancel={props.cancel}
+        reveal={active ? undefined : props.open} expanded={active && !compact} compact={compact} enabled={visible}
+        notice={compact ? '' : props.notice} onDismiss={props.onDismiss} onNotice={props.onNotice}>
+        <ProjectionCore phase={phase} active={active && visible && (!compact || phase !== 'idle')} animate={!props.reducedMotion} />
         <span className="projection-ident">
           <span className="projection-callsign">MOSIC <b>/</b> COPILOT</span>
-          <strong>舰载副驾</strong>
+          <strong title={props.name}>{props.name}</strong>
           <span className="projection-phase"><i aria-hidden="true" />{phaseReadout[phase][0]}<span>{phaseReadout[phase][1]}</span></span>
         </span>
       </IntercomKey>
+      {compact && props.notice && <button type="button" className="projection-notice-light" aria-label={props.notice} title={props.notice}
+        onClick={props.onNotice}>✦</button>}
+      {compact && <button type="button" className="projection-off" aria-label="关闭副驾观察窗" title="关闭副驾" onClick={props.close}>×</button>}
     </div>
     <div className="projection-channel" hidden={!active}>{props.children}</div>
   </section>

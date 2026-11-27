@@ -308,7 +308,20 @@ function MusicApp({ apiOverride, firstRunStorageKey = 'mosic-first-run-v1', repl
     setMomentComposeRequested(false)
   }, [view, momentComposeRequested])
   const [crtEnabled, setCrtEnabled] = useState(() => { try { return localStorage.getItem('moodverse-crt') !== 'off' } catch { return true } })
-  const projectionOpen = view === 'copilot' && cockpit.console.focus === 'overview' && cockpit.travel.status === 'idle'
+  const [copilotMinimized, setCopilotMinimized] = useState(false)
+  const windowAvailable = !firstRunOpen && cockpit.console.focus === 'overview' && cockpit.travel.status === 'idle'
+  const projectionOpen = windowAvailable && view === 'copilot'
+  const projectionCompact = !firstRunOpen && !projectionOpen && copilotMinimized
+  const copilotActive = projectionOpen || projectionCompact
+  const closeCopilot = () => {
+    setCopilotMinimized(false)
+    if (view === 'copilot') dispatchCockpit({ type: 'overview' })
+  }
+  const minimizeCopilot = () => {
+    setCopilotMinimized(true)
+    dispatchCockpit({ type: 'overview' })
+  }
+  const [copilotName, setCopilotName] = useState('副驾')
   const [copilotPhase, setCopilotPhase] = useState<CopilotPhase>('idle')
   const copilotIntercom = useRef<CopilotIntercomHandle>(null)
   const [copilotPlanets, setCopilotPlanets] = useState<{ planetId: string; displayName: string }[]>([])
@@ -480,6 +493,8 @@ function MusicApp({ apiOverride, firstRunStorageKey = 'mosic-first-run-v1', repl
     dispatchCockpit({ type: 'reset' })
     profileInitialized.current = false
     setBottlesMounted(false)
+    setCopilotMinimized(false)
+    setCopilotName('副驾')
     setCopilotPhase('idle')
     setCopilotPlanets([])
     setInitiative('quiet')
@@ -1327,7 +1342,7 @@ function MusicApp({ apiOverride, firstRunStorageKey = 'mosic-first-run-v1', repl
   const changeView = (next: ProductView) => {
     // Opening a channel restores its existing results; only an explicit song
     // action may start a new search and replace the middle monitor's snapshot.
-    if (next === 'copilot') setCopilotNotice(null)
+    if (next === 'copilot') { setCopilotNotice(null); setCopilotMinimized(false) }
     setView(next)
     if (next === 'galaxy' && galaxy.status === 'idle') void loadGalaxy('genre')
     if (next === 'roam') {
@@ -1382,7 +1397,7 @@ function MusicApp({ apiOverride, firstRunStorageKey = 'mosic-first-run-v1', repl
     const onWheel = (event: WheelEvent) => {
       const target = event.target
       if (target instanceof Element) {
-        if (!target.closest('.cockpit-viewport') || target.closest('button, input, textarea, select, .window-hud-terminal')) return
+        if (!target.closest('.cockpit-viewport') || target.closest('button, input, textarea, select, .window-hud-terminal, .copilot-projection')) return
       }
       const viewport = document.querySelector<HTMLElement>('.music-app')
       const step = normalizeWheelDelta(event.deltaY, event.deltaMode, viewport ? logicalSize(viewport).height : window.innerHeight)
@@ -1600,14 +1615,15 @@ function MusicApp({ apiOverride, firstRunStorageKey = 'mosic-first-run-v1', repl
         targetName: flightController.flight?.targetVisitor?.displayName ?? (flightController.flight?.to === 'visitor' ? pendingVisit?.displayName ?? null : null) }}
       by={galaxy.status === 'idle' ? 'genre' : galaxy.by} onClassify={by => { void regroupGalaxy(by) }}
       classifying={galaxy.status === 'loading' || galaxyRegrouping}
-      projection={homeReady && <CopilotProjection active={projectionOpen} phase={copilotPhase} reducedMotion={reducedMotion}
-        visible={!firstRunOpen && cockpit.console.focus === 'overview' && cockpit.travel.status === 'idle'}
-        open={() => changeView('copilot')} close={() => dispatchCockpit({ type: 'overview' })}
+      projection={homeReady && <CopilotProjection name={copilotName === '副驾' ? '舰载副驾' : copilotName} active={copilotActive} compact={projectionCompact} phase={copilotPhase} reducedMotion={reducedMotion}
+        visible={windowAvailable}
+        open={() => changeView('copilot')} close={closeCopilot}
         toggle={() => copilotIntercom.current?.toggle()} begin={() => copilotIntercom.current?.begin()} end={() => copilotIntercom.current?.end()} cancel={() => copilotIntercom.current?.cancel()}
         notice={copilotNotice?.text ?? ''} onDismiss={() => setCopilotNotice(null)}
         onNotice={() => { changeView(copilotNotice?.page ?? 'copilot'); setCopilotNotice(null) }}>
         <CopilotPanel key={accountEpoch.current}
-        active={projectionOpen} onPhaseChange={setCopilotPhase} onClose={() => dispatchCockpit({ type: 'overview' })} intercomRef={copilotIntercom}
+        active={copilotActive} visible={windowAvailable} compact={projectionCompact} onPhaseChange={setCopilotPhase} onNameChange={setCopilotName} onClose={closeCopilot}
+        onMinimize={minimizeCopilot} onExpand={() => changeView('copilot')} intercomRef={copilotIntercom}
         player={musicPlayer} currentTrackId={musicPlayer.currentTrackId} currentPlanetId={monitorPlanet?.id}
         currentView={cockpit.exterior} onPlay={musicPlayer.play} onDuckChange={musicPlayer.setDucked}
         onVisit={(id, name) => requestPublicPlanetVisit(id, name, 'direct')}

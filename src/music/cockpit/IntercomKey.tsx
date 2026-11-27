@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 
-export function IntercomKey({ open, reveal, expanded, enabled, children, begin, end, cancel, notice, onDismiss, onNotice }: {
+export function IntercomKey({ open, reveal, expanded, compact, enabled, children, begin, end, cancel, notice, onDismiss, onNotice }: {
   open: () => void
   reveal?: () => void
   expanded?: boolean
+  compact?: boolean
   enabled: boolean
   children?: ReactNode
   begin: () => void
@@ -61,8 +62,8 @@ export function IntercomKey({ open, reveal, expanded, enabled, children, begin, 
   }
   return <aside className="copilot-intercom" aria-label="舰载通讯">
     {notice && <div className="intercom-notice" role="status"><button onClick={onNotice}>{notice} ↗</button><button onClick={onDismiss} aria-label="忽略这条副驾提示">×</button></div>}
-    <button type="button" className="intercom-key" data-transmitting={transmitting} aria-expanded={expanded} aria-label={expanded ? "与舰载副驾对讲" : "舰载副驾，点按打开，长按对讲"}
-      title={expanded ? "点按开始或结束对讲，亦可长按" : "点按唤醒副驾，长按对讲"} onContextMenu={event => event.preventDefault()}
+    <button type="button" className="intercom-key" data-transmitting={transmitting} aria-expanded={expanded} aria-label={compact ? "展开舰载副驾" : expanded ? "与舰载副驾对讲" : "舰载副驾，点按打开，长按对讲"}
+      title={compact ? "点击展开，长按对讲" : expanded ? "点按开始或结束对讲，亦可长按" : "点按唤醒副驾，长按对讲"} onContextMenu={event => event.preventDefault()}
       onPointerDown={event => {
         if (event.button !== 0 || !event.isPrimary) return
         event.currentTarget.setPointerCapture?.(event.pointerId)
@@ -73,7 +74,7 @@ export function IntercomKey({ open, reveal, expanded, enabled, children, begin, 
       onKeyUp={event => { if (event.key === ' ') release() }}
       onClick={() => { if (!suppressClick.current) open(); suppressClick.current = false }}>
       {children}
-      <span className="intercom-instruction">{transmitting ? '松开发送' : expanded ? '点按或长按对讲' : '唤醒 ↗'}</span>
+      <span className="intercom-instruction">{transmitting ? '松开发送' : compact ? '展开 ↗' : expanded ? '点按或长按对讲' : '唤醒 ↗'}</span>
     </button>
   </aside>
 }

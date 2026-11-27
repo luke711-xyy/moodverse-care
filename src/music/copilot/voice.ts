@@ -9,7 +9,6 @@ type VoiceOptions = {
   onError(message: string): void
   serverSpeech: boolean
   desktopVoice?: DesktopBridge | null
-  desktopEnabled?: boolean
 }
 const maxRecordingMs = 30_000
 const transcribeUrl = '/api/me/copilot/transcribe'
@@ -106,7 +105,6 @@ export function useCopilotVoice(options: VoiceOptions) {
     if (latest.current.desktopVoice !== undefined) {
       const native = latest.current.desktopVoice
       if (
-        !latest.current.desktopEnabled ||
         !native?.voiceStart ||
         !native.onVoice ||
         !native.voiceFinish ||

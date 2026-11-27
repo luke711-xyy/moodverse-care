@@ -1,13 +1,13 @@
 .copilot-projection {
   --signal-gold: #f0ce8f;
-  --signal-mint: #b3d7b6;
+  --signal-mint: #d3c59f;
   position: absolute;
   z-index: 2;
   color: var(--signal-gold);
   font-family: 'MOSIC Console', 'MOSIC Console Han', sans-serif;
   outline: none;
 }
-.copilot-projection[data-open=false] {
+.copilot-projection[data-mode=idle] {
   right: calc(var(--hud-side-inset) + var(--hud-terminal-width) + 10px);
   top: 64px;
 }
@@ -38,7 +38,7 @@
 .projection-ident strong { font:400 14px/1.45 var(--cockpit-key-font); }
 .projection-phase { display:none; color:var(--signal-mint); }
 .intercom-instruction { grid-column:2; font:400 10px/1 var(--cockpit-body); color:var(--signal-mint); }
-.copilot-projection[data-open=false] .projection-core { grid-row:1/3; }
+.copilot-projection[data-mode=idle] .projection-core { grid-row:1/3; }
 .intercom-notice { position:absolute; z-index:2; top:100%; right:0; display:flex; min-width:150px; max-width:280px; background:#13211df2; border:1px solid #71836c; }
 .cockpit .intercom-notice button { color:#e1ddbc; background:none; border:0; font:14px/1.45 var(--cockpit-body); padding:6px; }
 
@@ -49,7 +49,7 @@
   align-items: stretch;
   gap: clamp(10px,2.8cqw,40px);
   padding: 12px clamp(18px,6cqw,120px) clamp(32px,7cqh,84px);
-  background: linear-gradient(90deg, #0b171ab8 0%, #121b1c92 38%, #0c191aeb 65%, #0a1215f2);
+  background: linear-gradient(90deg, #191715a6 0%, #201c1494 38%, #1d1912e8 68%, #100f0bed);
   isolation: isolate;
 }
 .copilot-projection[data-open=true]::before {
@@ -85,12 +85,12 @@
 @container music-viewport (max-height:610px) {
   .cockpit[data-page=copilot][data-focus=overview]:not(.is-in-flight) { --console-height:clamp(94px,29cqh,175px); --desk-depth:28px; }
   .copilot-projection[data-open=true] { inset-block-start:38px; padding:4px 4cqw 32px; grid-template-columns:minmax(0,.64fr) minmax(0,1.36fr); }
-  .copilot-projection[data-open=false] { top:45px; }
+  .copilot-projection[data-mode=idle] { top:45px; }
   [data-open=true] .projection-ident strong { font-size:16px; }
   [data-open=true] .projection-core { width:min(90cqw,59cqh,170px); height:min(90cqw,59cqh,170px); }
 }
 @container music-viewport (max-width:780px) {
-  .copilot-projection[data-open=false] { right:calc(var(--hud-side-inset) + var(--hud-terminal-width) + 4px); }
+  .copilot-projection[data-mode=idle] { right:calc(var(--hud-side-inset) + var(--hud-terminal-width) + 4px); }
   [data-open=false] .projection-callsign { display:none; }
 }
 @container music-viewport (max-width:520px) and (min-height:611px) {
@@ -115,12 +115,63 @@
 }
 
 @container music-viewport (max-height:520px) and (min-width:640px) {
-  .projection-channel .cp-instrument { padding:4px 6px; gap:3px; }
-  .projection-channel .cp-head { position:relative; min-height:27px; }
-  .projection-channel .cp-tabs { align-self:center; margin-top:-30px; z-index:1; }
-  .projection-channel .cp-head:has(.cp-status) + .cp-tabs { margin-top:0; }
-  .projection-channel .cp-compose { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:5px; align-items:center; }
-  .projection-channel .cp-compose-actions { gap:4px; }
-  .projection-channel .cp-compose-actions .cp-send { margin-left:0; }
-  .projection-channel .cp-compose > small { grid-column:1 / -1; }
+  [data-mode=expanded] .projection-channel .cp-instrument { padding:4px 6px; gap:3px; }
+  [data-mode=expanded] .projection-channel .cp-head { position:relative; min-height:27px; }
+  [data-mode=expanded] .projection-channel .cp-tabs { align-self:center; margin-top:-30px; z-index:1; }
+  [data-mode=expanded] .projection-channel .cp-head:has(.cp-status) + .cp-tabs { margin-top:0; }
+  [data-mode=expanded] .projection-channel .cp-compose { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:5px; align-items:center; }
+  [data-mode=expanded] .projection-channel .cp-compose-actions { gap:4px; }
+  [data-mode=expanded] .projection-channel .cp-compose-actions .cp-send { margin-left:0; }
+  [data-mode=expanded] .projection-channel .cp-compose > small { grid-column:1 / -1; }
 }
+
+/* The shortwave receiver borrows the bridge log's space. Its hit area ends at
+   the brass rule, leaving the centre of the glass and the sector axis live. */
+.cockpit-viewport:has(.copilot-projection[data-mode=compact]:not([hidden])) {
+  --hud-terminal-width:min(26%,294px);
+}
+.cockpit-viewport:has(.copilot-projection[data-mode=compact]:not([hidden])) .window-hud-terminal {
+  visibility:hidden;
+}
+.copilot-projection[data-mode=compact] {
+  --receiver-top:64px;
+  top:var(--receiver-top); right:var(--hud-side-inset);
+  width:var(--hud-terminal-width);
+  height:min(148px, calc(100% - var(--receiver-top) - 54px));
+  box-sizing:border-box;
+  display:grid; grid-template-rows:auto minmax(0,1fr); gap:2px;
+  padding:3px 6px 5px 8px;
+  border:0; border-bottom:1px solid #b89b6099;
+  background:linear-gradient(110deg,#24201866,#161410b8 68%,#13120ec9);
+  text-shadow:0 1px 2px #08090b;
+}
+[data-mode=compact] .projection-visual {
+  display:grid; grid-template-columns:minmax(0,1fr) auto; gap:2px; align-items:center;
+}
+[data-mode=compact] .copilot-intercom { min-width:0; }
+.cockpit [data-mode=compact] .intercom-key {
+  display:grid; grid-template-columns:44px minmax(0,1fr) auto; gap:6px;
+  border:0; background:none; width:100%; min-width:0; padding:2px 0;
+}
+[data-mode=compact] .intercom-key:hover .intercom-instruction { color:#ffe5a6; }
+[data-mode=compact] .projection-core { grid-area:auto; width:44px; }
+[data-mode=compact] .projection-ident { display:grid; gap:1px; }
+[data-mode=compact] .projection-ident strong { font-size:13px; line-height:1.05; }
+[data-mode=compact] .projection-callsign { display:none; }
+[data-mode=compact] .projection-phase { display:flex; align-items:center; gap:4px; color:#ceb989; font:600 9px/1 'MOSIC Console',sans-serif; letter-spacing:.12em; }
+[data-mode=compact] .projection-phase i { width:3px; height:3px; }
+[data-mode=compact] .projection-phase span { display:none; }
+[data-mode=compact] .intercom-instruction { grid-column:auto; color:#d5c199; font:400 12px/1 var(--cockpit-key-font); white-space:nowrap; }
+.cockpit .projection-off { border:0; background:transparent; color:#bdaa84; padding:0; min-height:28px; min-width:22px; font-size:16px; }
+[data-mode=compact] .projection-channel { overflow:hidden; border-top:1px dotted #c5a97460; }
+[data-mode=compact] .intercom-notice { top:100%; right:0; min-width:100%; }
+@container music-viewport (max-height:650px) {
+  .copilot-projection[data-mode=compact] { --receiver-top:44px; height:min(132px, calc(100% - var(--receiver-top) - 43px)); }
+  .cockpit-viewport:has(.copilot-projection[data-mode=compact]:not([hidden])) { --hud-terminal-width:min(29%,260px); }
+  .cockpit [data-mode=compact] .intercom-key { grid-template-columns:28px minmax(0,1fr) auto; min-height:26px; }
+  [data-mode=compact] .projection-core { width:28px; }
+}
+[data-mode=compact] .projection-ident strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+[data-mode=compact] .projection-visual:has(.projection-notice-light) { grid-template-columns:minmax(0,1fr) auto auto; }
+.cockpit .projection-notice-light { padding:2px; border:0; background:transparent; color:#ffd384; font-size:15px; }
+[data-mode=compact]::before { content:""; position:absolute; top:0; left:0; right:0; height:1px; pointer-events:none; background:linear-gradient(90deg,#ceb484 0 12%,#b99a6040 12% 80%,transparent); }

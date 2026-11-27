@@ -73,7 +73,13 @@ function fixture(
             playTrackId: track.id,
             cards: [
               { type: 'track', track, source: 'catalog', reason: '节奏舒缓' },
-              { type: 'planet', planetId: 'p1', displayName: '雨海', reason: '共同选歌', source: 'public_planet' },
+              {
+                type: 'planet',
+                planetId: 'p1',
+                displayName: '雨海',
+                reason: '共同选歌',
+                source: 'public_planet',
+              },
             ],
           },
         ],
@@ -164,7 +170,11 @@ test('Space release transcribes once and sends one turn, and ducking returns to 
     utterance.onstart?.(new Event('start') as SpeechSynthesisEvent),
   )
   const cancel = vi.fn()
-  vi.stubGlobal('speechSynthesis', { getVoices: () => [{ lang: 'zh-CN', localService: true }], speak, cancel })
+  vi.stubGlobal('speechSynthesis', {
+    getVoices: () => [{ lang: 'zh-CN', localService: true }],
+    speak,
+    cancel,
+  })
   vi.stubGlobal('SpeechSynthesisUtterance', class {})
   const { props, calls } = fixture()
   const button = await screen.findByRole('button', { name: '副驾对讲' })
@@ -369,43 +379,67 @@ test('desktop native voice bypasses network transcription and uses the same desk
   expect(calls).toHaveLength(0)
 })
 
-test('leaving the projection releases a pending browser mic grant and reopens with a fresh conversation', async () => {
-  const intercomRef = createRef<CopilotIntercomHandle>()
-  const stop = vi.fn()
-  let grant!: (stream: MediaStream) => void
-  vi.stubGlobal('MediaRecorder', class {})
-  vi.stubGlobal('navigator', Object.assign(Object.create(navigator), {
-    mediaDevices: { getUserMedia: () => new Promise<MediaStream>(resolve => { grant = resolve }) },
-  }))
-  const { calls, result, props } = fixture({ intercomRef })
-  await screen.findByLabelText('发给副驾')
-  act(() => intercomRef.current!.begin())
-  await screen.findByText('正在等待麦克风')
-  result.rerender(<CopilotPanel {...props} active={false} />)
-  await act(async () => grant({ getTracks: () => [{ stop }] } as unknown as MediaStream))
-  expect(stop).toHaveBeenCalledOnce()
-  expect(screen.queryByLabelText('舰载副驾')).toBeNull()
-  result.rerender(<CopilotPanel {...props} />)
-  await screen.findByText('想听什么，船长？')
-  expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes('/transcribe'))).toBe(false)
-  expect(calls).toHaveLength(0)
-})
+test.each([{ active: false }, { visible: false }])(
+  'leaving the projection (%j) releases a pending browser mic grant before resuming',
+  async (change) => {
+    const intercomRef = createRef<CopilotIntercomHandle>()
+    const stop = vi.fn()
+    let grant!: (stream: MediaStream) => void
+    vi.stubGlobal('MediaRecorder', class {})
+    vi.stubGlobal(
+      'navigator',
+      Object.assign(Object.create(navigator), {
+        mediaDevices: {
+          getUserMedia: () =>
+            new Promise<MediaStream>((resolve) => {
+              grant = resolve
+            }),
+        },
+      }),
+    )
+    const { calls, result, props } = fixture({ intercomRef })
+    await screen.findByLabelText('发给副驾')
+    act(() => intercomRef.current!.begin())
+    await screen.findByText('正在等待麦克风')
+    result.rerender(<CopilotPanel {...props} {...change} />)
+    await act(async () => grant({ getTracks: () => [{ stop }] } as unknown as MediaStream))
+    expect(stop).toHaveBeenCalledOnce()
+    expect(screen.queryByLabelText('舰载副驾')).toBeNull()
+    result.rerender(<CopilotPanel {...props} />)
+    await screen.findByText('想听什么，船长？')
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes('/transcribe'))).toBe(false)
+    expect(calls).toHaveLength(0)
+  },
+)
 
 test('desktop voice permission errors stay local and leaving the channel discards late transcription', async () => {
   type VoiceEvent = { type: 'ready' | 'text' | 'error'; text?: string; message?: string }
   let deliver!: (event: VoiceEvent) => void
   const stop = vi.fn(async () => {})
-  const start = vi.fn(async () => { deliver({ type: 'ready' }) })
+  const start = vi
+    .fn(async () => {
+      deliver({ type: 'ready' })
+    })
     .mockRejectedValueOnce(new Error('microphone denied'))
   const chat = vi.fn()
   vi.stubGlobal('mosicDesktop', {
     status: async () => ({ enabled: true, provider: 'local', model: 'demo' }),
-    openSettings: vi.fn(), chat, cancel: vi.fn(),
-    voiceStart: start, voiceCancel: stop, voiceFinish: vi.fn(),
-    onVoice: (fn: (event: VoiceEvent) => void) => { deliver = fn; return () => {} },
+    openSettings: vi.fn(),
+    chat,
+    cancel: vi.fn(),
+    voiceStart: start,
+    voiceCancel: stop,
+    voiceFinish: vi.fn(),
+    onVoice: (fn: (event: VoiceEvent) => void) => {
+      deliver = fn
+      return () => {}
+    },
   })
   const webMicrophone = vi.fn()
-  vi.stubGlobal('navigator', Object.assign(Object.create(navigator), { mediaDevices: { getUserMedia: webMicrophone } }))
+  vi.stubGlobal(
+    'navigator',
+    Object.assign(Object.create(navigator), { mediaDevices: { getUserMedia: webMicrophone } }),
+  )
   const { calls } = fixture()
   fireEvent.click(await screen.findByText('设置与记忆'))
   fireEvent.change(screen.getByLabelText('本次连接'), { target: { value: 'desktop' } })
@@ -426,11 +460,18 @@ test('desktop voice permission errors stay local and leaving the channel discard
 
 test('closing a desktop request sends cancellation and old replies cannot update the reopened panel', async () => {
   let respond!: (reply: unknown) => void
-  const chat = vi.fn(() => new Promise(resolve => { respond = resolve }))
+  const chat = vi.fn(
+    () =>
+      new Promise((resolve) => {
+        respond = resolve
+      }),
+  )
   const cancel = vi.fn(async () => {})
   vi.stubGlobal('mosicDesktop', {
     status: async () => ({ enabled: true, provider: 'local', model: 'demo' }),
-    openSettings: vi.fn(), chat, cancel,
+    openSettings: vi.fn(),
+    chat,
+    cancel,
   })
   const { result, props, calls } = fixture()
   fireEvent.click(await screen.findByText('设置与记忆'))
@@ -438,13 +479,143 @@ test('closing a desktop request sends cancellation and old replies cannot update
   fireEvent.click(screen.getByText('通讯'))
   fireEvent.change(screen.getByLabelText('发给副驾'), { target: { value: '一个慢请求' } })
   fireEvent.click(screen.getByText('发送 ↗'))
-  expect(chat).toHaveBeenCalledOnce()
+  await waitFor(() => expect(chat).toHaveBeenCalledOnce())
   result.rerender(<CopilotPanel {...props} active={false} />)
   expect(cancel).toHaveBeenCalledOnce()
   result.rerender(<CopilotPanel {...props} />)
   await screen.findByText('想听什么，船长？')
-  await act(async () => respond({ messages: [{ role: 'assistant', source: 'desktop', text: '已取消的回复' }] }))
+  await act(async () =>
+    respond({ messages: [{ role: 'assistant', source: 'desktop', text: '已取消的回复' }] }),
+  )
   expect(screen.queryByText('已取消的回复')).toBeNull()
   expect(calls).toHaveLength(0)
   expect(props.onPlay).not.toHaveBeenCalled()
+})
+
+test('minimizing settings keeps a draft and exposes the saved callsign without duplicating the full controls', async () => {
+  const onMinimize = vi.fn()
+  const onNameChange = vi.fn()
+  const { props, result } = fixture(
+    { onMinimize, onNameChange },
+    {
+      ...state,
+      settings: { ...state.settings, name: '小航' },
+    },
+  )
+  const draft = await screen.findByLabelText<HTMLTextAreaElement>('发给副驾')
+  fireEvent.change(draft, { target: { value: '航线草稿' } })
+  await waitFor(() => expect(onNameChange).toHaveBeenCalledWith('小航'))
+  fireEvent.click(screen.getByText('设置与记忆'))
+  fireEvent.click(screen.getByRole('button', { name: '缩小副驾观察窗' }))
+  expect(onMinimize).toHaveBeenCalledOnce()
+  result.rerender(<CopilotPanel {...props} compact />)
+  expect(screen.queryByRole('navigation', { name: '副驾频道' })).toBeNull()
+  expect(screen.queryByText('平台模型')).toBeNull()
+  expect(screen.getByLabelText<HTMLTextAreaElement>('发给副驾').value).toBe('航线草稿')
+  result.rerender(<CopilotPanel {...props} />)
+  expect(screen.getByLabelText<HTMLTextAreaElement>('发给副驾').value).toBe('航线草稿')
+})
+
+test('a turn sent from the full panel finishes in compact chat and its inline track remains playable', async () => {
+  let finish!: () => void
+  const reply = new Promise<void>((resolve) => {
+    finish = resolve
+  })
+  const { result, props, calls } = fixture({}, state, reply)
+  fireEvent.change(await screen.findByLabelText('发给副驾'), { target: { value: '播放夜航' } })
+  fireEvent.click(screen.getByText('发送 ↗'))
+  result.rerender(<CopilotPanel {...props} compact />)
+  await screen.findByText('副驾正在回复…')
+  expect(calls[0].signal?.aborted).toBe(false)
+  await act(async () => {
+    finish()
+    await reply
+  })
+  await screen.findByText('收到，夜航准备就绪。')
+  expect(screen.queryByText('公开星球')).toBeNull()
+  expect(screen.queryByText('查看通讯记录')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: '播放 夜航' }))
+  expect(props.player.toggle).toHaveBeenCalledWith(track)
+  fireEvent.change(screen.getByLabelText('发给副驾'), { target: { value: '再来一首' } })
+  fireEvent.click(screen.getByText('发送 ↗'))
+  await waitFor(() => expect(calls).toHaveLength(2))
+  await act(async () => {})
+  result.rerender(<CopilotPanel {...props} />)
+  expect(screen.getByRole('button', { name: '访问星球 雨海' })).toBeTruthy()
+})
+
+test('the same desktop recording survives minimization and a tap finishes transcription in compact chat', async () => {
+  type VoiceEvent = { type: 'ready' | 'text'; text?: string }
+  let deliver!: (event: VoiceEvent) => void
+  let enabled = false
+  const voiceCancel = vi.fn(async () => {})
+  const status = vi.fn(async () => ({ enabled, provider: 'local', model: 'demo' }))
+  const chat = vi.fn(async ({ requestId, text }: { requestId: string; text: string }) => ({
+    requestId,
+    messages: [{ id: 'one', role: 'assistant', source: 'desktop', text, createdAt: '2026-11-27' }],
+  }))
+  vi.stubGlobal('mosicDesktop', {
+    status,
+    openSettings: vi.fn(),
+    chat,
+    cancel: vi.fn(),
+    voiceStart: async () => deliver({ type: 'ready' }),
+    voiceFinish: async () => deliver({ type: 'text', text: '从小窗发送' }),
+    voiceCancel,
+    onVoice: (fn: (event: VoiceEvent) => void) => {
+      deliver = fn
+      return () => {}
+    },
+  })
+  vi.stubGlobal('speechSynthesis', {
+    getVoices: () => [{ lang: 'zh-CN', localService: true }],
+    speak: vi.fn(),
+    cancel: vi.fn(),
+  })
+  vi.stubGlobal('SpeechSynthesisUtterance', class {})
+  const { result, props, calls } = fixture()
+  fireEvent.click(await screen.findByText('设置与记忆'))
+  fireEvent.change(screen.getByLabelText('本次连接'), { target: { value: 'desktop' } })
+  await screen.findByText('请在本机模型设置中选择模型，并允许驾驶舱连接。')
+  enabled = true
+  fireEvent.click(screen.getByText('通讯'))
+  fireEvent.click(screen.getByLabelText('副驾对讲'))
+  await waitFor(() => expect(props.onDuckChange).toHaveBeenCalledWith(true))
+  result.rerender(<CopilotPanel {...props} compact />)
+  await screen.findByText('正在收音…')
+  expect(voiceCancel).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByLabelText('副驾对讲'))
+  await screen.findByText('从小窗发送')
+  expect(chat).toHaveBeenCalledOnce()
+  expect(status.mock.calls.length).toBeGreaterThan(1)
+  expect(calls).toHaveLength(0)
+})
+
+test('hidden navigation keeps an ongoing written reply and suppresses playback when the chat becomes visible again', async () => {
+  let finish!: () => void
+  const reply = new Promise<void>((resolve) => {
+    finish = resolve
+  })
+  const { result, props, calls } = fixture(
+    { compact: true },
+    {
+      ...state,
+      settings: { ...state.settings, voiceEnabled: true },
+    },
+    reply,
+  )
+  fireEvent.change(await screen.findByLabelText('发给副驾'), { target: { value: '播放夜航' } })
+  fireEvent.click(screen.getByText('发送 ↗'))
+  result.rerender(<CopilotPanel {...props} visible={false} />)
+  expect(screen.queryByLabelText('舰载副驾')).toBeNull()
+  expect(calls[0].signal?.aborted).toBe(false)
+  result.rerender(<CopilotPanel {...props} />)
+  await act(async () => {
+    finish()
+    await reply
+  })
+  await screen.findByText('收到，夜航准备就绪。')
+  expect(props.onPlay).not.toHaveBeenCalled()
+  expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes('/speech'))).toBe(false)
+  expect(screen.queryByRole('alert')).toBeNull()
 })

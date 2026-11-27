@@ -28,7 +28,12 @@ const noMessages: CopilotMessage[] = []
 type PlanetCandidate = { planetId: string; displayName: string }
 export type CopilotPanelProps = {
   active: boolean
+  visible?: boolean
+  compact?: boolean
+  onMinimize?(): void
+  onExpand?(): void
   onPhaseChange?(phase: CopilotPhase): void
+  onNameChange?(name: string): void
   onClose?(): void
   intercomRef?: Ref<CopilotIntercomHandle>
   onDuckChange(ducked: boolean): void
@@ -126,11 +131,52 @@ function ExchangeCard({ card, props }: { card: CopilotCard; props: CopilotPanelP
   )
 }
 
+function CompactReply({
+  message,
+  progress,
+  error,
+  player,
+}: {
+  message?: CopilotMessage
+  progress: string
+  error: string
+  player: MusicPlayerControls
+}) {
+  const card = message?.cards?.find((card) => card.type === 'track' && Boolean(card.track.audioUrl))
+  const track = card?.type === 'track' ? card.track : undefined
+  const playing = track && player.playing && player.currentTrackId === track.id
+  return (
+    <div className="cp-compact-reply" aria-label="当前通讯" aria-live="polite">
+      {error ? (
+        <p className="cp-error" role="alert">
+          {error}
+        </p>
+      ) : progress ? (
+        <p role="status">{progress}</p>
+      ) : (
+        <>
+          <p>{message?.text || '想听什么，船长？'}</p>
+          {track && (
+            <button
+              className="cp-compact-track"
+              type="button"
+              aria-label={`${playing ? '暂停' : '播放'} ${track.title}`}
+              onClick={() => player.toggle(track)}
+            >
+              <span aria-hidden="true">{playing ? 'Ⅱ' : '▶'}</span> {track.title}
+            </button>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
 export function CopilotPanel(props: CopilotPanelProps) {
-  const { active } = props
+  const { active, compact = false, visible = true } = props
   const [tab, setTab] = useState<'chat' | 'social' | 'settings'>('chat')
   const currentTab = useRef(tab)
-  currentTab.current = tab
+  currentTab.current = compact ? 'chat' : tab
   const gesture = useRef<{ start: number; finishing: boolean } | null>(null)
   const spaceDown = useRef(false)
   const [cloudState, setState] = useState<CopilotState | null>(null)
@@ -172,22 +218,22 @@ export function CopilotPanel(props: CopilotPanelProps) {
   const retry = useRef<{ signature: string; id: string } | null>(null)
   const inFlight = useRef<AbortController | null>(null)
   const isMounted = useRef(true)
-  const activeNow = useRef(active)
-  activeNow.current = active
+  const foregroundEpoch = useRef(0)
   const callbacks = useRef(props)
   callbacks.current = props
   const voice = useCopilotVoice({
     onTranscript: (text) => {
+      if (callbacks.current.visible === false || !callbacks.current.active) return
       setTab('chat')
       setVoiceText(text)
     },
     onDuckChange: props.onDuckChange,
     onError: setError,
     desktopVoice: session.provider === 'desktop' ? (bridge ?? null) : undefined,
-    desktopEnabled: desktop?.enabled,
     serverSpeech: session.provider !== 'desktop' && Boolean(state?.capabilities.tts),
   })
   const begin = () => {
+    if (!visible) return
     setError('')
     setVoiceText('')
     setTab('chat')
@@ -198,10 +244,32 @@ export function CopilotPanel(props: CopilotPanelProps) {
     end: voice.end,
     cancel: voice.cancel,
     toggle: () => {
+      if (!visible) return
       setTab('chat')
       if (!busy.current) voice.toggle()
     },
   }))
+  useEffect(() => {
+    // Continue a held intercom key even if the pilot moves focus to the window controls.
+    const releaseSpace = (event: KeyboardEvent) => {
+      if (spaceDown.current && (event.code === 'Space' || event.key === ' ')) {
+        event.preventDefault()
+        spaceDown.current = false
+        voice.end()
+      }
+    }
+    const cancelHold = () => {
+      if (!spaceDown.current) return
+      spaceDown.current = false
+      voice.cancel()
+    }
+    window.addEventListener('keyup', releaseSpace)
+    window.addEventListener('blur', cancelHold)
+    return () => {
+      window.removeEventListener('keyup', releaseSpace)
+      window.removeEventListener('blur', cancelHold)
+    }
+  }, [voice.cancel, voice.end])
   const load = useCallback(async () => {
     if (inFlight.current) return
     const controller = new AbortController()
@@ -250,6 +318,18 @@ export function CopilotPanel(props: CopilotPanelProps) {
     }
     wasActive.current = active
   }, [active, voice.cancel])
+  useEffect(() => {
+    if (visible) return
+    foregroundEpoch.current++
+    gesture.current = null
+    spaceDown.current = false
+    setVoiceText('')
+    voice.cancel()
+  }, [visible, voice.cancel])
+  const savedName = cloudState?.settings.name
+  useEffect(() => {
+    if (savedName) callbacks.current.onNameChange?.(savedName)
+  }, [savedName])
   const lastPlanets = useRef('')
   useEffect(() => {
     if (!state) return
@@ -269,20 +349,16 @@ export function CopilotPanel(props: CopilotPanelProps) {
 
   const send = async (text: string, fromVoice = false) => {
     text = text.trim()
-    if (!text || busy.current || !state) return
+    if (!text || !visible || busy.current || !state) return
+    const sentInForeground = foregroundEpoch.current
     const useDesktop = session.provider === 'desktop'
-    if (useDesktop && (!bridge || !desktop?.enabled)) {
-      setError('桌面连接尚未就绪，请打开本机模型设置。')
-      setTab('settings')
-      if (fromVoice) setDraft(text)
-      return
-    }
     if (!useDesktop && !cloudState) {
       setError('平台通讯尚未连接，请重试。')
       return
     }
     if (!useDesktop && session.provider !== 'platform' && !session.key.trim()) {
       setError('先填写本次连接的 API 密钥，或切换到平台副驾。')
+      if (compact) props.onExpand?.()
       setTab('settings')
       if (fromVoice) setDraft(text)
       return
@@ -293,7 +369,11 @@ export function CopilotPanel(props: CopilotPanelProps) {
     setPending(text)
     setHistory(false)
     if (!fromVoice) setDraft('')
-    const context = { trackId: props.currentTrackId, planetId: props.currentPlanetId, view: props.currentView }
+    const context = {
+      trackId: props.currentTrackId,
+      planetId: props.currentPlanetId,
+      view: props.currentView,
+    }
     const signature = JSON.stringify([text, context, session.provider, session.model])
     const id = retry.current?.signature === signature ? retry.current.id : crypto.randomUUID()
     retry.current = { signature, id }
@@ -301,7 +381,16 @@ export function CopilotPanel(props: CopilotPanelProps) {
     inFlight.current = controller
     try {
       let messages: CopilotMessage[]
-      if (session.provider === 'desktop' && bridge) {
+      if (session.provider === 'desktop') {
+        if (!bridge) throw new Error('桌面连接已关闭。')
+        const status = await bridge.status()
+        if (controller.signal.aborted) return
+        setDesktop(status)
+        if (!status.enabled) {
+          if (callbacks.current.compact) callbacks.current.onExpand?.()
+          setTab('settings')
+          throw new Error('桌面连接尚未就绪，请打开本机模型设置。')
+        }
         controller.signal.addEventListener(
           'abort',
           () => {
@@ -322,7 +411,6 @@ export function CopilotPanel(props: CopilotPanelProps) {
           [...previous.filter((m) => !messages.some((next) => next.id === m.id)), ...messages].slice(-40),
         )
       } else {
-        if (session.provider === 'desktop') throw new Error('桌面连接已关闭。')
         const body: CopilotTurn = {
           text,
           requestId: id,
@@ -356,7 +444,13 @@ export function CopilotPanel(props: CopilotPanelProps) {
       }
       retry.current = null
       const assistant = [...messages].reverse().find((message) => message.role === 'assistant')
-      if (!activeNow.current || !assistant) return
+      if (
+        !callbacks.current.active ||
+        callbacks.current.visible === false ||
+        sentInForeground !== foregroundEpoch.current ||
+        !assistant
+      )
+        return
       const track = assistant.cards?.find(
         (card) => card.type === 'track' && card.track.id === assistant.playTrackId,
       )
@@ -369,7 +463,8 @@ export function CopilotPanel(props: CopilotPanelProps) {
         else if (!current.player.playing || current.player.currentTrackId !== track.track.id)
           current.player.toggle(track.track)
       }
-      if (currentTab.current === 'chat' && (fromVoice || state.settings.voiceEnabled)) void voice.speak(assistant.text)
+      if (currentTab.current === 'chat' && (fromVoice || state.settings.voiceEnabled))
+        void voice.speak(assistant.text)
     } catch (caught) {
       if (!isMounted.current || controller.signal.aborted) return
       setDraft((current) => current || text)
@@ -385,11 +480,11 @@ export function CopilotPanel(props: CopilotPanelProps) {
   const sendLatest = useRef(send)
   sendLatest.current = send
   useEffect(() => {
-    if (voiceText && state && !loading && !inFlight.current && !busy.current && active) {
+    if (voiceText && state && !loading && !inFlight.current && !busy.current && active && visible) {
       setVoiceText('')
       void sendLatest.current(voiceText, true)
     }
-  }, [voiceText, state, active, loading])
+  }, [voiceText, state, active, visible, loading])
 
   const patch = async (change: CopilotPatch) => {
     if (busy.current) return false
@@ -433,51 +528,84 @@ export function CopilotPanel(props: CopilotPanelProps) {
   useEffect(() => {
     callbacks.current.onPhaseChange?.(active ? phase : 'idle')
   }, [active, phase])
-  if (!active) return null
+  if (!active || !visible) return null
   const latest = [...currentMessages].reverse().find((message) => message.role === 'assistant')
   const messages = history ? currentMessages : latest && !pending ? [latest] : []
   const listening = voice.phase === 'recording' || voice.phase === 'permission'
   const voiceWorking = voice.phase !== 'idle'
   return (
-    <section className="cp-panel cp-instrument" data-phase={phase} data-channel={tab} aria-label="舰载副驾">
-      <header className="cp-head">
-        <small className="cp-model-source">
-          {session.provider === 'desktop' && desktop?.enabled
-            ? desktopProviders[desktop.provider]
-            : sourceLabel[session.provider]}
-        </small>
-        {voice.phase === 'permission' && <span className="cp-status" role="status">正在等待麦克风</span>}
-        {props.onClose && (
-          <button type="button" className="cp-close" aria-label="关闭副驾观察窗" onClick={props.onClose}>
-            ×
-          </button>
-        )}
-      </header>
-      <nav className="cp-tabs" aria-label="副驾频道">
-        {(
-          [
-            ['chat', '通讯'],
-            ['social', '引荐'],
-            ['settings', '设置与记忆'],
-          ] as const
-        ).map(([key, label]) => (
-          <button
-            type="button"
-            aria-pressed={tab === key}
-            key={key}
-            onClick={() => {
-              voice.cancel()
-              gesture.current = null
-              spaceDown.current = false
-              setVoiceText('')
-              setTab(key)
-            }}
-          >
-            {label}
-          </button>
-        ))}
-      </nav>
-      {error && (
+    <section
+      className="cp-panel cp-instrument"
+      data-phase={phase}
+      data-channel={compact ? 'chat' : tab}
+      data-compact={compact}
+      aria-label="舰载副驾"
+    >
+      {!compact && (
+        <header className="cp-head">
+          <small className="cp-model-source">
+            {session.provider === 'desktop' && desktop?.enabled
+              ? desktopProviders[desktop.provider]
+              : sourceLabel[session.provider]}
+          </small>
+          {voice.phase === 'permission' && (
+            <span className="cp-status" role="status">
+              正在等待麦克风
+            </span>
+          )}
+          {props.onMinimize && (
+            <button
+              type="button"
+              className="cp-window-key cp-minimize"
+              aria-label="缩小副驾观察窗"
+              title="缩小，保持对话"
+              onClick={() => {
+                setTab('chat')
+                props.onMinimize?.()
+              }}
+            >
+              − 缩小
+            </button>
+          )}
+          {props.onClose && (
+            <button
+              type="button"
+              className="cp-window-key"
+              aria-label="关闭副驾观察窗"
+              onClick={props.onClose}
+            >
+              ×
+            </button>
+          )}
+        </header>
+      )}
+      {!compact && (
+        <nav className="cp-tabs" aria-label="副驾频道">
+          {(
+            [
+              ['chat', '通讯'],
+              ['social', '引荐'],
+              ['settings', '设置与记忆'],
+            ] as const
+          ).map(([key, label]) => (
+            <button
+              type="button"
+              aria-pressed={tab === key}
+              key={key}
+              onClick={() => {
+                voice.cancel()
+                gesture.current = null
+                spaceDown.current = false
+                setVoiceText('')
+                setTab(key)
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </nav>
+      )}
+      {error && (!compact || !state) && (
         <p className="cp-error" role="alert">
           {error}
         </p>
@@ -488,7 +616,7 @@ export function CopilotPanel(props: CopilotPanelProps) {
           重新连接
         </button>
       )}
-      {tab === 'social' && (
+      {!compact && tab === 'social' && (
         <div className="cp-aux-scroll">
           <CopilotSocialPanel
             onVisitPlanet={(id) => props.onVisit(id, '公开星球')}
@@ -499,7 +627,7 @@ export function CopilotPanel(props: CopilotPanelProps) {
           />
         </div>
       )}
-      {tab === 'settings' && state && (
+      {!compact && tab === 'settings' && state && (
         <div className="cp-aux-scroll">
           <CopilotSettingsPanel
             desktop={desktop}
@@ -526,88 +654,109 @@ export function CopilotPanel(props: CopilotPanelProps) {
           />
         </div>
       )}
-      {tab === 'chat' && state && (
+      {(compact || tab === 'chat') && state && (
         <>
-          {currentMessages.length > 0 && (
+          {!compact && currentMessages.length > 0 && (
             <div className="cp-log-tools">
               <button onClick={() => setHistory(!history)} type="button">
                 {history ? '返回当前通讯' : '查看通讯记录'}
               </button>
             </div>
           )}
-          <div className="cp-log" aria-label={history ? '通讯记录' : '当前通讯'} aria-live="polite">
-            {!messages.length && !pending && !history && (
-              <div className="cp-ready">
-                <p>想听什么，船长？</p>
-                <div className="cp-prompts">
-                  {prompts.map((prompt) => (
-                    <button type="button" onClick={() => void send(prompt.text)} key={prompt.label}>
-                      {prompt.label}
-                    </button>
-                  ))}
+          {compact ? (
+            <CompactReply
+              message={latest}
+              player={props.player}
+              error={error}
+              progress={
+                pending
+                  ? '副驾正在回复…'
+                  : voice.phase === 'permission'
+                    ? '正在等待麦克风'
+                    : voice.phase === 'recording'
+                      ? '正在收音…'
+                      : voice.phase === 'transcribing'
+                        ? '正在转写…'
+                        : ''
+              }
+            />
+          ) : (
+            <div className="cp-log" aria-label={history ? '通讯记录' : '当前通讯'} aria-live="polite">
+              {!messages.length && !pending && !history && (
+                <div className="cp-ready">
+                  <p>想听什么，船长？</p>
+                  <div className="cp-prompts">
+                    {prompts.map((prompt) => (
+                      <button type="button" onClick={() => void send(prompt.text)} key={prompt.label}>
+                        {prompt.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
-            {messages?.map((message) => (
-              <article key={message.id} className="cp-entry" data-role={message.role}>
-                <header>
-                  <strong>{message.role === 'user' ? '你' : state.settings.name}</strong>
-                  <time dateTime={message.createdAt}>
-                    {new Date(message.createdAt).toLocaleTimeString('zh-CN', {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                  </time>
-                  {message.source && <small>{sourceLabel[message.source]}</small>}
-                </header>
-                <p>{message.text}</p>
-                {message.source === 'fallback' && message.fallbackReason && (
-                  <small className="cp-source-note">{message.fallbackReason}</small>
-                )}
-                {message.cards?.map((card) => (
-                  <ExchangeCard
-                    key={card.type === 'planet' ? card.planetId : card.track.id}
-                    card={card}
-                    props={props}
-                  />
-                ))}
-                {message.role === 'assistant' && (
-                  <div className="cp-entry-actions">
-                    <button
-                      type="button"
-                      disabled={Boolean(pending)}
-                      onClick={() => void voice.speak(message.text)}
-                    >
-                      播报
-                    </button>
-                    {props.onDraftBottle && (
+              )}
+              {messages?.map((message) => (
+                <article key={message.id} className="cp-entry" data-role={message.role}>
+                  <header>
+                    <strong>{message.role === 'user' ? '你' : state.settings.name}</strong>
+                    <time dateTime={message.createdAt}>
+                      {new Date(message.createdAt).toLocaleTimeString('zh-CN', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </time>
+                    {message.source && <small>{sourceLabel[message.source]}</small>}
+                  </header>
+                  <p>{message.text}</p>
+                  {message.source === 'fallback' && message.fallbackReason && (
+                    <small className="cp-source-note">{message.fallbackReason}</small>
+                  )}
+                  {message.cards?.map((card) => (
+                    <ExchangeCard
+                      key={card.type === 'planet' ? card.planetId : card.track.id}
+                      card={card}
+                      props={props}
+                    />
+                  ))}
+                  {message.role === 'assistant' && (
+                    <div className="cp-entry-actions">
                       <button
                         type="button"
-                        aria-expanded={showMoreActions === message.id}
-                        onClick={() => setShowMoreActions(showMoreActions === message.id ? null : message.id)}
+                        disabled={Boolean(pending)}
+                        onClick={() => void voice.speak(message.text)}
                       >
-                        更多
+                        播报
                       </button>
-                    )}
-                    {props.onDraftBottle && showMoreActions === message.id && (
-                      <button type="button" onClick={() => props.onDraftBottle?.(message.text)}>
-                        用这段话起草漂流瓶
-                      </button>
-                    )}
-                  </div>
-                )}
-              </article>
-            ))}
-            {pending && (
-              <article className="cp-entry" data-role="user">
-                <header>
-                  <strong>你</strong>
-                </header>
-                <p>{pending}</p>
-              </article>
-            )}
-            <div ref={logEnd} />
-          </div>
+                      {props.onDraftBottle && (
+                        <button
+                          type="button"
+                          aria-expanded={showMoreActions === message.id}
+                          onClick={() =>
+                            setShowMoreActions(showMoreActions === message.id ? null : message.id)
+                          }
+                        >
+                          更多
+                        </button>
+                      )}
+                      {props.onDraftBottle && showMoreActions === message.id && (
+                        <button type="button" onClick={() => props.onDraftBottle?.(message.text)}>
+                          用这段话起草漂流瓶
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </article>
+              ))}
+              {pending && (
+                <article className="cp-entry" data-role="user">
+                  <header>
+                    <strong>你</strong>
+                  </header>
+                  <p>{pending}</p>
+                </article>
+              )}
+              <div ref={logEnd} />
+            </div>
+          )}
           <form
             className="cp-compose"
             onSubmit={(event) => {
@@ -620,7 +769,7 @@ export function CopilotPanel(props: CopilotPanelProps) {
               <textarea
                 rows={1}
                 maxLength={1600}
-                placeholder="输入消息，或用对讲键说话…"
+                placeholder={compact ? '发给副驾…' : '输入消息，或用对讲键说话…'}
                 value={draft}
                 onChange={(event) => setDraft(event.target.value)}
                 onKeyDown={(event) => {
@@ -660,27 +809,12 @@ export function CopilotPanel(props: CopilotPanelProps) {
                   voice.cancel()
                 }}
                 onKeyDown={(event) => {
-                  if (event.code === 'Space' || event.key === ' ') {
+                  if (!compact && (event.code === 'Space' || event.key === ' ')) {
                     event.preventDefault()
                     if (!event.repeat && !spaceDown.current) {
                       spaceDown.current = true
                       begin()
                     }
-                  }
-                }}
-                onKeyUp={(event) => {
-                  if (event.code === 'Space' || event.key === ' ') {
-                    event.preventDefault()
-                    if (spaceDown.current) {
-                      spaceDown.current = false
-                      voice.end()
-                    }
-                  }
-                }}
-                onBlur={() => {
-                  if (spaceDown.current) {
-                    spaceDown.current = false
-                    voice.cancel()
                   }
                 }}
                 onClick={(event) => {
@@ -690,18 +824,24 @@ export function CopilotPanel(props: CopilotPanelProps) {
                   }
                 }}
               >
-                ● {listening ? '结束并发送' : '按住说话'}
+                {compact ? (listening ? '结束' : '对讲') : listening ? '结束并发送' : '● 按住说话'}
               </button>
-              {voiceWorking && (
+              {voiceWorking && (!compact || !listening) && (
                 <button type="button" onClick={voice.cancel}>
                   {['speaking', 'synthesizing'].includes(voice.phase) ? '停止播报' : '取消对讲'}
                 </button>
               )}
-              <button className="cp-send" disabled={!draft.trim() || Boolean(pending) || saving} type="submit">
+              <button
+                className="cp-send"
+                disabled={!draft.trim() || Boolean(pending) || saving}
+                type="submit"
+              >
                 发送 ↗
               </button>
             </div>
-            {session.provider === 'desktop' && <small>语音在 Mac 上转写，文字指令交给你选择的桌面模型。</small>}
+            {!compact && session.provider === 'desktop' && (
+              <small>语音在 Mac 上转写，文字指令交给你选择的桌面模型。</small>
+            )}
           </form>
         </>
       )}
