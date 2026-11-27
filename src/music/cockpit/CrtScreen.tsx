@@ -5,10 +5,11 @@ import { crtNoiseFrame } from './crt-noise'
 const warp = crtDisplacementMap()
 /** Native DOM stays accessible/editable. Only the displayed phosphor image is
  * curved; trusted pointer input is mapped back to its unwarped control. */
-export function CrtScreen({ children, active, motion, enabled, mini = false }: { children: ReactNode; active: boolean; motion: boolean; enabled: boolean; mini?: boolean }) {
+export function CrtScreen({ children, active, motion, enabled, mini = false, curvature = 1 }: { children: ReactNode; active: boolean; motion: boolean; enabled: boolean; mini?: boolean; curvature?: number }) {
   const id = `crt-${useId().replace(/:/g, '')}`
   const root = useRef<HTMLDivElement>(null), noise = useRef<HTMLCanvasElement>(null)
   const [size, setSize] = useState({ width: 1, height: 1 })
+  const depth = screenDepth(size) * curvature
   useLayoutEffect(() => {
     const measure = () => { const el = root.current; if (el) setSize({ width: Math.max(1, el.clientWidth), height: Math.max(1, el.clientHeight) }) }
     measure()
@@ -38,7 +39,7 @@ export function CrtScreen({ children, active, motion, enabled, mini = false }: {
     if (mini || !enabled || !event.isTrusted || !event.detail || !root.current) return
     const rect = root.current.getBoundingClientRect()
     const displayed = clientPoint(root.current, event.clientX, event.clientY)
-    const point = displayToSource(displayed.x, displayed.y, size)
+    const point = displayToSource(displayed.x, displayed.y, size, depth)
     const client = localToScreen(point, rect, size, isQuarterTurn(root.current))
     const target = document.elementFromPoint(client.x, client.y)?.closest<HTMLElement>('button, a, input, textarea, select')
     const original = (event.target as Element).closest('button, a, input, textarea, select')
@@ -51,7 +52,7 @@ export function CrtScreen({ children, active, motion, enabled, mini = false }: {
       <feComponentTransfer in="halo" result="soft"><feFuncA type="linear" slope=".26" /></feComponentTransfer>
       <feMerge result="phosphor"><feMergeNode in="soft" /><feMergeNode in="SourceGraphic" /></feMerge>
       <feImage href={warp} width={size.width} height={size.height} preserveAspectRatio="none" result="warp" />
-      <feDisplacementMap in="phosphor" in2="warp" scale={enabled ? screenDepth(size)*2 : 0} xChannelSelector="R" yChannelSelector="G" />
+      <feDisplacementMap in="phosphor" in2="warp" scale={enabled ? depth*2 : 0} xChannelSelector="R" yChannelSelector="G" />
     </filter></defs></svg>
     <div className="crt-image" style={{ filter: `url(#${id}) url(#moodverse-ink-dither)` }}>{children}</div>
     <canvas ref={noise} className="crt-snow" aria-hidden="true" />

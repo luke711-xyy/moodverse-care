@@ -128,7 +128,6 @@ export function CdPicker({ tracks, selectedIds, onToggle, query, onQuery, search
 
   const canToggle = (id: string) => !readOnly && !disabled && (selectedIds.includes(id) ? selectedIds.length > min : selectedIds.length < max)
   const toggle = (item: MusicTrackSummary, source?: HTMLElement) => {
-    if (suppressClick.current) { suppressClick.current = false; return }
     if (!canToggle(item.id)) return
     if (selectedIds.includes(item.id)) setFlight(null)
     else if (!reducedMotion && root.current && source) {

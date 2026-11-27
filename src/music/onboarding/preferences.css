@@ -1,0 +1,62 @@
+.first-run-preferences {
+  height: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(96px, 1fr) auto;
+  gap: 14px 20px;
+}
+.first-run-preferences .first-run-title { align-self: center; }
+.first-run-preferences .first-run-title p { margin: 3px 0 0; font-size: 14px; }
+.first-run-preferences .first-run-channel-tabs {
+  align-self: center;
+  padding: 0;
+  margin: 0;
+  border: 0;
+}
+.first-run-preferences .first-run-channel-tabs button { min-width: 54px; }
+.first-run-preference-panel {
+  grid-column: 1 / -1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+  border-block: 1px solid var(--first-run-line);
+  padding: 12px 6px 8px 0;
+}
+.first-run-preferences > :is(.first-run-loading, .first-run-feedback) { grid-column: 1 / -1; align-self: start; }
+.first-run-preference-panel h2, .first-run-preference-panel .first-run-note { margin: 0; }
+.first-run-preference-panel .first-run-checklist { gap: 7px; min-height: 0; }
+.first-run-preference-panel .first-run-checklist label { max-width: 100%; overflow-wrap: anywhere; }
+.first-run-preference-panel .first-run-options { margin-top: 10px; }
+.first-run-preference-panel .first-run-field { margin-bottom: 6px; }
+.first-run-preference-panel .first-run-pagination { margin: 2px 0; }
+.first-run-preferences .first-run-actions {
+  grid-column: 1 / -1;
+  flex-wrap: nowrap;
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+.first-run-preferences .first-run-actions button { flex: none; }
+.first-run-preferences .first-run-actions > span { text-align: center; }
+@container music-viewport (min-width: 820px) and (min-height: 581px) {
+  .first-run-screen-content:has(.first-run-preferences) { padding: 16px 26px; }
+  .first-run-preferences { row-gap: 8px; }
+  @media (pointer: fine) {
+    .first-run-preference-panel .first-run-checklist { gap: 5px; padding-block: 8px 0; }
+    .first-run-preference-panel .first-run-checklist label { min-height: 36px; padding: 5px 10px; }
+  }
+}
+@container music-viewport (max-width: 680px) and (min-height: 540px) {
+  .first-run-preferences { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto minmax(96px, 1fr) auto; }
+}
+@container music-viewport (max-height: 580px) {
+  .first-run-screen-content:has(.first-run-preferences) { padding: 8px 18px; }
+  .first-run-preferences { gap: 5px 8px; }
+  .first-run-preferences .first-run-title h1 { font-size: 19px; }
+  .first-run-preferences .first-run-title p { font-size: 12px; line-height: 1.4; }
+  .first-run-preferences .first-run-channel-tabs { flex-wrap: nowrap; gap: 4px; }
+  .first-run-preferences .first-run-channel-tabs button { min-width: 40px; padding-inline: 6px; }
+  .first-run-preference-panel { padding-block: 6px; }
+}

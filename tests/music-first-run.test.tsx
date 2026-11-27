@@ -35,7 +35,6 @@ async function tune() {
 }
 async function choosePlanet() {
   await tune()
-  fireEvent.click(screen.getByRole('button', { name: '偏好频道 歌曲' }))
   fireEvent.click(screen.getByRole('button', { name: '保存偏好，继续' }))
   await screen.findByRole('heading', { name: '为你的星球选三首歌' })
 }
@@ -77,6 +76,8 @@ test('all preference categories save together only after explicit confirmation',
   fireEvent.click(await screen.findByRole('checkbox', { name: '偏好艺人 艺人 1' }))
   expect(props.onSavePreferences).not.toHaveBeenCalled()
   fireEvent.click(screen.getByRole('button', { name: '偏好频道 歌曲' }))
+  fireEvent.click(screen.getByRole('button', { name: '返回' }))
+  expect((await screen.findByRole<HTMLInputElement>('checkbox', { name: '偏好艺人 艺人 1' })).checked).toBe(true)
   fireEvent.click(screen.getByRole('button', { name: '保存偏好，继续' }))
   await screen.findByRole('heading', { name: '为你的星球选三首歌' })
   expect(props.onSavePreferences).toHaveBeenCalledWith({ genres: ['Jazz', 'Electronic'], artists: ['artist-0', 'artist-1'], songs: ['song-0'] })
@@ -96,7 +97,7 @@ test('empty genre choices cannot be saved as random preferences', async () => {
   const { props } = setup()
   await tune()
   fireEvent.click(screen.getByRole('checkbox', { name: '偏好曲风 Jazz' }))
-  fireEvent.click(screen.getByRole('button', { name: '偏好频道 歌曲' }))
+  expect(screen.getByRole<HTMLButtonElement>('button', { name: '偏好频道 歌曲' }).disabled).toBe(true)
   expect(screen.getByRole<HTMLButtonElement>('button', { name: '保存偏好，继续' }).disabled).toBe(true)
   expect(props.onSavePreferences).not.toHaveBeenCalled()
 })
@@ -128,7 +129,7 @@ test('planet creation preserves the draft after failure and prevents repeated re
     .mockImplementationOnce(() => new Promise<MusicPlanet>(done => { resolve = done }))
   setup({ onCreatePlanet })
   await choosePlanet()
-  expect(screen.getByRole<HTMLButtonElement>('button', { name: '三首已选，继续' }).disabled).toBe(true)
+  expect(screen.getByRole<HTMLButtonElement>('button', { name: '还需选 3 首' }).disabled).toBe(true)
   selectThree()
   fireEvent.change(screen.getByRole('textbox', { name: '星球签名' }), { target: { value: '  慢慢听  ' } })
   fireEvent.click(screen.getByRole('radio', { name: '私密星球' }))

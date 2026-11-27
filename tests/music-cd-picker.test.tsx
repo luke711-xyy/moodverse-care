@@ -137,6 +137,16 @@ test('catalog discs only browse; collection uses the add button and removal uses
   expect(screen.getByRole('button', { name: '+ 收入 CD 架' }).disabled).toBe(false)
 })
 
+test('the first tap on the add button stores the newly browsed disc after a touch swipe', () => {
+  render(<Picker min={0} />)
+  const stage = screen.getByRole('group', { name: 'CD 曲库' })
+  fireEvent.pointerDown(stage, { pointerType: 'touch', clientX: 180, clientY: 60 })
+  fireEvent.pointerUp(stage, { pointerType: 'touch', clientX: 65, clientY: 60 })
+  expect(document.querySelector('.music-cd-info h3')?.textContent).toBe('歌曲 1')
+  fireEvent.click(screen.getByRole('button', { name: '+ 收入 CD 架' }))
+  expect(screen.getByRole('button', { name: '取消选择《歌曲 1》' })).toBeTruthy()
+})
+
 test('rack enforces five songs and one-song minimum, supports main melody and removal', () => {
   render(<Picker />)
   const next = screen.getByRole('button', { name: '下一张 CD' })

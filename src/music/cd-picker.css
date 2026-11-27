@@ -18,7 +18,7 @@
   box-shadow: inset 0 4px 4px #1b100a,0 5px 0 #23180f; }
 .music-cd-rack::after { content: ''; position: absolute; inset: auto -3px -3px; height: 15px; border-top: 2px solid #b28957; border-bottom: 3px solid #301f12; background: linear-gradient(#8e663f,#68452c); pointer-events: none; }
 .music-cd-slot { min-width: 0; position: relative; padding-top: 4px; background: #211810; border-radius: 3px; box-shadow: inset 2px 2px 4px #080603,inset -1px 0 #b18c5755; }
-.cockpit .music-cd-rack-record { width: 100%; aspect-ratio: 1; display: block; position: relative; padding: 3px; border: 0; background: none; cursor: pointer; transition: transform 180ms ease-out; }
+.music-cd-picker .music-cd-rack-record { width: 100%; aspect-ratio: 1; display: block; position: relative; padding: 3px; border: 0; border-radius: 50%; background: none; cursor: pointer; transition: transform 180ms ease-out; }
 .music-cd-rack-record:hover:not(:disabled) { transform: translateY(-5px); }
 .music-cd-rack-record[data-arriving=true] { visibility: hidden; }
 .music-cd-rack-record:disabled { cursor: not-allowed; }
@@ -39,7 +39,7 @@
 .music-cd-position { width: var(--cd-size); height: var(--cd-size); position: absolute; top: 50%; left: 50%; opacity: var(--cd-opacity);
   transform: translate(-50%,-50%) translate3d(calc(var(--cd-offset) * var(--cd-size) * .62),calc(var(--cd-distance) * -22px),var(--cd-depth)) rotateX(-14deg) rotateY(var(--cd-turn)) scale(var(--cd-scale));
   transition: transform 520ms cubic-bezier(.22,1,.36,1),opacity 420ms ease-out; }
-.cockpit .music-cd-record { position: relative; display: block; width: 100%; height: 100%; padding: 0; color: var(--ink,#efe6d2); background: none; border: 0; border-radius: 50%; cursor: pointer; }
+.music-cd-picker .music-cd-record { position: relative; display: block; width: 100%; height: 100%; padding: 0; color: var(--ink,#efe6d2); background: none; border: 0; border-radius: 50%; cursor: pointer; }
 .music-cd-hover-body { display: block; width: 100%; height: 100%; position: relative;
   transform: translate3d(var(--hover-x,0px),var(--hover-y,0px),0) rotateX(var(--hover-rx,0deg)) rotateY(var(--hover-ry,0deg)) scale(var(--cd-pressure,1));
   transition: transform 160ms ease-out,opacity 140ms ease-out; }

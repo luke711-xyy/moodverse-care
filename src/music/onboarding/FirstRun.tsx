@@ -10,6 +10,7 @@ import { DitherSurfaceDefinitions } from '../cockpit/surface'
 import { createDitherSpec, resolveDitherSpec } from '../dither/appearance'
 import { DitherThumbnail } from '../dither/DitherCanvas'
 import './first-run.css'
+import './preferences.css'
 
 export type FirstRunProps = {
   api: MusicApi
@@ -106,9 +107,8 @@ function CollisionTutorial({ planet, tracks, onFinish }: Pick<FirstRunProps, 'pl
   useEffect(() => { title.current?.focus({ preventScroll: true }) }, [])
   useEffect(() => { if (step !== 'song') feedback.current?.focus({ preventScroll: true }) }, [step])
   return <>
-    <div className="first-run-title"><span>撞歌教学 · {step === 'song' ? '1 / 3' : step === 'results' ? '2 / 3' : '3 / 3'}</span><h1 ref={title} tabIndex={-1}>喜欢同一首歌的人，还会听什么</h1>{step === 'song' && <p>在自己的星球里，找到一首歌，点它旁边的「撞歌 ↗」。</p>}</div>
+    <div className="first-run-title"><span>模拟撞歌 · {step === 'song' ? '1 / 3' : step === 'results' ? '2 / 3' : '3 / 3'}</span><h1 ref={title} tabIndex={-1}>喜欢同一首歌的人，还会听什么</h1>{step === 'song' && <p>用你选的歌试一次。点「撞歌 ↗」，看看示例星球里还有什么。</p>}</div>
     <div className="first-run-tutorial">
-      <p className="first-run-demo-label">教学模拟 · 不会发起真实匹配，也不会离开引导</p>
       {step === 'song' && <div className="first-run-song-demo">{track && <><span className="first-run-demo-cd"><CdFace track={track} /></span><div><strong>{track.title}</strong><p>{track.artistName}</p></div></>}
         <button type="button" className="first-run-primary" onClick={() => setStep('results')}>撞歌 ↗</button></div>}
       {step === 'results' && <section className="first-run-demo-result" aria-label="模拟撞歌结果">
@@ -118,7 +118,7 @@ function CollisionTutorial({ planet, tracks, onFinish }: Pick<FirstRunProps, 'pl
       {step === 'planet' && <section className="first-run-demo-visit" aria-label="示例星球预览">
         <h2 ref={feedback} tabIndex={-1}>你来到「晚风电台」的 CD 架</h2>
         <div className="first-run-demo-collection">{demoTracks.map((item, index) => <div key={item.id}><span className="first-run-demo-cd"><CdFace track={item} /></span><strong>{item.title}</strong><span>{index === 0 ? '你们共同选中的歌' : item.artistName}</span></div>)}</div>
-        <p role="status">这就是撞歌：从一首共同喜欢的歌，听见另一个人的音乐世界。这里的星球和结果仅作演示，不会留下访问记录。</p>
+        <p role="status">回到驾驶舱后，打开自己的星球，点一首歌旁的「撞歌 ↗」，就能去找真正的同好。</p>
       </section>}
     </div>
     <div className="first-run-actions first-run-lesson-actions"><button type="button" className="first-run-primary" disabled={step !== 'planet'} onClick={() => onFinish()}>完成教学，进入驾驶舱</button></div>
@@ -129,6 +129,7 @@ export function FirstRun(props: FirstRunProps) {
   const [booting, setBooting] = useState(() => !props.reducedMotion && !(typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches)), [page, setPage] = useState<Page>('welcome')
   const [closing, setClosing] = useState<'full' | 'reduced' | null>(null)
   const [channel, setChannel] = useState<PreferenceChannel>('genre'), [preferences, setPreferences] = useState<GalaxyPreferences | null>(null)
+  const previousChannels = useRef<PreferenceChannel[]>([])
   const [draft, setDraft] = useState<PreferenceDraft>({ genres: [], artists: [], songs: [] }), [readStatus, setReadStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [readRetry, setReadRetry] = useState(0), [error, setError] = useState(''), [busy, setBusy] = useState(false)
   const [selectedIds, setSelectedIds] = useState<string[]>([]), [query, setQuery] = useState(''), [displayName, setDisplayName] = useState(''), [tagline, setTagline] = useState('')
@@ -169,7 +170,7 @@ export function FirstRun(props: FirstRunProps) {
     }).catch(() => { if (!cancelled) setReadStatus('error') })
     return () => { cancelled = true }
   }, [props.api, props.status, readRetry])
-  useEffect(() => { if (!booting) { scroll.current?.scrollTo?.({ top: 0 }); heading.current?.focus({ preventScroll: true }) } }, [page, channel, booting])
+  useEffect(() => { if (!booting) { scroll.current?.scrollTo?.({ top: 0 }); heading.current?.focus({ preventScroll: true }) } }, [page, booting])
 
   const finishTuning = () => {
     if (closingStarted.current) return
@@ -214,66 +215,70 @@ export function FirstRun(props: FirstRunProps) {
     <DitherSurfaceDefinitions />
     <div className="first-run-tv" inert={Boolean(closing)}>
       <header className="first-run-header"><span className="first-run-brand">MOSIC</span><button type="button" aria-label="跳过首次调频" onClick={finishTuning}>跳过引导 ↗</button></header>
-      <div className="first-run-glass"><CrtScreen active motion={!props.reducedMotion && !booting && !closing} enabled={props.crtEnabled}>
+      <div className="first-run-glass"><CrtScreen active motion={!props.reducedMotion && !booting && !closing} enabled={props.crtEnabled} curvature={0.3}>
         <div ref={scroll} className="first-run-screen-content" data-booting={booting} aria-hidden={booting || undefined} inert={booting}>
           {page === 'welcome' && <div className="first-run-welcome">
             <PlanetSignal planet={owned} tracks={[]} />
             <div className="first-run-title"><span>收到一段新的频率</span><h1 ref={heading} tabIndex={-1}>把三首歌，<br />放进你的小宇宙。</h1><p>选喜欢的音乐，长出一颗星球。<br />再去看看，和你撞歌的人还在听什么。</p></div>
             <button type="button" className="first-run-primary" onClick={() => move('preferences')}>开始调频</button><span className="first-run-note">大约 2 分钟 · 随时可以跳过</span>
           </div>}
-          {page === 'preferences' && <>
-            <div className="first-run-title"><span>先调一调窗外的宇宙</span><h1 ref={heading} tabIndex={-1}>调到你喜欢的频率</h1><p>这些偏好决定 Galaxy 的候选；星球的三首歌，下一步再选。</p></div>
+          {page === 'preferences' && <div className="first-run-preferences">
+            <div className="first-run-title"><h1 ref={heading} tabIndex={-1}>调到你喜欢的频率</h1><p>选常听的曲风，艺人和歌曲可以留空。</p></div>
             {props.status === 'error' ? <div role="alert" className="first-run-feedback">连接还没有准备好。<button type="button" onClick={props.onRetry}>重新连接</button></div>
               : props.status !== 'ready' || readStatus === 'loading' ? <div className="first-run-loading" role="status"><span /><p>正在接收你的音乐偏好…</p></div>
                 : readStatus === 'error' ? <div role="alert" className="first-run-feedback">原来的偏好还没有读到，暂时无法保存。<button type="button" onClick={() => setReadRetry(n => n + 1)}>重新读取偏好</button></div>
                   : <>
                     <nav className="first-run-channel-tabs" aria-label="偏好频道">{preferenceChannels.map(item => <button key={item.id} type="button" aria-label={`偏好频道 ${item.label}`}
-                      aria-pressed={channel === item.id} disabled={busy} onClick={() => { setChannel(item.id); setError('') }}>{item.label}</button>)}</nav>
-                    <div className="first-run-preference-panel">
+                      aria-pressed={channel === item.id} disabled={busy || (!genresValid && item.id !== 'genre')} onClick={() => {
+                        if (channel !== item.id) { previousChannels.current.push(channel); setChannel(item.id); setError('') }
+                      }}>{item.label}</button>)}</nav>
+                    <div className="first-run-preference-panel" key={channel} role="region" aria-label="偏好候选">
                       <div className="first-run-preference-heading"><h2>{channel === 'genre' ? '常听哪些曲风？' : channel === 'artist' ? '想常常遇见谁的歌？' : '想从哪些歌出发？'}</h2><span>{channel === 'genre' ? draft.genres.length : channel === 'artist' ? draft.artists.length : draft.songs.length} 项已选</span></div>
-                      <p className="first-run-note">{channel === 'genre' ? '选择 1–16 种曲风，之后也能随时调整。' : '艺人和歌曲留空会自动随机，之后也能随时调整。'}</p>
+                      <p className="first-run-note">{channel === 'genre' ? '可选 1–16 种，之后也能调整。' : channel === 'song' ? '这些歌用于推荐，下一步再为星球挑三张 CD。' : '可以搜索想在星图上遇到的艺人。'}</p>
                       {channel === 'genre' ? <div className="first-run-checklist">{[...new Set([...(preferences?.availableGenres ?? []), ...draft.genres])].map(genre => <label key={genre}><input type="checkbox" aria-label={`偏好曲风 ${genre}`} checked={draft.genres.includes(genre)} disabled={busy || draft.genres.length >= 16 && !draft.genres.includes(genre)}
                         onChange={() => setDraft(current => ({ ...current, genres: current.genres.includes(genre) ? current.genres.filter(item => item !== genre) : current.genres.length < 16 ? [...current.genres, genre] : current.genres }))} /><span>{genre}</span></label>)}</div>
                         : <PreferenceOptions key={channel} api={props.api} kind={channel} selected={channel === 'artist' ? draft.artists : draft.songs} disabled={busy}
                           onChange={options => setDraft(current => ({ ...current, [channel === 'artist' ? 'artists' : 'songs']: options }))} />}
                     </div>
-                    <div className="first-run-actions"><button type="button" disabled={busy} onClick={() => move('welcome')}>返回</button>
-                      {channel !== 'song' ? <button type="button" className="first-run-primary" disabled={busy} onClick={() => setChannel(channel === 'genre' ? 'artist' : 'song')}>下一频道：{channel === 'genre' ? '艺人' : '歌曲'}</button>
-                        : <button type="button" className="first-run-primary" disabled={busy || !genresValid} onClick={() => { void savePreferences() }}>{busy ? '正在保存…' : '保存偏好，继续'}</button>}</div>
-                    {!genresValid && <p role="status" className="first-run-note">{draft.genres.length ? '曲风最多选 16 种，回到曲风频道调整一下。' : '先选至少一种曲风，再保存偏好。'}</p>}
+                    <div className="first-run-actions"><button type="button" disabled={busy} onClick={() => {
+                      const previous = previousChannels.current.pop()
+                      if (previous && genresValid) { setChannel(previous); setError('') }
+                      else { previousChannels.current = []; move('welcome') }
+                    }}>返回</button>
+                      {error ? <span role="alert" className="first-run-note">{error}</span>
+                        : !genresValid && <span role="status" className="first-run-note">{draft.genres.length ? '最多选 16 种曲风' : '至少选一种曲风'}</span>}
+                      <button type="button" className="first-run-primary" disabled={busy || !genresValid} onClick={() => { void savePreferences() }}>{busy ? '正在保存…' : '保存偏好，继续'}</button></div>
                   </>}
-          </>}
+          </div>}
           {showPlanet ? <div className="first-run-formed"><PlanetSignal planet={owned} tracks={owned.tracks} /><div className="first-run-title"><span>音乐已经有了自己的落点</span><h1 ref={heading} tabIndex={-1}>{owned.displayName}，已在这里</h1><p>{owned.tagline || '这颗星球，装着你选中的歌。'}</p><small>{owned.visibility === 'public' ? '公开星球 · 其他人可以来听歌' : '私密星球 · 只向自己开放'}</small></div><div className="first-run-actions"><button type="button" className="first-run-primary" onClick={() => move('tour')}>继续：撞歌教学</button></div></div>
-            : page === 'songs' && <>
-              <div className="first-run-title"><span>三首歌，组成你的第一颗星球</span><h1 ref={heading} tabIndex={-1}>为你的星球选三首歌</h1><p>每放进一张 CD，星球都会长大一点。可以先试听，再收入架上。</p></div>
-              <div className="first-run-song-build">
-                <aside className="first-run-song-preview" aria-label="星球实时预览">
-                  <PlanetSignal planet={null} tracks={selectedTracks} compact awaitingSong />
-                  <output aria-label="星球选歌进度">已收集 {selectedIds.length} / 3 张 CD</output>
-                </aside>
-                <div className="first-run-song-picker">
-                  {seedTracks.length > 0 && <button type="button" disabled={busy || selectedIds.length > 0} onClick={() => setSelectedIds(seedTracks.map(track => track.id))}>用已选偏好歌曲开头</button>}
-                  <AudiusCdPicker api={props.api} tracks={allTracks} onTracks={mergeTracks} selectedIds={selectedIds} onToggle={trackId => {
-                    if (busy || locked.current) return
-                    setSelectedIds(current => current.includes(trackId) ? current.filter(id => id !== trackId) : current.length < 3 ? [...current, trackId] : current)
-                  }} query={query} onQuery={setQuery} searchId={`first-run-${id}`} min={0} max={3} player={props.player} disabled={busy || props.status !== 'ready'} reducedMotion={props.reducedMotion} />
-                </div>
+            : page === 'songs' && <section className="first-run-song-step" aria-labelledby={`songs-${id}`}>
+              <header className="first-run-song-heading">
+                <div className="first-run-title"><h1 id={`songs-${id}`} ref={heading} tabIndex={-1}>为你的星球选三首歌</h1><p>可以先试听，再把喜欢的 CD 收入架上。</p></div>
+                {seedTracks.length > 0 && <button type="button" disabled={busy || selectedIds.length > 0} onClick={() => setSelectedIds(seedTracks.map(track => track.id))}>用已选偏好歌曲开头</button>}
+                <aside className="first-run-song-preview" aria-label="星球实时预览"><PlanetSignal planet={null} tracks={selectedTracks} compact awaitingSong /></aside>
+              </header>
+              <div className="first-run-song-picker">
+                <AudiusCdPicker api={props.api} tracks={allTracks} onTracks={mergeTracks} selectedIds={selectedIds} onToggle={trackId => {
+                  if (busy || locked.current) return
+                  setSelectedIds(current => current.includes(trackId) ? current.filter(id => id !== trackId) : current.length < 3 ? [...current, trackId] : current)
+                }} query={query} onQuery={setQuery} searchId={`first-run-${id}`} min={0} max={3} player={props.player} disabled={busy || props.status !== 'ready'} reducedMotion={props.reducedMotion} />
+                <div className="first-run-actions"><button type="button" onClick={() => move('preferences')}>返回偏好</button><button type="button" className="first-run-primary" disabled={!creationReady || busy} onClick={() => move('profile')}>{creationReady ? '三首已选，继续' : `还需选 ${3 - selectedTracks.length} 首`}</button></div>
               </div>
-              <div className="first-run-actions"><button type="button" onClick={() => move('preferences')}>返回偏好</button><button type="button" className="first-run-primary" disabled={!creationReady || busy} onClick={() => move('profile')}>三首已选，继续</button></div>
-            </>}
-          {!showPlanet && page === 'profile' && <>
-            <div className="first-run-title"><span>最后，留下一点你的名字</span><h1 ref={heading} tabIndex={-1}>让别人怎样找到你</h1><p>歌曲和外观都能以后再改，现在先给它一个名字。</p></div>
-            <div className="first-run-profile"><PlanetSignal planet={null} tracks={selectedTracks} />
+            </section>}
+          {!showPlanet && page === 'profile' && <section className="first-run-profile" aria-labelledby={`profile-${id}`}>
+              <div className="first-run-profile-preview">
+                <div className="first-run-title"><h1 id={`profile-${id}`} ref={heading} tabIndex={-1}>给你的星球起个名字</h1></div>
+                <PlanetSignal planet={null} tracks={selectedTracks} />
+              </div>
               <form onSubmit={event => { event.preventDefault(); void createPlanet() }}>
                 <label className="first-run-field">星球名称<input aria-label="星球名称" value={displayName} maxLength={40} required autoComplete="off" disabled={busy} placeholder="给这个小宇宙起个名字" onChange={event => setDisplayName(event.target.value)} /></label>
                 <label className="first-run-field">星球签名 <small>选填</small><input aria-label="星球签名" value={tagline} maxLength={120} disabled={busy} placeholder="最近想说的一句话" onChange={event => setTagline(event.target.value)} /></label>
                 <fieldset className="first-run-privacy" disabled={busy}><legend>谁可以来访</legend><label><input type="radio" name={`privacy-${id}`} aria-label="公开星球" checked={visibility === 'public'} onChange={() => setVisibility('public')} /><span>公开星球<small>让撞歌的人来听听</small></span></label><label><input type="radio" name={`privacy-${id}`} aria-label="私密星球" checked={visibility === 'private'} onChange={() => setVisibility('private')} /><span>私密星球<small>先留给自己</small></span></label></fieldset>
                 <div className="first-run-actions"><button type="button" disabled={busy} onClick={() => move('songs')}>返回选歌</button><button type="submit" className="first-run-primary" disabled={busy || !displayName.trim() || !creationReady || props.status !== 'ready'}>{busy ? '正在点亮…' : '点亮我的星球'}</button></div>
               </form>
-            </div>
-          </>}
+          </section>}
           {page === 'tour' && <CollisionTutorial planet={owned} tracks={allTracks} onFinish={finishTuning} />}
-          {error && <p className="first-run-feedback" role="alert">{error}</p>}
+          {error && page !== 'preferences' && <p className="first-run-feedback" role="alert">{error}</p>}
         </div>
         {booting && <div className="first-run-boot"><span className="first-run-boot-line" aria-hidden="true" /><span className="first-run-boot-static" aria-hidden="true" /><span className="first-run-boot-caption">MOSIC · 正在接收频率</span><button type="button" onClick={() => setBooting(false)}>跳过开机动画</button></div>}
       </CrtScreen></div>
