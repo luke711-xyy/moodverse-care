@@ -19,9 +19,7 @@ type Props = {
   reducedMotion: boolean
   open(): void
   close(): void
-  notice: string
-  onDismiss(): void
-  onNotice(): void
+  hasNotice: boolean
   children: ReactNode
 }
 
@@ -53,18 +51,12 @@ export function CopilotProjection(props: Props) {
     }}>
     <div className="projection-visual">
       <div className="copilot-intercom">
-        {!compact && props.notice && <div className="intercom-notice" role="status">
-          <button onClick={props.onNotice}>{props.notice} ↗</button>
-          <button onClick={props.onDismiss} aria-label="忽略这条副驾提示">×</button>
-        </div>}
         {active && !compact ? <div className="projection-signature">{signature}</div> :
           <button type="button" className="intercom-key projection-signature" aria-expanded={false}
-            aria-label={compact ? '展开舰载副驾' : '舰载副驾，点按打开'} onClick={props.open}>
-            {signature}<span className="intercom-instruction">{compact ? '展开 ↗' : '唤醒 ↗'}</span>
+            aria-label={props.hasNotice ? '查看副驾提示' : compact ? '展开舰载副驾' : '舰载副驾，点按打开'} onClick={props.open}>
+            {signature}<span className="intercom-instruction" data-notice={props.hasNotice}>{props.hasNotice ? '查看提示 ↗' : compact ? '展开 ↗' : '唤醒 ↗'}</span>
           </button>}
       </div>
-      {compact && props.notice && <button type="button" className="projection-notice-light" aria-label={props.notice} title={props.notice}
-        onClick={props.onNotice}>✦</button>}
       {compact && <button type="button" className="projection-off" aria-label="关闭副驾观察窗" title="关闭副驾" onClick={props.close}>×</button>}
     </div>
     <div className="projection-channel" hidden={!active}>{props.children}</div>

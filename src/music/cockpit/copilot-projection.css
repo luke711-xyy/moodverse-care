@@ -39,8 +39,10 @@
 .projection-phase { display:none; color:var(--signal-mint); }
 .intercom-instruction { grid-column:2; font:400 10px/1 var(--cockpit-body); color:var(--signal-mint); }
 .copilot-projection[data-mode=idle] .projection-core { grid-row:1/3; }
-.intercom-notice { position:absolute; z-index:2; top:100%; right:0; display:flex; min-width:150px; max-width:280px; background:#13211df2; border:1px solid #71836c; }
-.cockpit .intercom-notice button { color:#e1ddbc; background:none; border:0; font:14px/1.45 var(--cockpit-body); padding:6px; }
+.intercom-instruction[data-notice=true]::before {
+  content:''; display:inline-block; width:5px; height:5px; margin-right:4px;
+  border-radius:50%; background:var(--signal-gold); vertical-align:middle;
+}
 
 .copilot-projection[data-open=true] {
   inset: 50px 0 0;
@@ -170,7 +172,7 @@
 [data-mode=compact] .intercom-instruction {
   font: 400 11px/1 var(--cockpit-key-font); color: #efd49e; white-space: nowrap;
 }
-.cockpit :is(.projection-off,.projection-notice-light) {
+.cockpit .projection-off {
   padding: 0 3px; min-height: 26px; min-width: 23px; border: 0;
   color: #e5cca0; background: transparent; text-shadow: inherit; font-size: 15px;
 }

@@ -18,6 +18,7 @@ import { ArchiveEntries, HistoryPanel, localDay, rangeFor, useLocalDay, type His
 import './copilot.css'
 
 export type CopilotPhase = 'idle' | 'listening' | 'thinking' | 'error'
+export type CopilotNotice = { text: string; trackTitle?: string; page: 'bottles' | 'copilot' }
 const desktopEmpty: CopilotState = {
   settings: defaultCopilotSettings,
   memories: [],
@@ -30,6 +31,9 @@ export type CopilotPanelProps = {
   active: boolean
   visible?: boolean
   compact?: boolean
+  notice?: CopilotNotice | null
+  onDismissNotice?(): void
+  onOpenBottleEcho?(): void
   onMinimize?(): void
   onExpand?(): void
   onPhaseChange?(phase: CopilotPhase): void
@@ -176,6 +180,13 @@ function CompactReply({
 export function CopilotPanel(props: CopilotPanelProps) {
   const { active, compact = false, visible = true } = props
   const [tab, setTab] = useState<'chat' | 'history' | 'social' | 'settings'>('chat')
+  const composer = useRef<HTMLTextAreaElement>(null)
+  const expanded = active && visible && !compact
+  const wasExpanded = useRef(false)
+  useEffect(() => {
+    if (expanded && !wasExpanded.current && props.notice) setTab('chat')
+    wasExpanded.current = expanded
+  }, [expanded, props.notice])
   const today = useLocalDay(active)
   const pointer = useRef<number | null>(null)
   const holdKey = useRef<string | null>(null)
@@ -233,7 +244,7 @@ export function CopilotPanel(props: CopilotPanelProps) {
   const pendingToday = pendingDay.current === today ? pending : ''
   const cloudPageDay = useRef('')
   const desktopPageDay = useRef('')
-  const logEnd = useRef<HTMLDivElement>(null)
+  const logElement = useRef<HTMLDivElement>(null)
   const busy = useRef(false)
   const retry = useRef<{ signature: string; id: string } | null>(null)
   const inFlight = useRef<AbortController | null>(null)
@@ -574,9 +585,9 @@ export function CopilotPanel(props: CopilotPanelProps) {
   const [showMoreActions, setShowMoreActions] = useState<string | null>(null)
   const lastMessageId = currentMessages.at(-1)?.id
   useEffect(() => {
-    const log = logEnd.current?.parentElement
+    const log = logElement.current
     if (log && active && tab === 'chat') log.scrollTop = log.scrollHeight
-  }, [active, compact, tab, lastMessageId, pendingToday])
+  }, [active, compact, tab, lastMessageId, pendingToday, props.notice])
 
   const phase: CopilotPhase =
     voice.phase === 'recording' || voice.phase === 'permission'
@@ -700,6 +711,7 @@ export function CopilotPanel(props: CopilotPanelProps) {
             <button
               type="button"
               aria-pressed={tab === key}
+                data-notice={key === 'chat' && tab !== 'chat' && Boolean(props.notice)}
               key={key}
               onClick={() => {
                 voice.cancel()
@@ -789,10 +801,10 @@ export function CopilotPanel(props: CopilotPanelProps) {
               }
             />
           ) : (
-            <div className="cp-log" aria-label="当前通讯" aria-live="polite">
+            <div ref={logElement} className="cp-log" aria-label="当前通讯" aria-live="polite">
               {todayCursor && <ArchiveEntries key={[local, today, todayCursor].join('/')} range={rangeFor(today)}
                 read={readHistory} initialCursor={todayCursor} renderMessage={renderMessage} />}
-              {!currentMessages.length && !pendingToday && (
+              {!currentMessages.length && !pendingToday && !props.notice && (
                 <div className="cp-ready">
                   <p>想听什么，船长？</p>
                   <div className="cp-prompts">
@@ -820,7 +832,25 @@ export function CopilotPanel(props: CopilotPanelProps) {
                   <p>{pendingToday}</p>
                 </article>
               )}
-              <div ref={logEnd} />
+              {props.notice && <aside className="cp-notice" aria-label="副驾提示">
+                <p>
+                  <span>{props.notice.text}</span>
+                  {props.notice.trackTitle && <span className="cp-notice-track" title={props.notice.trackTitle}>《{props.notice.trackTitle}》</span>}
+                </p>
+                <div>
+                  <button type="button" onClick={() => {
+                    if (props.notice?.page === 'bottles') {
+                      props.onOpenBottleEcho?.()
+                    } else {
+                      voice.cancel()
+                      setDraft(current => current || '再推荐一首歌。')
+                      composer.current?.focus({ preventScroll: true })
+                    }
+                    props.onDismissNotice?.()
+                  }}>{props.notice.page === 'bottles' ? '查看回声' : '继续点歌'} ↗</button>
+                  <button type="button" onClick={props.onDismissNotice} aria-label="忽略这条副驾提示">忽略</button>
+                </div>
+              </aside>}
             </div>
           )}
           <form
@@ -833,6 +863,7 @@ export function CopilotPanel(props: CopilotPanelProps) {
             <label className="cp-draft">
               <span className="cp-visually-hidden">发给副驾</span>
               <textarea
+                ref={composer}
                 rows={1}
                 maxLength={1600}
                 placeholder={compact ? '发给副驾…' : '输入消息，或按住说话…'}

@@ -40,7 +40,7 @@ import { GalaxyWindow } from './GalaxyWindow'
 import { PlanetCard } from './PlanetCard'
 import { AUDIUS_GENRES, DEFAULT_GALAXY_GENRES } from './genres'
 import { momentPhotoError } from './moment-photo'
-import { CopilotPanel, type CopilotPhase } from './copilot/CopilotPanel'
+import { CopilotPanel, type CopilotNotice, type CopilotPhase } from './copilot/CopilotPanel'
 import { PairedDevices } from './copilot/PairedDevices'
 import { CopilotProjection } from './cockpit/CopilotProjection'
 import { FirstRun } from './onboarding/FirstRun'
@@ -325,12 +325,12 @@ function MusicApp({ apiOverride, firstRunStorageKey = 'mosic-first-run-v1', repl
   const [copilotPhase, setCopilotPhase] = useState<CopilotPhase>('idle')
   const [copilotPlanets, setCopilotPlanets] = useState<{ planetId: string; displayName: string }[]>([])
   const [initiative, setInitiative] = useState<'quiet' | 'balanced' | 'chatty'>('quiet')
-  const [copilotNotice, setCopilotNotice] = useState<{ text: string; page: 'bottles' | 'copilot' } | null>(null)
+  const [copilotNotice, setCopilotNotice] = useState<CopilotNotice | null>(null)
   const noticeCount = useRef(0)
-  const announce = useCallback((text: string, page: 'bottles' | 'copilot' = 'copilot') => {
+  const announce = useCallback((notice: CopilotNotice) => {
     if (document.hidden || initiative === 'quiet' || noticeCount.current >= (initiative === 'chatty' ? 4 : 2)) return
     noticeCount.current++
-    setCopilotNotice({ text, page })
+    setCopilotNotice(notice)
   }, [initiative])
   const [bottleDraft, setBottleDraft] = useState<{ text: string; trackId?: string } | null>(null)
   const [bottlesMounted, setBottlesMounted] = useState(false)
@@ -407,7 +407,7 @@ function MusicApp({ apiOverride, firstRunStorageKey = 'mosic-first-run-v1', repl
     else setVisitedPlanet(null)
     if (trip.returning) {
       returnVisitors.current.pop()
-      announce('已归航。要再听一首刚才那颗星球的歌吗？')
+      announce({ text: '已归航，要再听一首吗？', page: 'copilot' })
     }
     else if (trip.to === 'visitor') returnVisitors.current.push(trip.sourceVisitor)
     setPendingVisit(null)
@@ -427,7 +427,7 @@ function MusicApp({ apiOverride, firstRunStorageKey = 'mosic-first-run-v1', repl
     const ended = musicPlayer.completedTrack
     if (!ended || ended.at === lastTrackEnding.current) return
     lastTrackEnding.current = ended.at
-    if (cockpit.console.focus === 'overview') announce(`《${ended.title}》播完了。再找一首？`)
+    if (cockpit.console.focus === 'overview') announce({ text: '歌曲播完了', trackTitle: ended.title, page: 'copilot' })
   }, [musicPlayer.completedTrack, cockpit.console.focus, announce])
   const priorEchoes = useRef<Map<string, number> | null>(null)
   useEffect(() => {
@@ -440,7 +440,7 @@ function MusicApp({ apiOverride, firstRunStorageKey = 'mosic-first-run-v1', repl
         if (!active) return
         const previous = priorEchoes.current
         priorEchoes.current = new Map(sent.map(row => [row.id, row.commentCount ?? 0]))
-        if (previous && sent.some(row => (row.commentCount ?? 0) > (previous.get(row.id) ?? 0))) announce('你寄出的漂流瓶收到新回声了。', 'bottles')
+        if (previous && sent.some(row => (row.commentCount ?? 0) > (previous.get(row.id) ?? 0))) announce({ text: '漂流瓶有新回声', page: 'bottles' })
       } catch { /* Mail remains available from the exploration terminal. */ }
     }
     void checkEchoes()
@@ -1341,7 +1341,7 @@ function MusicApp({ apiOverride, firstRunStorageKey = 'mosic-first-run-v1', repl
   const changeView = (next: ProductView) => {
     // Opening a channel restores its existing results; only an explicit song
     // action may start a new search and replace the middle monitor's snapshot.
-    if (next === 'copilot') { setCopilotNotice(null); setCopilotMinimized(false) }
+    if (next === 'copilot') setCopilotMinimized(false)
     setView(next)
     if (next === 'galaxy' && galaxy.status === 'idle') void loadGalaxy('genre')
     if (next === 'roam') {
@@ -1617,9 +1617,9 @@ function MusicApp({ apiOverride, firstRunStorageKey = 'mosic-first-run-v1', repl
       projection={homeReady && <CopilotProjection name={copilotName === '副驾' ? '舰载副驾' : copilotName} active={copilotActive} compact={projectionCompact} phase={copilotPhase} reducedMotion={reducedMotion}
         visible={windowAvailable}
         open={() => changeView('copilot')} close={closeCopilot}
-        notice={copilotNotice?.text ?? ''} onDismiss={() => setCopilotNotice(null)}
-        onNotice={() => { changeView(copilotNotice?.page ?? 'copilot'); setCopilotNotice(null) }}>
+        hasNotice={Boolean(copilotNotice)}>
         <CopilotPanel key={accountEpoch.current}
+        notice={copilotNotice} onDismissNotice={() => setCopilotNotice(null)} onOpenBottleEcho={() => changeView('bottles')}
         active={copilotActive} visible={windowAvailable} compact={projectionCompact} onPhaseChange={setCopilotPhase} onNameChange={setCopilotName} onClose={closeCopilot}
         onMinimize={minimizeCopilot} onExpand={() => changeView('copilot')}
         player={musicPlayer} currentTrackId={musicPlayer.currentTrackId} currentPlanetId={monitorPlanet?.id}
