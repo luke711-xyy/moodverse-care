@@ -1,4 +1,4 @@
-<img src="https://raw.githubusercontent.com/luke711-xyy/moodverse-care/v0.1.3/desktop/assets/mosic-icon.png" width="88" height="88" alt="MOSIC 应用图标">
+<img src="https://raw.githubusercontent.com/luke711-xyy/moodverse-care/v0.1.4/desktop/assets/mosic-icon.png" width="88" height="88" alt="MOSIC 应用图标">
 
 # MOSIC 音乐宇宙
 
@@ -16,9 +16,9 @@
 
 ## Mac 客户端
 
-在 GitHub Release 的 **Assets** 中下载 `mosic-copilot-macos-arm64.zip`，解压后把 **MOSIC Copilot** 移入「应用程序」。当前安装包适用于 Apple Silicon Mac，采用本地签名，尚未通过 Apple 公证。首次打开的操作见[官方下载页](https://moodverse-care.pages.dev/desktop/)。
+在 GitHub Release 的 **Assets** 中下载 `mosic-macos-arm64.zip`，解压后将 **MOSIC.app** 移入「应用程序」。同一发行版提供桌面端源码包 `mosic-source.zip`。当前安装包适用于 Apple Silicon Mac，采用本地签名，尚未通过 Apple 公证。[v0.1.4 发行版](https://github.com/luke711-xyy/moodverse-care/releases/tag/v0.1.4) · [首次打开说明](https://moodverse-care.pages.dev/desktop/)
 
-客户端打开同一座驾驶舱。要使用自己的模型，按 **⌘,** 打开本机连接设置，选择 Ollama、LM Studio、自己的 API Key 或已授权的 ChatGPT 套餐，然后在副驾设置里切换到「桌面连接」。使用桌面连接产生的聊天记录保存在这台 Mac 上。离线电台也可以浏览本机已存的曲目和聊天记录。[桌面端安装与连接说明](https://github.com/luke711-xyy/moodverse-care/blob/v0.1.3/desktop/README.md)
+客户端打开同一座驾驶舱。要使用自己的模型，按 **⌘,** 打开本机连接设置，选择 Ollama、LM Studio、自己的 API Key 或已授权的 ChatGPT 套餐，然后在副驾设置里切换到「桌面连接」。使用桌面连接产生的聊天记录保存在这台 Mac 上。离线电台也可以浏览本机已存的曲目和聊天记录。[桌面端安装与连接说明](https://github.com/luke711-xyy/moodverse-care/blob/v0.1.4/desktop/README.md)
 
 ## 本地开发
 
@@ -42,4 +42,4 @@ sh speech/build.sh
 npm start
 ```
 
-桌面客户端源码采用 MIT 许可证，第三方运行时和字体沿用各自的许可证。[桌面端许可证](https://github.com/luke711-xyy/moodverse-care/blob/v0.1.3/desktop/LICENSE) · [字体说明](https://github.com/luke711-xyy/moodverse-care/blob/v0.1.3/public/fonts/README.md)
+桌面客户端源码采用 MIT 许可证，第三方运行时和字体沿用各自的许可证。[桌面端许可证](https://github.com/luke711-xyy/moodverse-care/blob/v0.1.4/desktop/LICENSE) · [字体说明](https://github.com/luke711-xyy/moodverse-care/blob/v0.1.4/public/fonts/README.md)
