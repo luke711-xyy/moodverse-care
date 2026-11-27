@@ -357,6 +357,11 @@ function errorCode(value: unknown) {
 
 export function createMusicApi(fetcher: typeof fetch = fetch, options: { liveSocial?: boolean } = {}) {
   const readPublic = createMusicReadCache()
+  let pendingHome: Promise<{
+    tracks: MusicTrackSummary[]
+    planet: MusicPlanet | null
+    friendSatellites: MusicFriendSatellite[]
+  }> | null = null
   async function request<T>(url: string, init?: RequestInit): Promise<T> {
     const response = await fetcher(url, {
       ...init,
@@ -418,12 +423,24 @@ export function createMusicApi(fetcher: typeof fetch = fetch, options: { liveSoc
     searchGalaxyOptions(by: GalaxySelectionKind, query = '', offset = 0, signal?: AbortSignal) {
       return request<GalaxyOptionsPage>(`/api/music/galaxy-options?${new URLSearchParams({ by, q: query, offset: String(offset) })}`, { signal })
     },
-    async loadHome() {
-      const [catalog, owned] = await Promise.all([
-        readPublic('/api/music/catalog', () => request<{ tracks: MusicTrackSummary[] }>('/api/music/catalog')),
-        request<{ planet: MusicPlanet | null; friendSatellites?: MusicFriendSatellite[] }>('/api/me/music-planet'),
-      ])
-      return { tracks: catalog.tracks, planet: owned.planet, friendSatellites: owned.friendSatellites ?? [] }
+    invalidateHome() {
+      pendingHome = null
+    },
+    loadHome() {
+      if (!pendingHome) {
+        // Share only pending work so first visits establish one cookie, while
+        // subsequent reads always resolve the current account's private state.
+        const currentHome = Promise.all([
+          readPublic('/api/music/catalog', () => request<{ tracks: MusicTrackSummary[] }>('/api/music/catalog')).catch(() => null),
+          request<{ planet: MusicPlanet | null; friendSatellites?: MusicFriendSatellite[] }>('/api/me/music-planet'),
+        ]).then(([catalog, owned]) => ({
+          tracks: catalog?.tracks ?? owned.planet?.tracks ?? [],
+          planet: owned.planet,
+          friendSatellites: owned.friendSatellites ?? [],
+        })).finally(() => { if (pendingHome === currentHome) pendingHome = null })
+        pendingHome = currentHome
+      }
+      return pendingHome
     },
     loadFriendSatellites() {
       return request<{ friendSatellites: MusicFriendSatellite[] }>('/api/me/friend-satellites')

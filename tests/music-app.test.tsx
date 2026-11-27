@@ -2,10 +2,15 @@
 import React from 'react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import MusicApp from '../src/music/MusicApp'
+import RealMusicApp from '../src/music/MusicApp'
 import { createDitherSpec } from '../src/music/dither/appearance'
 
+// Established-user features exercise the normal remembered-entry policy.
+function MusicApp() { return <RealMusicApp replayFirstRunOnEntry={false} /> }
+
 beforeEach(() => {
+  // These are established-user feature tests; first-visit coverage has its own fixture.
+  localStorage.setItem('mosic-first-run-v1', 'completed')
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
   vi.stubGlobal('matchMedia', () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }))
   // jsdom has no media playback; keep the real app/player while replacing that browser boundary.
@@ -19,11 +24,13 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
+  localStorage.removeItem('mosic-first-run-v1')
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
 
 async function openPersonal() {
+  await waitFor(() => expect(document.querySelector('main[aria-busy="true"]')).toBeNull())
   fireEvent.click(await screen.findByRole('button', { name: '打开个人终端' }))
 }
 function openSettings() {
@@ -33,8 +40,8 @@ function openSettings() {
 }
 async function renderCockpit() {
   render(<MusicApp />)
-  await waitFor(() => expect(document.querySelector('.cockpit[data-focus="overview"]') || screen.queryByRole('heading', { name: /暂时连接不上/ })).toBeTruthy())
-  if (screen.queryByRole('button', { name: '打开个人终端' })) await openPersonal()
+  await waitFor(() => expect(document.querySelector('.music-app:not([aria-busy="true"]) .cockpit[data-focus="overview"]') || screen.queryByRole('button', { name: '重新连接' })).toBeTruthy())
+  if (!screen.queryByRole('button', { name: '重新连接' })) await openPersonal()
 }
 async function openGalaxyList() {
   if (screen.queryByRole('button', { name: '返回驾驶舱' })) fireEvent.click(screen.getByRole('button', { name: '返回驾驶舱' }))
@@ -420,7 +427,7 @@ test('an API 401 shows a retry state and never asks for email login', async () =
   }))
 
   await renderCockpit()
-  expect(await screen.findByRole('heading', { name: /暂时连接不上/ })).toBeTruthy()
+  expect((await screen.findByRole('alert')).textContent).toContain('暂时连接不上')
   expect(screen.queryByLabelText('邮箱地址')).toBeNull()
   expect(screen.queryByRole('button', { name: '发送验证码' })).toBeNull()
   expect(screen.getByRole('button', { name: '重新连接' })).toBeTruthy()
@@ -491,7 +498,7 @@ test('an auth change from another tab clears this tab and reloads the shared ses
 
   authenticated = false
   window.dispatchEvent(new StorageEvent('storage', { key: 'moodverse-music-auth-change', newValue: JSON.stringify({ type: 'session-changed', sourceId: 'other-tab', eventId: 'logout-event' }) }))
-  await screen.findByRole('heading', { name: /暂时连接不上/ })
+  await screen.findByText(/暂时连接不上/)
   expect(screen.queryByText('另一个标签页里缓存的私信。')).toBeNull()
 
   activeEmail = 'second@example.com'
@@ -570,7 +577,7 @@ test('legacy cross-tab session notifications deduplicate without exposing anothe
   const logoutEvent = { type: 'session-changed', sourceId: 'remote-tab', eventId: 'remote-logout-1' }
   // Simulate a sender whose BroadcastChannel is unavailable while this tab's is active.
   window.dispatchEvent(new StorageEvent('storage', { key: 'moodverse-music-auth-change', newValue: JSON.stringify(logoutEvent) }))
-  await screen.findByRole('heading', { name: /暂时连接不上/ })
+  await screen.findByText(/暂时连接不上/)
   await waitFor(() => expect(privatePlanetReads).toBe(2))
   expect(screen.queryByText('广播通道中的旧私信。')).toBeNull()
 
@@ -676,7 +683,7 @@ test('settings load server privacy preferences and only show confirmed planet an
 
   state.failNextPlanetPatch = true
   fireEvent.click(planetVisibility)
-  expect((await screen.findByRole('alert')).textContent).toContain('设置没有保存')
+  await screen.findByText(/设置没有保存/)
   expect(planetVisibility.checked).toBe(false)
 })
 

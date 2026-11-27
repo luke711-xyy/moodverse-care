@@ -11,6 +11,14 @@ body:has(.music-app) { overflow: clip; }
   user-select: text; -webkit-user-select: text;
 }
 .music-app .cockpit { height: 100%; }
+.music-cockpit-root { height: 100%; }
+.music-startup-signal {
+  position: absolute; z-index: 4; top: 50px; right: 24px;
+  display: flex; align-items: center; gap: 12px; max-width: min(520px, calc(100% - 48px));
+  padding: 10px 16px; border: 1px solid #a98b54; border-radius: 4px;
+  background: #14130e; color: #efd79f; font-size: 14px;
+}
+.music-startup-signal button { flex-shrink: 0; min-height: 44px; }
 /* Retired portrait rules must not turn the persistent canvas into a tall,
    fixed-position layer inside the rotated viewport. */
 .cockpit .dither-stage { position: absolute; height: 100%; opacity: 1; }

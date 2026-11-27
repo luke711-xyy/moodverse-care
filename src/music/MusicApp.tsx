@@ -5,9 +5,9 @@ import { Communicator } from './Communicator'
 import { GalaxyAxisNode } from './GalaxyAxisNode'
 import { GalaxySelectionSettings } from './GalaxySelectionSettings'
 import { FriendManagement, type FriendChange } from './FriendManagement'
-import type { GalaxySelectionKind, GalaxySelectionOption } from './galaxy-preferences'
+import type { GalaxyPreferencesPatch, GalaxySelectionKind, GalaxySelectionOption } from './galaxy-preferences'
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type CSSProperties, type FormEvent } from 'react'
-import type { GalaxyGroupBy, MusicAdminReport, MusicApi, MusicDiscoveryResponse, MusicFriendSatellite, MusicGalaxyResponse, MusicMoment, MusicOrbitResponse, MusicPlanet, MusicPlanetVisitSource, MusicReportQueueFilter, MusicReportReason, MusicReportStatus, MusicReportTarget, MusicSocialSettings, PublicMusicPlanet, SongPortalMatch, SongPortalResponse } from '../music-api'
+import type { GalaxyGroupBy, MusicAdminReport, MusicApi, MusicDiscoveryResponse, MusicFriendSatellite, MusicGalaxyResponse, MusicMoment, MusicOrbitResponse, MusicPlanet, MusicPlanetDraft, MusicPlanetVisitSource, MusicReportQueueFilter, MusicReportReason, MusicReportStatus, MusicReportTarget, MusicSocialSettings, PublicMusicPlanet, SongPortalMatch, SongPortalResponse } from '../music-api'
 import { createMusicApi, MusicApiError } from '../music-api'
 import { togglePlanetTrack, validatePlanetDraft } from '../music-app-domain'
 import type { MusicTrackSummary } from '../music-domain'
@@ -40,6 +40,7 @@ import { GalaxyWindow } from './GalaxyWindow'
 import { PlanetCard } from './PlanetCard'
 import { AUDIUS_GENRES, DEFAULT_GALAXY_GENRES } from './genres'
 import { momentPhotoError } from './moment-photo'
+import { FirstRun } from './onboarding/FirstRun'
 import './music-app.css'
 import './dither/product.css'
 import './cockpit/product.css'
@@ -237,11 +238,27 @@ function discoveryReason(reasonCode: MusicDiscoveryResponse['recommendations'][n
   return '随机路过'
 }
 
-function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
+
+function MusicApp({ apiOverride, firstRunStorageKey = 'mosic-first-run-v1', replayFirstRunOnEntry = false }: { apiOverride?: MusicApi; firstRunStorageKey?: string; replayFirstRunOnEntry?: boolean } = {}) {
   const [api] = useState(() => apiOverride ?? createMusicApi())
+  const [firstRunOpen, setFirstRunOpen] = useState(() => {
+    if (replayFirstRunOnEntry) return true
+    // The legacy '1' marker only meant opened, not completed or explicitly skipped.
+    try { return localStorage.getItem(firstRunStorageKey) !== 'completed' } catch { return true }
+  })
+  const firstRunCreateLock = useRef(false)
+  const cockpitRoot = useRef<HTMLDivElement>(null)
+  const firstRunWasOpen = useRef(firstRunOpen)
   const [galaxyPreloader] = useState(() => createGalaxyPreloader(api))
   useEffect(() => { preloadGalaxyGenres() }, [])
   const [home, setHome] = useState<HomeState>({ status: 'loading' })
+  useEffect(() => {
+    if (firstRunOpen) { firstRunWasOpen.current = true; return }
+    if (firstRunWasOpen.current && home.status === 'ready') {
+      firstRunWasOpen.current = false
+      cockpitRoot.current?.querySelector<HTMLElement>('.cockpit-terminal:not([hidden]) button, .cockpit-wing button')?.focus({ preventScroll: true })
+    }
+  }, [firstRunOpen, home.status])
   const savedPrimaryTrack = home.status === 'ready'
     ? home.planet?.tracks.find(track => track.isPrimary && track.audioUrl) ?? home.planet?.tracks.find(track => track.audioUrl) ?? null
     : null
@@ -406,6 +423,9 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
   }, [])
 
   const resetAccountScopedState = useCallback(() => {
+    api.invalidateHome?.()
+    setFirstRunOpen(false)
+    firstRunCreateLock.current = false
     galaxyPreloader.clear()
     accountEpoch.current += 1
     flightController.cancel()
@@ -478,7 +498,7 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
     setIncognitoVisit(false)
     setVisitingPlanetId('')
     setVisitError('')
-  }, [])
+  }, [api])
 
   const homeRequestId = useRef(0)
   const reloadHome = useCallback(async () => {
@@ -1414,14 +1434,7 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
     } finally { if (epoch === accountEpoch.current) setAppearanceBusy(false) }
   }
 
-  if (home.status !== 'ready') return <main className="music-app">
-    <CockpitShell state={{ ...cockpit, console: { focus: 'exploration', page: 'settings' } }} reducedMotion={reducedMotion} crtEnabled={crtEnabled}
-      signal={home.status === 'error' ? 'error' : 'loading'} connected={false} heading={0} planetName="待命星球" by="genre" scene={null}
-      onClassify={() => {}} onOpen={() => {}} onOverview={() => {}} onBack={() => {}} onGalaxy={() => {}} onHome={() => {}}>
-      {home.status === 'loading' ? <DitherLoadingRing label="正在读取星球" /> : <section className="cockpit-connection-error" aria-live="polite"><DitherTitle level={2}>暂时连接不上，星际档案仍在原处</DitherTitle><p>没有任何资料被覆盖。请检查网络或稍后重新连接。</p><DitherButton className="music-primary-button" type="button" onClick={() => { void reloadHome() }}>重新连接</DitherButton></section>}
-    </CockpitShell>
-  </main>
-
+  const homeReady = home.status === 'ready'
   const canCreate = home.status === 'ready' && !planet
   const goGalaxy = async () => {
     const token = flightController.start({ from: cockpit.exterior, to: 'galaxy', ready: false, sourceVisitor: visitedPlanet, targetVisitor: null, returning: false })
@@ -1443,7 +1456,7 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
   const goHome = () => startHomeFlight(cockpit.exterior === 'visitor')
   const jumpHome = () => startHomeFlight(false)
   goHomeRef.current = goHome
-  const signal = cockpit.travel.status !== 'idle' ? 'traveling' : visitError || galaxy.status === 'error' ? 'error' : songPortal.status === 'loading' || galaxy.status === 'loading' || discovery.status === 'loading' ? 'loading' : 'idle'
+  const signal = home.status === 'error' ? 'error' : !homeReady ? 'loading' : cockpit.travel.status !== 'idle' ? 'traveling' : visitError || galaxy.status === 'error' ? 'error' : songPortal.status === 'loading' || galaxy.status === 'loading' || discovery.status === 'loading' ? 'loading' : 'idle'
   const playingMetadata = [...(visitedPlanet?.tracks ?? []), ...(planet?.tracks ?? []), ...tracks].find(track => track.id === musicPlayer.currentTrackId)
   const monitorVisitor = cockpit.exterior === 'visitor' ? visitedPlanet : null
   const monitorPlanet = monitorVisitor ?? planet
@@ -1456,9 +1469,56 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
     <DitherButton type="button" className="music-text-button" aria-label="关闭好友通知" onClick={social.dismiss}>×</DitherButton>
   </div>
 
-  return <main className={`music-app${planet ? ' has-planet' : ' is-onboarding'}`}>
+  const saveFirstRunPreferences = async (patch: GalaxyPreferencesPatch) => {
+    if (!homeReady) throw new Error('个人信号还未接通，请稍后重试。')
+    const epoch = accountEpoch.current
+    const saved = await api.updateGalaxyPreferences(patch)
+    if (epoch !== accountEpoch.current) throw new Error('本机身份已切换，请重新打开引导。')
+    for (const field of ['artists', 'songs'] as const) {
+      if (patch[field] && JSON.stringify(saved[field].map(option => option.id)) !== JSON.stringify(patch[field]))
+        throw new Error('偏好回读不一致，请重试保存。')
+    }
+    if (patch.genres && JSON.stringify(saved.genres) !== JSON.stringify(patch.genres))
+      throw new Error('曲风回读不一致，请重试保存。')
+    setGalaxyGenres(saved.genres); setGenreDraft(saved.genres)
+    setGalaxyArtists(saved.artists); setGalaxySongs(saved.songs)
+    galaxyPreloader.clear(); galaxyRequestId.current++
+    setGalaxy({ status: 'idle' })
+    return saved
+  }
+  const createFirstRunPlanet = async (draft: MusicPlanetDraft) => {
+    if (!homeReady || firstRunCreateLock.current) throw new Error('请等待当前保存完成。')
+    if (!validatePlanetDraft(draft.displayName, draft.trackIds).ok) throw new Error('请填写名称，并选择三首不同的歌曲。')
+    const epoch = accountEpoch.current
+    firstRunCreateLock.current = true
+    try {
+      const result = await api.createPlanet(draft)
+      if (epoch !== accountEpoch.current) throw new Error('本机身份已切换，请重新打开引导。')
+      setHome(current => current.status === 'ready' ? { ...current, planet: result.planet, moments: [] } : current)
+      setMomentTrackId(result.planet.tracks.find(track => track.isPrimary)?.id ?? result.planet.tracks[0]?.id ?? '')
+      return result.planet
+    } catch (cause) {
+      if (epoch === accountEpoch.current && cause instanceof MusicApiError && cause.code === 'PLANET_ALREADY_EXISTS') void reloadHome()
+      throw new Error(errorMessage(cause))
+    } finally { if (epoch === accountEpoch.current) firstRunCreateLock.current = false }
+  }
+  const rememberFirstRunFinished = () => {
+    // Persist the explicit finish/skip click before the TV exit animation, never on opening.
+    try { localStorage.setItem(firstRunStorageKey, 'completed') } catch { /* This visit is still fully usable. */ }
+  }
+  const finishFirstRun = (destination?: 'galaxy' | 'planet' | 'collision' | 'moment' | 'orbit') => {
+    setFirstRunOpen(false)
+    dispatchCockpit({ type: 'overview' })
+    if (homeReady && destination) {
+      if (destination === 'galaxy' || destination === 'planet') dispatchCockpit({ type: 'exterior', destination: destination === 'planet' ? 'home' : 'galaxy' })
+      if (destination !== 'galaxy') changeView(destination)
+    }
+  }
+
+  return <main className={`music-app${planet ? ' has-planet' : ' is-onboarding'}`} aria-busy={!homeReady || undefined}>
+    <div ref={cockpitRoot} className="music-cockpit-root" inert={firstRunOpen || !homeReady || undefined} aria-hidden={firstRunOpen || undefined}>
     {cockpit.console.focus === 'overview' && socialNotice}
-    <CockpitShell state={cockpit} reducedMotion={reducedMotion} crtEnabled={crtEnabled} signal={signal} musicPlayer={musicPlayer}
+    <CockpitShell state={cockpit} connected={homeReady} reducedMotion={reducedMotion} crtEnabled={crtEnabled} signal={signal} musicPlayer={musicPlayer}
       terminalActions={visitedPlanet && cockpit.exterior === 'visitor' ? <button aria-label="返回出发地" disabled={cockpit.travel.status !== 'idle'} onClick={goHome}>← 返回出发地</button> : undefined}
       galaxyLabel={hudSystem?.label}
       planetName={planet?.displayName ?? '待命星球'} heading={Math.min(1, galaxyJourney / TOUR_END)}
@@ -1482,8 +1542,8 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
         durationSeconds={monitorTrack?.durationSeconds} trackTitle={monitorVisitor ? monitorTrack?.title ?? '暂无播放歌曲' : musicPlayer.currentTrack.title} requests={friendRequests?.incoming.length} />}
       explorationPreview={<SignalMap signals={scanSignals} title={scanTitle} scanning={songPortal.status === 'loading' || songPortal.status === 'ready'} mode={songPortal.status === 'ready' || songPortal.status === 'loading' ? 'SONG LINK' : discovery.status === 'ready' ? 'ROAM LINK' : 'EXPLORATION / NAV'} />}
       scene={<Stage
-      planet={planet} friendSatellites={home.friendSatellites} visitedPlanet={cockpit.exterior === 'visitor' ? visitedPlanet : null} previewSeed={previewSeed} reducedMotion={reducedMotion}
-      exteriorView={cockpit.exterior === 'galaxy' ? 'galaxy' : 'home'} interactive={cockpit.console.focus === 'overview' && cockpit.travel.status === 'idle'} managedTravel flight={flightController.flight}
+      planet={planet} friendSatellites={home.status === 'ready' ? home.friendSatellites : []} visitedPlanet={cockpit.exterior === 'visitor' ? visitedPlanet : null} previewSeed={previewSeed} reducedMotion={reducedMotion}
+      exteriorView={cockpit.exterior === 'galaxy' ? 'galaxy' : 'home'} interactive={homeReady && !firstRunOpen && cockpit.console.focus === 'overview' && cockpit.travel.status === 'idle'} managedTravel flight={flightController.flight}
       productView={view} galaxySystems={galaxySceneSystems}
       galaxyRotation={galaxyRotation} routeJourney={galaxyJourney} regrouping={galaxyRegrouping}
       onSelectGalaxy={focusGalaxyById}
@@ -1501,7 +1561,7 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
           else requestPublicPlanetVisit(friend.planetId, friend.displayName, 'orbit')
           return
         }
-        const friend = home.friendSatellites.find(f => f.id === id)
+        const friend = home.status === 'ready' ? home.friendSatellites.find(f => f.id === id) : undefined
         changeView('orbit'); if (friend) setSocialFeedback(friend.displayName)
       }}
       onRotate={(delta) => setGalaxyRotation((rotation) => rotation + delta)}
@@ -1558,6 +1618,7 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
         {settingsError && <p className="music-form-error" role="alert">{settingsError}</p>}
         {settingsStatus === 'error' && <DitherButton className="music-text-button" type="button" onClick={() => { void loadSettings() }}>重新读取设置</DitherButton>}
         <label className="music-visibility-toggle"><input type="checkbox" aria-label="CRT 效果" checked={crtEnabled} onChange={e => { setCrtEnabled(e.target.checked); try { localStorage.setItem('moodverse-crt', e.target.checked ? 'on' : 'off') } catch { /* This session can still toggle effects without storage. */ } }} /><span><strong>CRT 效果</strong><small>减少动态效果时自动关闭闪动。</small></span></label>
+        <DitherButton type="button" onClick={() => setFirstRunOpen(true)}>重播首次调频</DitherButton>
         </>}
         {planet && view === 'manage' && <form className="music-settings-planet-form" aria-label="编辑星球资料" onSubmit={savePlanetSettings}>
           <section className="music-settings-section" aria-label="星球资料与歌曲">
@@ -2019,6 +2080,15 @@ function MusicApp({ apiOverride }: { apiOverride?: MusicApi } = {}) {
     </CockpitShell>
     {conversation && <Communicator key={`${accountEpoch.current}:${conversation.userId}`} api={api} peer={conversation} tracks={tracks} player={musicPlayer} onClose={() => { setConversation(null); void social.refresh() }} renderReport={id => <ReportControl api={api} target={{ type: 'direct_message', id }} ariaLabel="举报这条私信" />} />}
     {galaxyWindowOpen && galaxy.status === 'ready' && selectedGalaxyGroup && <GalaxyWindow key={`${galaxy.by}:${selectedGalaxyGroup.key}`} api={api} by={galaxy.by} group={selectedGalaxyGroup} player={musicPlayer} crtEnabled={crtEnabled} reducedMotion={reducedMotion} onClose={() => setGalaxyWindowOpen(false)} />}
+    </div>
+    {!homeReady && !firstRunOpen && <aside className="music-startup-signal" role={home.status === 'error' ? 'alert' : 'status'}>
+      {home.status === 'loading' ? <span>正在接通个人信号…</span> : <><span>暂时连接不上，星际档案仍在原处。没有任何资料被覆盖。</span><DitherButton type="button" onClick={() => { void reloadHome() }}>重新连接</DitherButton></>}
+    </aside>}
+    {firstRunOpen && <FirstRun key={accountEpoch.current} api={api} tracks={tracks} player={musicPlayer} planet={planet}
+      reducedMotion={reducedMotion} crtEnabled={crtEnabled} status={home.status}
+      onTracks={mergeCatalogTracks} onRetry={() => { void reloadHome() }}
+      onSavePreferences={saveFirstRunPreferences} onCreatePlanet={createFirstRunPlanet}
+      onFinishRequested={rememberFirstRunFinished} onFinish={finishFirstRun} />}
   </main>
 }
 

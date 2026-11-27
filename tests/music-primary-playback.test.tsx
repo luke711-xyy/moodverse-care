@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 import React from 'react'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import MusicApp from '../src/music/MusicApp'
 import { DEFAULT_AUDIO_URL, DEFAULT_TRACK_ID } from '../src/music/default-track'
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
+beforeEach(() => { localStorage.setItem('mosic-first-run-v1', 'completed') })
+afterEach(() => { cleanup(); localStorage.removeItem('mosic-first-run-v1'); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 test('only a successful primary save changes background music, and reload restores the server primary after Cosmos is removed', async () => {
   const media: Array<HTMLAudioElement> = []
@@ -40,7 +41,7 @@ test('only a successful primary save changes background music, and reload restor
     if (path === '/api/me/music-planet/moments') return Response.json({ moments: [] })
     return Response.json({ groups: [], genres: ['Pop'], incoming: [], outgoing: [] })
   }))
-  const view = render(<MusicApp />)
+  const view = render(<MusicApp replayFirstRunOnEntry={false} />)
   await waitFor(() => expect(media.at(-1)?.src).toBe(DEFAULT_AUDIO_URL))
   fireEvent.click(await screen.findByRole('button', { name: '打开个人终端' }))
   fireEvent.click(await screen.findByRole('button', { name: '星球资料与歌曲' }))
@@ -55,7 +56,7 @@ test('only a successful primary save changes background music, and reload restor
   await waitFor(() => expect(media.at(-1)?.src).toBe('/api/music/tracks/audius%3Areal/stream'))
   expect(owner.tracks.map(track => track.id)).toEqual(['audius:real'])
   view.unmount()
-  render(<MusicApp />)
+  render(<MusicApp replayFirstRunOnEntry={false} />)
   await waitFor(() => expect(media.at(-1)?.src).toBe('/api/music/tracks/audius%3Areal/stream'))
   expect(media.at(-1)?.paused).toBe(false)
 })
@@ -90,7 +91,7 @@ test.each(['roam', 'collision', 'galaxy', 'orbit'])('%s arrival stays in the coc
     if (path === '/api/music/planets/other/visit') return failVisit ? Response.json({ error: 'FAIL' }, { status: 500 }) : new Promise<Response>(resolve => { finishVisit = resolve })
     return Response.json({ groups: [], incoming: [], outgoing: [], friends: [] })
   })
-  render(<MusicApp />)
+  render(<MusicApp replayFirstRunOnEntry={false} />)
   await waitFor(() => expect(media.at(-1)?.src).toBe('/api/music/tracks/own-song/stream'))
   media.at(-1)!.currentTime = 41
   if (entry === 'collision') {

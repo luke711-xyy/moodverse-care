@@ -9,7 +9,7 @@ import type { ObservationCamera } from './observation'
 
 export type DitherAsset = { id: string; spec: DitherPlanetSpec; x: number; y: number; radius: number; depth?: number; opacity?: number; rotation?: number; orientation?: Orientation; phase?: number; kind?: DitherAssetKind; particles?: ParticleCloud; backgroundField?: boolean; backgroundView?: ObservationCamera; pointerPower?: number; pixelSize?: number; detail?: number }
 export type VisibleRect = { x: number; y: number; width: number; height: number }
-export type DitherFrame = { width: number; height: number; phase: number; visibleRect?: VisibleRect; pointer?: { x: number; y: number }; assets: DitherAsset[]; meteors?: MeteorCloud; ambience?: number; observation?: ObservationCamera; background?: { stars: ParticleCloud; clouds: DitherAsset[]; opacity: number; pointer?: { x: number; y: number } } }
+export type DitherFrame = { width: number; height: number; phase: number; visibleRect?: VisibleRect; pointer?: { x: number; y: number }; assets: DitherAsset[]; meteors?: MeteorCloud; ambience?: number; starCount?: number; observation?: ObservationCamera; background?: { stars: ParticleCloud; clouds: DitherAsset[]; opacity: number; pointer?: { x: number; y: number } } }
 
 export function framebufferScissor(rect: VisibleRect, logicalWidth: number, logicalHeight: number, width: number, height: number) {
   const sx = width / logicalWidth, sy = height / logicalHeight
@@ -23,7 +23,7 @@ export function createDitherRenderer(canvas: HTMLCanvasElement) {
   if (!gl) throw new Error('DITHER_WEBGL_UNAVAILABLE')
   const shaders: WebGLShader[] = [], programs: WebGLProgram[] = [], buffers: WebGLBuffer[] = [], vaos: WebGLVertexArrayObject[] = []
   const textures = new Map<string, WebGLTexture>()
-  const dispose = () => { shaders.forEach(s => gl.deleteShader(s)); programs.forEach(p => gl.deleteProgram(p)); buffers.forEach(b => gl.deleteBuffer(b)); vaos.forEach(v => gl.deleteVertexArray(v)); textures.forEach(t => gl.deleteTexture(t)) }
+  const dispose = (releaseContext = false) => { shaders.forEach(s => gl.deleteShader(s)); programs.forEach(p => gl.deleteProgram(p)); buffers.forEach(b => gl.deleteBuffer(b)); vaos.forEach(v => gl.deleteVertexArray(v)); textures.forEach(t => gl.deleteTexture(t)); if (releaseContext) gl.getExtension('WEBGL_lose_context')?.loseContext() }
   try {
     const albumTexture = (url?: string) => {
       const pixels = loadAlbumTexture(url)?.pixels

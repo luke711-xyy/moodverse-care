@@ -8,6 +8,7 @@ import { createDitherSpec } from '../src/music/dither/appearance'
 const originalScrollTo = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollTo')
 
 beforeEach(() => {
+  localStorage.setItem('mosic-first-run-v1', 'completed')
   vi.spyOn(document, 'hidden', 'get').mockReturnValue(false)
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
   vi.stubGlobal('Audio', class extends EventTarget {
@@ -21,6 +22,7 @@ beforeEach(() => {
   vi.stubGlobal('matchMedia', () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }))
 })
 afterEach(() => {
+  localStorage.removeItem('mosic-first-run-v1')
   cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals()
   if (originalScrollTo) Object.defineProperty(HTMLElement.prototype, 'scrollTo', originalScrollTo)
   else Reflect.deleteProperty(HTMLElement.prototype, 'scrollTo')
@@ -50,7 +52,7 @@ test.each(['browse', 'own-song', 'planet-channel'])('collision only searches aft
     }
     return Response.json({ groups: [], incoming: [], outgoing: [], recommendations: [], ranking: { mode: 'rule', status: 'fallback' } })
   }))
-  render(<MusicApp />)
+  render(<MusicApp replayFirstRunOnEntry={false} />)
   await waitFor(() => expect(document.querySelector('.music-app.has-planet')).toBeTruthy())
   if (entry !== 'browse') {
     if (entry === 'planet-channel') {

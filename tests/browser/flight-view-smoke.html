@@ -1,0 +1,52 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Flight observation smoke</title>
+<style>body{margin:0;background:#08080d}#fixture{position:relative;width:1000px;height:700px;overflow:hidden}</style></head>
+<body><div id="fixture"></div><script type="module">
+import React from 'react'
+import {createRoot} from 'react-dom/client'
+import {flushSync} from 'react-dom'
+import {Stage} from '../../src/music/dither/Stage.tsx'
+import {createDitherSpec} from '../../src/music/dither/appearance.ts'
+import '../../src/music/dither/product.css'
+
+// Local diagnostic only: retain real GPU pixels for exact cloud comparisons.
+const originalContext=HTMLCanvasElement.prototype.getContext
+HTMLCanvasElement.prototype.getContext=function(kind,options){return originalContext.call(this,kind,kind==='webgl2'?{...options,preserveDrawingBuffer:true}:options)}
+let state, update, token=0
+const props={planet:{id:'smoke-home',tracks:[],visual:createDitherSpec({planetId:'smoke-home',tracks:[]})},friendSatellites:[],visitedPlanet:null,
+  previewSeed:'smoke-home',reducedMotion:true,managedTravel:true,productView:'planet',galaxySystems:[{id:'g',key:'g',label:'Galaxy',color:'#fff',planets:[]}],
+  galaxyRotation:0,routeJourney:0,regrouping:false,onSelectGalaxy(){},onOpenPlanet(){},onRotate(){},onTourMove(){},onMusicSelect(){},onFriendSelect(){}}
+function Fixture(){[state,update]=React.useState({exterior:'home',flight:null});return React.createElement(Stage,{...props,exteriorView:state.exterior,flight:state.flight})}
+createRoot(document.getElementById('fixture')).render(React.createElement(React.StrictMode,null,React.createElement(Fixture)))
+const wait=()=>new Promise(resolve=>setTimeout(resolve,50))
+const layer=kind=>document.querySelector(`[data-scene-destination="${kind}"]`)
+const renderer=element=>element?.querySelector('[data-dither-renderer]')
+function cloudPixels(){const canvas=renderer(document.querySelector('.dither-stage-flight-cloud')),gl=canvas.getContext('webgl2'),pixels=new Uint8Array(canvas.width*canvas.height*4);gl.readPixels(0,0,canvas.width,canvas.height,gl.RGBA,gl.UNSIGNED_BYTE,pixels);return{canvas,pixels,error:gl.getError()}}
+window.flightSmoke={async run(){
+  await wait()
+  const checks=[];let baseline
+  for(const zoom of [.5,1,3]){
+    const region=document.querySelector('.dither-stage'),rect=region.getBoundingClientRect()
+    for(let i=0;i<5;i++){
+      const current=Number(layer('home').style.transform.match(/scale\(([^)]+)\)/)[1])
+      if(Math.abs(current-zoom)<1e-6)break
+      region.dispatchEvent(new WheelEvent('wheel',{deltaY:Math.max(-500,Math.min(500,-Math.log(zoom/current)/.002)),clientX:rect.left+500,clientY:rect.top+350,bubbles:true,cancelable:true}));await wait()
+    }
+    const saved=layer('home').style.transform
+    flushSync(()=>update({exterior:'home',flight:{token:++token,from:'home',to:'galaxy',progress:.5,ready:true,sourceVisitor:null,targetVisitor:null,returning:false}}));await wait()
+    const cloud=cloudPixels();let differences=0,nonzero=0
+    if(!baseline)baseline=cloud.pixels
+    for(let i=0;i<cloud.pixels.length;i++){if(cloud.pixels[i]!==baseline[i])differences++;if(cloud.pixels[i])nonzero++}
+    const galaxy=renderer(layer('galaxy')),outbound={camera:layer('galaxy').style.transform,ownCamera:layer('home').style.transform,contexts:document.querySelectorAll('[data-dither-renderer]').length}
+    flushSync(()=>update({exterior:'galaxy',flight:null}));await wait()
+    const retainedGalaxy=renderer(layer('galaxy'))===galaxy, releasedCloud=cloud.canvas.getContext('webgl2').isContextLost()
+    flushSync(()=>update({exterior:'galaxy',flight:{token:++token,from:'galaxy',to:'home',progress:.85,ready:true,sourceVisitor:null,targetVisitor:null,returning:false}}));await wait()
+    const home=renderer(layer('home')),returnCamera=layer('home').style.transform
+    flushSync(()=>update({exterior:'home',flight:null}));await wait()
+    checks.push({zoom,saved,outbound,returnCamera,arrivedCamera:layer('home').style.transform,retainedGalaxy,releasedCloud,retainedHome:renderer(layer('home'))===home,
+      cloud:{width:cloud.canvas.width,height:cloud.canvas.height,differences,nonzero,error:cloud.error},remainingContexts:document.querySelectorAll('[data-dither-renderer]').length})
+  }
+  const passed=checks.every(c=>c.outbound.camera==='translate(0px, 0px) scale(1)' && c.outbound.ownCamera===c.saved && c.returnCamera===c.saved && c.arrivedCamera===c.saved && c.retainedGalaxy && c.retainedHome && c.releasedCloud && c.cloud.differences===0 && c.cloud.nonzero>0 && c.cloud.error===0 && c.outbound.contexts===3 && c.remainingContexts===1)
+  return{passed,checks}
+}}
+</script></body></html>

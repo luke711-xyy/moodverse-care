@@ -43,23 +43,24 @@ export function DitherThumbnail({ spec, label = '', size = 96, kind = 'planet' }
   return <canvas ref={ref} className="dither-thumb" width={size} height={size} role={label ? 'img' : undefined} aria-label={label || undefined} aria-hidden={!label} />
 }
 
-export function DitherCanvas({ getFrame, reducedMotion = false, forceFallback = false, quality = 'auto', onModeChange, onFrame, interactive = true, paused = false, overscan = 1, viewCamera }: {
+export function DitherCanvas({ getFrame, reducedMotion = false, forceFallback = false, quality = 'auto', onModeChange, onFrame, interactive = true, paused = false, overscan = 1, viewCamera, sky = true }: {
   getFrame: (width: number, height: number, phase: number) => DitherFrame
   reducedMotion?: boolean
   interactive?: boolean
   paused?: boolean
   overscan?: number
   viewCamera?: ObservationCamera
+  sky?: boolean
   forceFallback?: boolean
   quality?: 'auto' | 'low' | 'high'
   onModeChange?: (mode: 'webgl2' | 'canvas2d') => void
   onFrame?: (frame: DitherFrame) => void
 }) {
   const glRef = useRef<HTMLCanvasElement>(null), fallbackRef = useRef<HTMLCanvasElement>(null)
-  const latest = useRef({ getFrame, reducedMotion, quality, onModeChange, onFrame, interactive, paused, overscan, viewCamera })
+  const latest = useRef({ getFrame, reducedMotion, quality, onModeChange, onFrame, interactive, paused, overscan, viewCamera, sky })
   const restartRef = useRef<(() => void) | null>(null)
   const phasesRef = useRef(new Map<string, number>())
-  latest.current = { getFrame, reducedMotion, quality, onModeChange, onFrame, interactive, paused, overscan, viewCamera }
+  latest.current = { getFrame, reducedMotion, quality, onModeChange, onFrame, interactive, paused, overscan, viewCamera, sky }
   const [mode, setMode] = useState<'webgl2' | 'canvas2d'>('webgl2')
   useEffect(() => {
     const canvas = glRef.current!, fallback = fallbackRef.current!
@@ -115,6 +116,7 @@ export function DitherCanvas({ getFrame, reducedMotion = false, forceFallback = 
       const low = latest.current.quality === 'low'
       const beat = getMusicBeatClock()
       motion.apply(frame, elapsed, seconds, isRunning() && Boolean(renderer), low, beat)
+      if (!latest.current.sky) { frame.background=undefined; frame.meteors=undefined }
       // Picking must use the animated material cells that are actually drawn.
       latest.current.onFrame?.(frame)
       canvas.dataset.ditherParticles = String(frame.assets.reduce((sum, asset) => sum + (asset.particles?.count ?? 0), 0))
@@ -190,7 +192,7 @@ export function DitherCanvas({ getFrame, reducedMotion = false, forceFallback = 
     observer?.observe(canvas); window.addEventListener('resize', restart)
     initialize(); restart()
     return () => {
-      disposed = true; cancelAnimationFrame(raf); renderer?.dispose(); observer?.disconnect()
+      disposed = true; cancelAnimationFrame(raf); renderer?.dispose(!canvas.isConnected); observer?.disconnect()
       unsubscribeTextures()
       restartRef.current = null
       parent?.removeEventListener('pointermove', onPointer); parent?.removeEventListener('pointerleave', onLeave)
@@ -200,7 +202,7 @@ export function DitherCanvas({ getFrame, reducedMotion = false, forceFallback = 
   }, [forceFallback])
   // Visual edits and pause toggles repaint in-place. They must not allocate a new
   // shader program or reset the per-asset clock on every React state update.
-  useEffect(() => { restartRef.current?.() }, [getFrame, reducedMotion, quality, paused, overscan, viewCamera])
+  useEffect(() => { restartRef.current?.() }, [getFrame, reducedMotion, quality, paused, overscan, viewCamera, sky])
   const extentStyle={left:`${(1-overscan)*50}%`,top:`${(1-overscan)*50}%`,width:`${overscan*100}%`,height:`${overscan*100}%`}
   return <>
     <canvas ref={glRef} className="dither-canvas" aria-hidden="true" data-dither-renderer={mode} style={{ ...extentStyle,visibility: mode === 'webgl2' ? 'visible' : 'hidden' }} />

@@ -26,7 +26,7 @@ export function DitherPlanetMark({ planetId, visual }: { planetId: string | null
 }
 export function DitherOrbit({ orbit, className = '', dots = 160 }: { orbit: DitherOrbitGeometry; className?: string; dots?: number }) {
   const count = Math.max(16, Math.min(360, Math.round(dots)))
-  return <g className={`dither-orbit ${className}`} aria-hidden="true">{Array.from({ length: count }, (_, i) => {
+  return <g className={`dither-orbit ${className}`} aria-hidden="true" opacity={orbit.opacity ?? 1}>{Array.from({ length: count }, (_, i) => {
     const point = orbitPoint(orbit, i * Math.PI * 2 / count)
     return <rect key={i} x={point.x} y={point.y} width={i % 4 === 0 ? 2 : 1} height={i % 4 === 0 ? 2 : 1} opacity={i % 4 === 0 ? .6 : .28} />
   })}</g>

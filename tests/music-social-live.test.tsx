@@ -24,6 +24,7 @@ let orbitDelay: Promise<Response> | undefined
 let writes: Array<{ path: string; body: unknown }>
 
 beforeEach(() => {
+  localStorage.setItem('mosic-first-run-v1', 'completed')
   snapshot = empty(); responseDelay = undefined; orbitDelay = undefined; writes = []; SocialEventSource.instances = []
   vi.stubGlobal('EventSource', SocialEventSource)
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
@@ -60,7 +61,7 @@ beforeEach(() => {
     throw new Error(`Unexpected request: ${url.pathname}`)
   })
 })
-afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
+afterEach(() => { cleanup(); localStorage.removeItem('mosic-first-run-v1'); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 async function liveSource() {
   await waitFor(() => expect(SocialEventSource.instances.filter(s => !s.closed).length).toBe(1), { timeout: 10000 })
@@ -72,7 +73,7 @@ function push(source: SocialEventSource, value: MusicSocialSnapshot) {
 }
 
 test('a new request reaches the cockpit, opens Orbit, and accepting removes pending state without a page refresh', async () => {
-  render(<MusicApp />)
+  render(<MusicApp replayFirstRunOnEntry={false} />)
   const source = await liveSource()
   push(source, { ...empty(), incoming: [pending] })
   expect(await screen.findByText(/手机星球.*发来了好友请求/)).toBeTruthy()
@@ -87,7 +88,7 @@ test('acceptance on the other device replaces pending with friends even when an 
   snapshot = { ...empty(), outgoing: [pending] }
   let resolveOrbit!: (response: Response) => void
   orbitDelay = new Promise(resolve => { resolveOrbit = resolve })
-  const mounted = render(<MusicApp />)
+  const mounted = render(<MusicApp replayFirstRunOnEntry={false} />)
   const source = await liveSource()
   fireEvent.click(screen.getByRole('button', { name: 'Orbit', exact: true }))
   push(await liveSource(), { ...empty(), friends: [friend] })
@@ -101,7 +102,7 @@ test('acceptance on the other device replaces pending with friends even when an 
 
 test('returning to the foreground resyncs automatically and ignores messages from the old connection', async () => {
   snapshot = { ...empty(), outgoing: [pending] }
-  render(<MusicApp />)
+  render(<MusicApp replayFirstRunOnEntry={false} />)
   const old = await liveSource()
   snapshot = { ...empty(), friends: [friend] }
   act(() => window.dispatchEvent(new Event('focus')))
@@ -116,7 +117,7 @@ test('returning to the foreground resyncs automatically and ignores messages fro
 
 test('friend unread counts stay inside the message action without adding a separate card row', async () => {
   snapshot = { ...empty(), friends: [{ ...friend, unreadCount: 3 }] }
-  render(<MusicApp />)
+  render(<MusicApp replayFirstRunOnEntry={false} />)
   await liveSource()
   fireEvent.click(screen.getByRole('button', { name: 'Orbit', exact: true }))
   const message = await screen.findByRole('button', { name: '私信 手机星球，未读 3 条' })
@@ -141,7 +142,7 @@ test('new chat activity updates the visible five friend satellites even when the
     }
     return originalFetch(input,init)
   })
-  render(<MusicApp />)
+  render(<MusicApp replayFirstRunOnEntry={false} />)
   await liveSource()
   fireEvent.click(screen.getByRole('button',{name:'回星球'}))
   await screen.findByRole('button',{name:'好友卫星 好友0'},{timeout:10000})
@@ -153,7 +154,7 @@ test('new chat activity updates the visible five friend satellites even when the
 
 test('opening Orbit refreshes an accepted request even if the current stream missed the change', async () => {
   snapshot = { ...empty(), outgoing: [pending] }
-  render(<MusicApp />)
+  render(<MusicApp replayFirstRunOnEntry={false} />)
   await liveSource()
   snapshot = { ...empty(), friends: [friend] }
   fireEvent.click(screen.getByRole('button', { name: 'Orbit', exact: true }))
@@ -163,7 +164,7 @@ test('opening Orbit refreshes an accepted request even if the current stream mis
 
 test('losing a friendship on the other device refreshes visible roam results without resurrecting the cached peer', async () => {
   snapshot = { ...empty(), friends: [friend] }
-  render(<MusicApp />)
+  render(<MusicApp replayFirstRunOnEntry={false} />)
   const source = await liveSource()
   fireEvent.click(screen.getByRole('button', { name: '漫游', exact: true }))
   await screen.findByRole('button', { name: '访问星球 手机星球' })
@@ -191,7 +192,7 @@ test.each(['midnight', 'foreground'])('the open universe and roam refresh after 
     })
     return baseFetch(input, init)
   })
-  await act(async () => { render(<MusicApp />) })
+  await act(async () => { render(<MusicApp replayFirstRunOnEntry={false} />) })
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: '漫游', exact: true })) })
   expect(screen.getByRole('button', { name: '访问星球 昨日星球' })).toBeTruthy()
   const previousReads = galaxyReads, previousSatelliteReads = satelliteReads

@@ -8,6 +8,7 @@ const peer = { userId: 'peer', planetId: 'peer-planet' as string | null, display
 let friends: typeof peer[], blocks: Array<{ userId: string; planetId: string | null; displayName: string; createdAt: string }>
 let fail: boolean, writes: Array<{ path: string; method: string; body: unknown }>
 beforeEach(() => {
+  localStorage.setItem('mosic-first-run-v1', 'completed')
   friends = [{ ...peer }]; blocks = []; fail = false; writes = []
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
   vi.stubGlobal('matchMedia', () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }))
@@ -37,9 +38,9 @@ beforeEach(() => {
     throw new Error(`Unexpected read: ${path}`)
   })
 })
-afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
+afterEach(() => { cleanup(); localStorage.removeItem('mosic-first-run-v1'); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 async function openSettings() {
-  const mounted = render(<MusicApp />)
+  const mounted = render(<MusicApp replayFirstRunOnEntry={false} />)
   fireEvent.click(await screen.findByRole('button', { name: '设置', exact: true }))
   await screen.findByRole('heading', { name: '设置', level: 2 })
   return mounted
@@ -111,7 +112,7 @@ test.each(['cached', 'in-flight'])('blocking invalidates %s roam results so the 
       : Response.json(payload([recommendation('peer-planet', '海边好友')]))
     return Response.json(payload([recommendation('control-planet', '未屏蔽星球')]))
   })
-  render(<MusicApp />)
+  render(<MusicApp replayFirstRunOnEntry={false} />)
   fireEvent.click(await screen.findByRole('button', { name: '漫游', exact: true }))
   await waitFor(() => expect(reads).toBe(1))
   if (mode === 'cached') await screen.findByRole('button', { name: '访问星球 海边好友' })

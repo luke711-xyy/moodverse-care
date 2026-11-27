@@ -2,13 +2,13 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { MusicFriendSatellite, MusicPlanet, PublicMusicPlanet } from '../../music-api'
 import type { MusicTrackSummary } from '../../music-domain'
 import type { MusicGalaxySceneSystem, MusicScenePlanet } from '../galaxy-scene'
-import { createDitherSpec, effectiveDitherParameters, resolveDitherSpec, stableHash, type DitherPlanetSpec } from './appearance'
+import { createDitherSpec, effectiveDitherParameters, resolveDitherSpec, type DitherPlanetSpec } from './appearance'
 import { DitherCanvas } from './DitherCanvas'
 import { DitherOrbit } from './components'
 import { hitTestDitherAssets } from './layout'
 import { buildDitherStageFrame, sampleHomeTransition, type StageFrame } from './stage-layout'
 import { TOUR_END } from '../../universe'
-import { buildCockpitFlightFrame } from '../cockpit/flight-frame'
+import { buildCockpitFlightSceneFrame, buildCockpitFlightNebulaFrame, cockpitFlightBlend } from '../cockpit/flight-frame'
 import type { CockpitFlight } from '../cockpit/flight'
 import { clientPoint, logicalSize } from '../viewport'
 import type { DitherFrame } from './renderer'
@@ -24,7 +24,9 @@ export function Stage(props: Props & { exteriorView?: 'home' | 'galaxy'; interac
   const homeRef = useRef(home)
   const wrap = useRef<HTMLDivElement>(null), latestFrame = useRef<StageFrame | null>(null)
   const [bounds, setBounds] = useState({ width: 1000, height: 700 })
-  const observation = useObservationView(`${inGalaxy ? 'galaxy' : props.visitedPlanet?.id ?? props.planet?.id ?? 'preview'}:${props.flight?.token ?? ''}`, props.reducedMotion)
+  // Keep the viewing pose with the current account, not with a scene or trip.
+  // Crossing into Galaxy/another planet must not reset the planet in mid-flight.
+  const observation = useObservationView(props.planet?.id ?? 'preview', props.reducedMotion)
   const { orientation, rotation:ownRotation } = observation.pose
   const setOrientation=observation.orientation, setOwnRotation=observation.rotation
   const [renderMode, setRenderMode] = useState<'webgl2' | 'canvas2d'>('webgl2')
@@ -56,19 +58,31 @@ export function Stage(props: Props & { exteriorView?: 'home' | 'galaxy'; interac
     if (wrap.current) observer?.observe(wrap.current)
     return ()=>{ window.removeEventListener('resize',resize); observer?.disconnect() }
   }, [])
+  const busy = traveling || Boolean(props.flight)
+  const planetCamera = useMemo(()=>clampObservation(observation.pose.camera,bounds.width,bounds.height),[observation.pose.camera,bounds.width,bounds.height])
+  const viewCamera = inGalaxy ? DEFAULT_OBSERVATION : planetCamera
+  const stageInput = useCallback((width:number,height:number,phase:number)=> ({ width, height, phase, owner, visitor, orientation, systems:props.galaxySystems, home:props.managedTravel ? desiredHome : home, journey:Math.min(1,props.routeJourney/TOUR_END), rotation:inGalaxy && props.focusedGalaxy && !visitor ? props.galaxyRotation : ownRotation, homeRotation:ownRotation, galaxyRotation:props.galaxyRotation, focusedGalaxy:props.focusedGalaxy, friends:props.friendSatellites, music:props.planet?.tracks ?? props.previewTracks ?? [] }), [owner,visitor,orientation,props.galaxySystems,props.managedTravel,desiredHome,home,props.routeJourney,inGalaxy,props.focusedGalaxy,props.galaxyRotation,ownRotation,props.friendSatellites,props.planet,props.previewTracks])
   const getFrame = useCallback((width:number,height:number,phase:number)=> {
-    const input = { width, height, phase, owner, visitor, orientation, systems:props.galaxySystems, home, journey:Math.min(1,props.routeJourney/TOUR_END), rotation:home < 1 && props.focusedGalaxy && !visitor ? props.galaxyRotation : ownRotation, focusedGalaxy:props.focusedGalaxy, friends:props.friendSatellites, music:props.planet?.tracks ?? props.previewTracks ?? [] }
-    // Render the original picture at its original scale. Zoom must not change
-    // particle density, blend in a second surface, or rescale sky layers alone.
-    const frame = props.flight ? buildCockpitFlightFrame(input, props.flight) : buildDitherStageFrame({ ...input, visitorFriends: props.visitedPlanet?.friendSatellites ?? [], music:(props.visitedPlanet ?? props.planet)?.tracks ?? props.previewTracks ?? [] })
+    const frame = buildDitherStageFrame({ ...stageInput(width,height,phase), visitorFriends: props.visitedPlanet?.friendSatellites ?? [], music:(props.visitedPlanet ?? props.planet)?.tracks ?? props.previewTracks ?? [] })
     if (!latestFrame.current) latestFrame.current=frame
     return frame
-  }, [owner,visitor,orientation,props.galaxySystems,home,props.routeJourney,props.galaxyRotation,ownRotation,props.focusedGalaxy,props.friendSatellites,props.visitedPlanet,props.planet,props.previewTracks,props.flight])
+  }, [stageInput,props.visitedPlanet,props.planet,props.previewTracks])
+  const sourceDestination=props.flight?.from, targetDestination=props.flight?.to
+  const sourceVisitor=props.flight?.sourceVisitor ?? null, targetVisitor=props.flight?.targetVisitor ?? null
+  const getSourceFrame=useCallback((w:number,h:number,p:number)=>buildCockpitFlightSceneFrame(stageInput(w,h,p),sourceDestination ?? 'home',sourceVisitor),[stageInput,sourceDestination,sourceVisitor])
+  const getTargetFrame=useCallback((w:number,h:number,p:number)=>buildCockpitFlightSceneFrame(stageInput(w,h,p),targetDestination ?? 'home',targetVisitor),[stageInput,targetDestination,targetVisitor])
+  const flightProgress=props.flight?.progress ?? 0
+  const getNebulaFrame=useCallback((w:number,h:number,p:number)=>buildCockpitFlightNebulaFrame(stageInput(w,h,p),flightProgress),[stageInput,flightProgress])
+  const sceneKey=(destination:string,planet:PublicMusicPlanet|null)=>destination==='visitor' ? `visitor:${planet?.id ?? 'pending'}` : destination
+  const destination=inGalaxy ? 'galaxy' : props.visitedPlanet ? 'visitor' : 'home'
+  const blend=cockpitFlightBlend(flightProgress)
+  const normalLayer={key:sceneKey(destination,props.visitedPlanet),destination,getFrame,opacity:1}
+  const sourceLayer=props.flight && {key:sceneKey(props.flight.from,sourceVisitor),destination:props.flight.from,getFrame:getSourceFrame,opacity:1-blend}
+  const targetLayer=props.flight && (props.flight.to!=='visitor' || targetVisitor) && {key:sceneKey(props.flight.to,targetVisitor),destination:props.flight.to,getFrame:getTargetFrame,opacity:blend}
+  const sceneLayers=sourceLayer ? targetLayer && sourceLayer.key===targetLayer.key ? [{...targetLayer,opacity:1}] : [sourceLayer,...targetLayer ? [targetLayer] : []] : [normalLayer]
   const rememberFrame = useCallback((frame: DitherFrame) => { latestFrame.current = frame as StageFrame }, [])
   const frame = getFrame(bounds.width,bounds.height,0)
   const cloud = props.flight ? Math.sin(props.flight.progress * Math.PI) : sampleHomeTransition(home).cloudOpacity
-  const busy = traveling || Boolean(props.flight)
-  const viewCamera = !inGalaxy && !busy ? clampObservation(observation.pose.camera,bounds.width,bounds.height) : DEFAULT_OBSERVATION
   const scenePoint = (point: {x:number;y:number}) => observationScenePoint(point,viewCamera,bounds.width,bounds.height)
   // Use the actual canvas rectangle for both picking and hover, including
   // overscan margins, CSS magnification and the app's portrait rotation.
@@ -144,15 +158,16 @@ export function Stage(props: Props & { exteriorView?: 'home' | 'galaxy'; interac
     onContextMenu={event=>{if(!inGalaxy && !busy && props.interactive!==false)event.preventDefault()}}
     onPointerUp={event=> { const current=drag.current; if(!current || current.pointerId!==event.pointerId) return; drag.current=null; event.currentTarget.releasePointerCapture?.(event.pointerId); if(current.mode==='rotate' && current.travel<6) activate(event.clientX,event.clientY) }}
     onPointerCancel={event=>{if(drag.current?.pointerId===event.pointerId) drag.current=null}} onLostPointerCapture={event=>{if(drag.current?.pointerId===event.pointerId) drag.current=null}}>
-    <div className="dither-stage-scene" style={{transform:`translate(${viewCamera.x}px, ${viewCamera.y}px) scale(${viewCamera.zoom})`}}>
+    {sceneLayers.map(layer=>{
+      const camera=layer.destination==='galaxy' ? DEFAULT_OBSERVATION : planetCamera
+      const layerFrame=layer.getFrame(bounds.width,bounds.height,0)
+      return <div key={layer.key} className="dither-stage-scene" data-scene-destination={layer.destination} style={{opacity:layer.opacity,transform:`translate(${camera.x}px, ${camera.y}px) scale(${camera.zoom})`}}>
     <svg className="dither-stage-lines" viewBox={`0 0 ${bounds.width} ${bounds.height}`} aria-hidden="true">
-      <g>
-        {home>0 && Array.from({length:80},(_,i)=><rect key={i} x={stableHash('star-x'+i)%1000/1000*bounds.width} y={stableHash('star-y'+i)%1000/1000*bounds.height} width={i%9===0 ? 2 : 1} height={i%9===0 ? 2 : 1} opacity={home*(.15+i%4*.12)} />)}
-      </g>
-      {frame.orbits.map((orbit,i)=><DitherOrbit key={i} orbit={orbit} />)}
+      {layerFrame.orbits.map((orbit,i)=><DitherOrbit key={i} orbit={orbit} />)}
     </svg>
-    <DitherCanvas getFrame={getFrame} onFrame={rememberFrame} viewCamera={viewCamera} overscan={!inGalaxy && !busy ? OBSERVATION_OVERSCAN : 1} reducedMotion={props.reducedMotion} paused={props.interactive === false && !busy} interactive={props.interactive !== false && !busy} onModeChange={setRenderMode} />
-    </div>
+    <DitherCanvas getFrame={layer.getFrame} onFrame={rememberFrame} viewCamera={camera} overscan={layer.destination==='galaxy' ? 1 : OBSERVATION_OVERSCAN} reducedMotion={props.reducedMotion} paused={layer.opacity<=.001 || props.interactive === false && !busy} interactive={props.interactive !== false && !busy} onModeChange={setRenderMode} />
+    </div>})}
+    {props.flight && <div className="dither-stage-flight-cloud"><DitherCanvas getFrame={getNebulaFrame} sky={false} reducedMotion={props.reducedMotion} interactive={false} /></div>}
     {busy && <div className="dither-travel-caption" style={{opacity:cloud}} aria-live="polite">穿过星云 · {props.flight?.to === 'visitor' ? '下一颗星球' : desiredHome===0 ? 'Galaxy' : '我的星球'}</div>}
     <div className="dither-stage-accessible" aria-label="场景对象">
       {(home===1 || visitor) && props.onPlanetSelect && <button disabled={busy || props.interactive === false} onClick={()=>props.onPlanetSelect?.(visitor ? 'visitor' : 'home')}>{visitor ? `查看星球：${props.visitedPlanet!.displayName}` : '查看我的星球'}</button>}

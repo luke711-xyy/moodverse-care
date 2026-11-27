@@ -2,7 +2,7 @@ import { effectiveDitherParameters, type DitherPlanetSpec } from './appearance'
 import type { DitherAsset } from './renderer'
 import { sampleDitherPixel } from './sampler'
 
-export type DitherOrbitGeometry = { x: number; y: number; rx: number; ry: number; tilt: number }
+export type DitherOrbitGeometry = { x: number; y: number; rx: number; ry: number; tilt: number; opacity?: number }
 export function orbitPoint(orbit: DitherOrbitGeometry, phase: number) {
   const x = Math.cos(phase) * orbit.rx, y = Math.sin(phase) * orbit.ry
   return { x: orbit.x + x * Math.cos(orbit.tilt) - y * Math.sin(orbit.tilt), y: orbit.y + x * Math.sin(orbit.tilt) + y * Math.cos(orbit.tilt) }

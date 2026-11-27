@@ -9,9 +9,9 @@ import { buildDitherStageFrame } from '../src/music/dither/stage-layout'
 import { hitTestDitherAssets } from '../src/music/dither/layout'
 import * as ditherLayout from '../src/music/dither/layout'
 import { sphereSurface } from '../src/music/dither/sphere'
-const capture = vi.hoisted(() => ({ frame: null as DitherFrame | null }))
-vi.mock('../src/music/dither/DitherCanvas', () => ({ DitherCanvas: (props: { getFrame: (w: number, h: number, phase: number) => DitherFrame; onFrame?: (frame: DitherFrame) => void }) => { capture.frame = props.getFrame(1000, 700, 0); props.onFrame?.(capture.frame); return <canvas /> } }))
-afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
+const capture = vi.hoisted(() => ({ frame: null as DitherFrame | null, frames:[] as DitherFrame[] }))
+vi.mock('../src/music/dither/DitherCanvas', () => ({ DitherCanvas: (props: { getFrame: (w: number, h: number, phase: number) => DitherFrame; onFrame?: (frame: DitherFrame) => void }) => { capture.frame = props.getFrame(1000, 700, 0); capture.frames.push(capture.frame); props.onFrame?.(capture.frame); return <canvas /> } }))
+afterEach(() => { cleanup(); capture.frames=[]; vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 test.each(['home', 'visitor'] as const)('%s music satellites exclude the actual appearance song and use each remaining song cover', kind => {
   const tracks = ['primary', 'appearance', 'other', 'no-cover'].map((id, i) => ({ id, title: id, artistId: id, artistName: id,
@@ -203,10 +203,46 @@ test('an open personal terminal cannot change the Galaxy exterior or its control
   expect(props.onTourMove).toHaveBeenCalledWith(.15)
 })
 
-test('live nebula ambience is retained behind an own or visited planet', () => {
+test('own and visited planets use the full-strength shared nebula ambience', () => {
   const input = {width:1000,height:700,phase:0,owner:createDitherSpec({planetId:'owner',tracks:[]}),systems:[],home:1,journey:0,rotation:0,friends:[],music:[]}
-  expect(buildDitherStageFrame(input).ambience).toBeCloseTo(.65)
-  expect(buildDitherStageFrame({...input,visitor:createDitherSpec({planetId:'visitor',tracks:[]})}).ambience).toBeCloseTo(.65)
+  expect(buildDitherStageFrame(input).ambience).toBe(1)
+  expect(buildDitherStageFrame({...input,visitor:createDitherSpec({planetId:'visitor',tracks:[]})}).ambience).toBe(1)
+})
+
+test('the planet view does not add a second decorative star field', () => {
+  const props: React.ComponentProps<typeof Stage> = {
+    planet: { id:'owner', tracks:[], visual:createDitherSpec({planetId:'owner',tracks:[]}) } as React.ComponentProps<typeof Stage>['planet'],
+    friendSatellites:[], visitedPlanet:null, previewSeed:'owner', reducedMotion:true, productView:'planet',
+    galaxySystems:[], galaxyRotation:0, routeJourney:0, regrouping:false,
+    onSelectGalaxy:vi.fn(), onOpenPlanet:vi.fn(), onRotate:vi.fn(), onTourMove:vi.fn(), onMusicSelect:vi.fn(), onFriendSelect:vi.fn(),
+  }
+  const { container } = render(<Stage {...props} />)
+  expect(container.querySelector('.dither-stage-lines > g:not(.dither-orbit)')).toBeNull()
+})
+
+test('travel from a planet keeps its observation camera and angle instead of resetting them', () => {
+  const props: React.ComponentProps<typeof Stage> = {
+    planet: { id:'owner', tracks:[], visual:createDitherSpec({planetId:'owner',tracks:[]}) } as React.ComponentProps<typeof Stage>['planet'],
+    friendSatellites:[], visitedPlanet:null, previewSeed:'owner', reducedMotion:true, productView:'planet', exteriorView:'home', managedTravel:true,
+    galaxySystems:[], galaxyRotation:0, routeJourney:0, regrouping:false,
+    onSelectGalaxy:vi.fn(), onOpenPlanet:vi.fn(), onRotate:vi.fn(), onTourMove:vi.fn(), onMusicSelect:vi.fn(), onFriendSelect:vi.fn(),
+  }
+  const view = render(<Stage {...props} />)
+  const region = screen.getByRole('region', { name:'二维音乐宇宙' })
+  fireEvent.keyDown(region, { key:'ArrowRight' })
+  fireEvent.wheel(region, { deltaY:500, clientX:500, clientY:350 })
+  const scene = view.container.querySelector<HTMLElement>('.dither-stage-scene')!
+  const cameraBefore = scene.style.transform
+  const angleBefore = capture.frame!.assets.find(asset => asset.id.startsWith('home:'))!.rotation
+  expect(cameraBefore).toBe('translate(0px, 0px) scale(0.5)')
+
+  const flight: NonNullable<React.ComponentProps<typeof Stage>['flight']> = {
+    token:1, from:'home', to:'galaxy', progress:.4, ready:true, sourceVisitor:null, targetVisitor:null, returning:false,
+  }
+  view.rerender(<Stage {...props} flight={flight} />)
+  expect(scene.style.transform).toBe(cameraBefore)
+  expect(capture.frames.flatMap(f=>f.assets).filter(a=>a.id.startsWith('home:')).at(-1)!.rotation).toBeCloseTo(angleBefore!)
+  expect(capture.frame!.assets.find(asset => asset.id === 'nebula')!.radius).toBe(720)
 })
 
 test('rotated touch dragging uses landscape X, not the physical screen X', () => {

@@ -167,8 +167,8 @@ export function stepParticleField(field: ParticleField, pose: Pose, delta: numbe
   return field
 }
 
-export function createGalaxyBackdrop(seed: string): ParticleField {
-  const count = 240, rnd = random(seed), homes = new Float32Array(count * 3)
+export function createGalaxyBackdrop(seed: string, count = 240): ParticleField {
+  const rnd = random(seed), homes = new Float32Array(count * 3)
   for (let i = 0; i < count; i++) homes.set([rnd(), rnd(), rnd()], i * 3)
   return { count, homes, offsets: new Float32Array(count * 2), velocities: new Float32Array(count * 2), points: new Float32Array(count * PARTICLE_STRIDE) }
 }
@@ -204,7 +204,7 @@ export function updateGalaxyBackdrop(field: ParticleField, width: number, height
  */
 export function createDitherMotion() {
   const fields = new Map<string, { seed: string; low: boolean; pixelSize: number; field: ParticleField }>()
-  const stars = createGalaxyBackdrop('moodverse-galaxy-stars')
+  let stars = createGalaxyBackdrop('moodverse-galaxy-stars')
   const meteors = createMeteorShower()
   const cloudSpec = createDitherSpec({ planetId: 'galaxy-live-flow', tracks: [], overrides: { motif: 'flow', size: 1, pointer: 'weak', density: .32, pixelSize: 5, speed: .1, glow: .2, blue: .7, violet: .8, pink: .45 } })
   let cloudPointer: { x: number; y: number } | undefined, pointerPower = 0
@@ -239,6 +239,8 @@ export function createDitherMotion() {
       }
       const opacity = frame.ambience ?? 0
       if (opacity > 0) {
+        const starCount = frame.starCount ?? 240
+        if (stars.count !== starCount) stars = createGalaxyBackdrop('moodverse-galaxy-stars', starCount)
         const skyPointer=frame.pointer && camera ? {x:frame.width/2+(frame.pointer.x-frame.width/2-camera.x)/camera.zoom,y:frame.height/2+(frame.pointer.y-frame.height/2-camera.y)/camera.zoom} : frame.pointer
         updateGalaxyBackdrop(stars, frame.width, frame.height, delta, seconds, skyPointer, running)
         const ease = running ? 1 - Math.exp(-clamp(delta, 0, .05) * 6) : 0

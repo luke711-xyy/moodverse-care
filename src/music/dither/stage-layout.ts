@@ -19,7 +19,7 @@ export function sampleHomeTransition(progress: number) {
   return { homeScale: .025 + .975 * p * p, homeOpacity: p, cloudOpacity: p === 0 || p === 1 ? 0 : Math.sin(p * Math.PI) }
 }
 type StageFriend = { id: string; isVirtual?: boolean; visual?: DitherPlanetSpec; visualSeed?: string }
-export type StageLayoutInput = { width: number; height: number; phase: number; owner: DitherPlanetSpec; visitor?: DitherPlanetSpec; orientation?: Orientation; systems: MusicGalaxySceneSystem[]; home: number; journey: number; rotation: number; focusedGalaxy?: string; friends: StageFriend[]; visitorFriends?: StageFriend[]; music: { id: string; coverUrl?: string | null }[] }
+export type StageLayoutInput = { width: number; height: number; phase: number; owner: DitherPlanetSpec; visitor?: DitherPlanetSpec; orientation?: Orientation; systems: MusicGalaxySceneSystem[]; home: number; journey: number; rotation: number; homeRotation?: number; galaxyRotation?: number; focusedGalaxy?: string; friends: StageFriend[]; visitorFriends?: StageFriend[]; music: { id: string; coverUrl?: string | null }[] }
 export type StageFrame = DitherFrame & { orbits: DitherOrbitGeometry[]; systemTargets: { id: string; x: number; y: number; radius: number }[] }
 export function buildDitherStageFrame(input: StageLayoutInput): StageFrame {
   const { width, height, phase, owner, visitor, systems, focusedGalaxy, rotation } = input
@@ -75,5 +75,6 @@ export function buildDitherStageFrame(input: StageLayoutInput): StageFrame {
   }
   // Keep the living star/nebula field behind every destination. It is rendered
   // by the same interactive dither pass, not a static backdrop image.
-  return { width, height, phase, assets, orbits, systemTargets, ambience: visitor ? .65 : 1 - home.homeOpacity * .35 }
+  // Home's 2x overscan spreads its stars over four viewport areas.
+  return { width, height, phase, assets, orbits, systemTargets, ambience: 1, starCount: input.home > 0 && !visitor ? 1200 : 240 }
 }

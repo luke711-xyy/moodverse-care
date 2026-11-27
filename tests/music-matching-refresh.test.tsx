@@ -6,6 +6,7 @@ import MusicApp from '../src/music/MusicApp'
 import { createDitherSpec } from '../src/music/dither/appearance'
 
 beforeEach(() => {
+  localStorage.setItem('mosic-first-run-v1', 'completed')
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
   vi.stubGlobal('matchMedia', () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }))
   vi.stubGlobal('Audio', class extends EventTarget {
@@ -15,7 +16,7 @@ beforeEach(() => {
     load() {} removeAttribute() { this.src = '' }
   })
 })
-afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
+afterEach(() => { cleanup(); localStorage.removeItem('mosic-first-run-v1'); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 test.each(['collection', 'primary'] as const)('roam refreshes after a saved %s edit only when the full song set changed', async edit => {
   const tracks = ['夜航', '潮汐'].map((title, position) => ({
@@ -59,7 +60,7 @@ test.each(['collection', 'primary'] as const)('roam refreshes after a saved %s e
       if (remove) fireEvent.click(remove)
     } else fireEvent.click(screen.getByRole('radio', { name: '星球主旋律：潮汐 · 艺人' }))
   }
-  render(<MusicApp />)
+  render(<MusicApp replayFirstRunOnEntry={false} />)
   await waitFor(() => expect(document.querySelector('.music-app.has-planet')).toBeTruthy())
   openRoam()
   await screen.findByRole('button', { name: '访问星球 原来的歌曲推荐' })
