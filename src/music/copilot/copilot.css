@@ -299,6 +299,9 @@
   border-bottom: 1px dotted #d5b67e9c;
   font-size: 0.82rem;
 }
+.cp-instrument[data-compact='true'] .cp-draft textarea:focus {
+  outline: none;
+}
 .cp-instrument[data-compact='true'] textarea::placeholder { color: #decaa7; }
 .cp-instrument[data-compact='true'] .cp-compose-actions { flex-wrap: nowrap; gap: 5px; }
 .cp-instrument[data-compact='true'] .cp-compose-actions button {
